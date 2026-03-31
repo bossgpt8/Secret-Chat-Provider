@@ -197,7 +197,7 @@ const orbStyles = StyleSheet.create({
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages } = useAssistant();
+  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, voiceId, speechRate } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -245,14 +245,16 @@ export default function ChatScreen() {
     try {
       await Speech.stop();
       setIsSpeaking(true);
-      Speech.speak(text.slice(0, 600), {
+      const opts: Speech.SpeechOptions = {
         language: "en-US",
-        pitch: 1.0,
-        rate: Platform.OS === "ios" ? 0.5 : 1.0,
+        pitch: 1.05,
+        rate: speechRate,
         onDone: () => setIsSpeaking(false),
         onError: () => setIsSpeaking(false),
         onStopped: () => setIsSpeaking(false),
-      });
+      };
+      if (voiceId) opts.voice = voiceId;
+      Speech.speak(text.slice(0, 800), opts);
     } catch {
       setIsSpeaking(false);
     }

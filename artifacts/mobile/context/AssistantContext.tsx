@@ -3,6 +3,8 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 
 const ASSISTANT_NAME_KEY = "@zeno_assistant_name";
 const CONVERSATIONS_KEY = "@zeno_conversations";
+const VOICE_ID_KEY = "@zeno_voice_id";
+const SPEECH_RATE_KEY = "@zeno_speech_rate";
 
 export interface Message {
   id: string;
@@ -32,6 +34,10 @@ interface AssistantContextType {
   deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => Promise<void>;
   isLoading: boolean;
+  voiceId: string | null;
+  setVoiceId: (id: string | null) => Promise<void>;
+  speechRate: number;
+  setSpeechRate: (rate: number) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -48,6 +54,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [voiceId, setVoiceIdState] = useState<string | null>(null);
+  const [speechRate, setSpeechRateState] = useState(0.9);
 
   useEffect(() => {
     loadData();
@@ -55,17 +63,19 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
   async function loadData() {
     try {
-      const [name, convsRaw] = await Promise.all([
+      const [name, convsRaw, vid, rate] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
+        AsyncStorage.getItem(VOICE_ID_KEY),
+        AsyncStorage.getItem(SPEECH_RATE_KEY),
       ]);
       if (name) {
         setAssistantNameState(name);
         setIsOnboarded(true);
       }
-      if (convsRaw) {
-        setConversations(JSON.parse(convsRaw));
-      }
+      if (convsRaw) setConversations(JSON.parse(convsRaw));
+      if (vid) setVoiceIdState(vid);
+      if (rate) setSpeechRateState(parseFloat(rate));
     } catch {
       // ignore
     } finally {
@@ -77,6 +87,17 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem(ASSISTANT_NAME_KEY, name);
     setAssistantNameState(name);
     setIsOnboarded(true);
+  }
+
+  async function setVoiceId(id: string | null) {
+    if (id) await AsyncStorage.setItem(VOICE_ID_KEY, id);
+    else await AsyncStorage.removeItem(VOICE_ID_KEY);
+    setVoiceIdState(id);
+  }
+
+  async function setSpeechRate(rate: number) {
+    await AsyncStorage.setItem(SPEECH_RATE_KEY, String(rate));
+    setSpeechRateState(rate);
   }
 
   function createConversation(): string {
@@ -136,6 +157,10 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         deleteConversation,
         clearAllConversations,
         isLoading,
+        voiceId,
+        setVoiceId,
+        speechRate,
+        setSpeechRate,
       }}
     >
       {children}

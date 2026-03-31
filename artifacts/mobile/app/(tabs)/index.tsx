@@ -209,12 +209,15 @@ export default function ChatScreen() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [isCallMode, setIsCallMode] = useState(false);
 
   const inputRef = useRef<TextInput>(null);
   const activeConvId = useRef<string | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elSoundRef = useRef<Audio.Sound | null>(null);
+  const isCallModeRef = useRef(false);
+  const isStreamingRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -223,6 +226,9 @@ export default function ChatScreen() {
       elSoundRef.current?.unloadAsync().catch(() => {});
     };
   }, []);
+
+  useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
+  useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
 
   function getOrCreateConvId(): string {
     if (activeConvId.current) return activeConvId.current;
@@ -243,7 +249,7 @@ export default function ChatScreen() {
   // ── TTS ────────────────────────────────────────────────────────────────────
 
   async function stopSpeaking() {
-    Speech.stop().catch(() => {});
+    if (Platform.OS !== "web") Speech.stop().catch(() => {});
     if (elSoundRef.current) {
       await elSoundRef.current.stopAsync().catch(() => {});
       await elSoundRef.current.unloadAsync().catch(() => {});
@@ -252,13 +258,21 @@ export default function ChatScreen() {
     setIsSpeaking(false);
   }
 
+  function onTtsDone() {
+    setIsSpeaking(false);
+    if (isCallModeRef.current && !isStreamingRef.current) {
+      setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
+    }
+  }
+
   async function speakWithPhone(text: string) {
+    if (Platform.OS === "web") { onTtsDone(); return; }
     const opts: Speech.SpeechOptions = {
       language: "en-US",
       pitch: 1.05,
       rate: speechRate,
-      onDone: () => setIsSpeaking(false),
-      onError: () => setIsSpeaking(false),
+      onDone: onTtsDone,
+      onError: onTtsDone,
       onStopped: () => setIsSpeaking(false),
     };
     if (phoneVoiceId) opts.voice = phoneVoiceId;
@@ -300,9 +314,9 @@ export default function ChatScreen() {
           sound.setOnPlaybackStatusUpdate((status) => {
             if (!status.isLoaded) return;
             if (status.didJustFinish) {
-              setIsSpeaking(false);
               sound.unloadAsync().catch(() => {});
               elSoundRef.current = null;
+              onTtsDone();
             }
           });
           return;
@@ -318,6 +332,25 @@ export default function ChatScreen() {
     } catch {
       setIsSpeaking(false);
     }
+  }
+
+  // ── Call mode ──────────────────────────────────────────────────────────────
+
+  async function startCallMode() {
+    isCallModeRef.current = true;
+    setIsCallMode(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await startRecording();
+  }
+
+  async function endCallMode() {
+    isCallModeRef.current = false;
+    setIsCallMode(false);
+    stopRecordingCleanup();
+    setIsRecording(false);
+    setRecordingDuration(0);
+    await stopSpeaking();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   }
 
   // ── Voice recording ────────────────────────────────────────────────────────
@@ -343,7 +376,8 @@ export default function ChatScreen() {
 
       durationTimerRef.current = setInterval(() => {
         setRecordingDuration((d) => {
-          if (d >= 59) { stopRecording(); return d; }
+          const limit = isCallModeRef.current ? 7 : 59;
+          if (d >= limit) { stopRecording(); return d; }
           return d + 1;
         });
       }, 1000);
@@ -511,6 +545,7 @@ export default function ChatScreen() {
   }, [input, isStreaming, isSearchMode, messages, assistantName]);
 
   function handleNewChat() {
+    endCallMode();
     stopSpeaking();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setMessages([]);
@@ -545,6 +580,13 @@ export default function ChatScreen() {
             onPress={() => { setIsTtsEnabled((v) => { if (v) { stopSpeaking(); } return !v; }); Haptics.selectionAsync(); }}>
             <Ionicons name={isTtsEnabled ? "volume-high" : "volume-mute"} size={20} color={isTtsEnabled ? colors.primary : colors.mutedForeground} />
           </Pressable>
+          <Pressable
+            style={[styles.iconBtn, isCallMode && { backgroundColor: colors.destructive + "18", borderRadius: 8 }]}
+            onPress={isCallMode ? endCallMode : startCallMode}
+            disabled={isStreaming}
+          >
+            <Ionicons name={isCallMode ? "call" : "call-outline"} size={20} color={isCallMode ? colors.destructive : colors.mutedForeground} />
+          </Pressable>
           <Pressable style={styles.iconBtn} onPress={handleNewChat}>
             <Ionicons name="create-outline" size={20} color={colors.mutedForeground} />
           </Pressable>
@@ -552,20 +594,44 @@ export default function ChatScreen() {
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        {/* ── Call mode banner ── */}
+        {isCallMode && (
+          <View style={[styles.callBanner, { backgroundColor: colors.destructive + "12", borderBottomColor: colors.destructive + "30" }]}>
+            <View style={[styles.callDot, { backgroundColor: colors.destructive }]} />
+            <Text style={[styles.callBannerText, { color: colors.destructive }]}>
+              {isSpeaking ? `${assistantName} is speaking…` : isRecording ? `Listening… speak now (${7 - recordingDuration}s)` : isTranscribing ? "Processing…" : isStreaming ? `${assistantName} is thinking…` : "Call mode — waiting…"}
+            </Text>
+            <Pressable onPress={endCallMode} style={styles.callEndBtn}>
+              <Ionicons name="call" size={14} color={colors.destructive} />
+              <Text style={[styles.callEndText, { color: colors.destructive }]}>End</Text>
+            </Pressable>
+          </View>
+        )}
+
         {messages.length === 0 && !isTranscribing ? (
           /* ── Empty / Voice-first state ── */
           <View style={styles.voiceHome}>
-            <Pressable onPress={isRecording ? stopRecording : startRecording} disabled={isStreaming}>
+            <Pressable onPress={isRecording ? stopRecording : startRecording} disabled={isStreaming || isCallMode}>
               <SiriOrb isRecording={isRecording} isSpeaking={isSpeaking} colors={colors} />
             </Pressable>
 
-            {isRecording ? (
+            {isCallMode ? (
+              <>
+                <Text style={[styles.voiceHint, { color: colors.destructive }]}>
+                  {isSpeaking ? "Speaking…" : isRecording ? `Listening (${7 - recordingDuration}s left)` : "Getting ready…"}
+                </Text>
+                <Pressable style={[styles.endCallChip, { backgroundColor: colors.destructive + "15", borderColor: colors.destructive + "40" }]} onPress={endCallMode}>
+                  <Ionicons name="call" size={14} color={colors.destructive} />
+                  <Text style={[styles.chipText, { color: colors.destructive }]}>End call</Text>
+                </Pressable>
+              </>
+            ) : isRecording ? (
               <Text style={[styles.voiceHint, { color: colors.destructive }]}>Listening… tap to send</Text>
             ) : (
               <>
                 <Text style={[styles.voiceTitle, { color: colors.foreground }]}>Hi, I&apos;m {assistantName}</Text>
                 <Text style={[styles.voiceSubtitle, { color: colors.mutedForeground }]}>
-                  Tap the mic and speak, or type below
+                  Tap the mic to speak, or tap the phone icon for hands-free call mode
                 </Text>
                 <View style={styles.quickChips}>
                   {["What can you do?", "Tell me a fun fact", "What's today's date?"].map((q) => (
@@ -684,6 +750,13 @@ const styles = StyleSheet.create({
   quickChips: { width: "100%", gap: 8, marginTop: 8 },
   chip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, alignItems: "center" },
   chipText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  endCallChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 14, borderWidth: 1 },
+
+  callBanner: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth },
+  callDot: { width: 8, height: 8, borderRadius: 4 },
+  callBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
+  callEndBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  callEndText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
   transcribingBanner: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, marginHorizontal: 12, marginBottom: 4 },
   transcribingText: { fontSize: 13, fontFamily: "Inter_500Medium" },

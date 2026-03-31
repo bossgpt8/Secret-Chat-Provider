@@ -11,7 +11,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://YOUR_REPLIT_DOMAIN/api"
+        "EXPO_PUBLIC_API_URL": "https://secret-chat-provider--b-oss.replit.app/api"
       }
     },
     "preview": {
@@ -20,7 +20,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://YOUR_REPLIT_DOMAIN/api"
+        "EXPO_PUBLIC_API_URL": "https://secret-chat-provider--b-oss.replit.app/api"
       }
     },
     "production": {
@@ -28,7 +28,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://YOUR_REPLIT_DOMAIN/api"
+        "EXPO_PUBLIC_API_URL": "https://secret-chat-provider--b-oss.replit.app/api"
       }
     }
   },

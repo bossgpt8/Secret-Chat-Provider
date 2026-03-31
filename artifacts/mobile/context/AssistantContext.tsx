@@ -1,14 +1,15 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-const ASSISTANT_NAME_KEY = "@assistant_name";
-const CONVERSATIONS_KEY = "@conversations";
+const ASSISTANT_NAME_KEY = "@zeno_assistant_name";
+const CONVERSATIONS_KEY = "@zeno_conversations";
 
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+  isSearch?: boolean;
 }
 
 export interface Conversation {
@@ -29,6 +30,7 @@ interface AssistantContextType {
   createConversation: () => string;
   saveMessages: (conversationId: string, messages: Message[], title?: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
+  clearAllConversations: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -41,7 +43,7 @@ export function generateMsgId(): string {
 }
 
 export function AssistantProvider({ children }: { children: React.ReactNode }) {
-  const [assistantName, setAssistantNameState] = useState("Nova");
+  const [assistantName, setAssistantNameState] = useState("Zeno");
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -111,9 +113,13 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(updated)).catch(() => {});
       return updated;
     });
-    if (currentConversationId === id) {
-      setCurrentConversationId(null);
-    }
+    if (currentConversationId === id) setCurrentConversationId(null);
+  }
+
+  async function clearAllConversations() {
+    setConversations([]);
+    setCurrentConversationId(null);
+    await AsyncStorage.removeItem(CONVERSATIONS_KEY);
   }
 
   return (
@@ -128,6 +134,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         createConversation,
         saveMessages,
         deleteConversation,
+        clearAllConversations,
         isLoading,
       }}
     >

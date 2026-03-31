@@ -19,5 +19,5 @@ export default function Index() {
     return <Redirect href="/onboarding" />;
   }
 
-  return <Redirect href="/chat" />;
+  return <Redirect href="/(tabs)" />;
 }

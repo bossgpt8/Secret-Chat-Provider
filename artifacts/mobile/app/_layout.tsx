@@ -25,9 +25,7 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="onboarding" />
-      <Stack.Screen name="chat" />
-      <Stack.Screen name="history" />
-      <Stack.Screen name="settings" />
+      <Stack.Screen name="(tabs)" />
     </Stack>
   );
 }

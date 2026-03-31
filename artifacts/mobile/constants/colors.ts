@@ -1,73 +1,91 @@
 const colors = {
   light: {
-    text: "#0f172a",
-    tint: "#6366f1",
+    text: "#0d1117",
+    tint: "#7c3aed",
 
-    background: "#f8fafc",
-    foreground: "#0f172a",
+    background: "#f5f3ff",
+    foreground: "#0d1117",
 
     card: "#ffffff",
-    cardForeground: "#0f172a",
+    cardForeground: "#0d1117",
 
-    primary: "#6366f1",
+    primary: "#7c3aed",
     primaryForeground: "#ffffff",
 
-    secondary: "#e0e7ff",
-    secondaryForeground: "#3730a3",
+    secondary: "#ede9fe",
+    secondaryForeground: "#4c1d95",
 
-    muted: "#f1f5f9",
-    mutedForeground: "#64748b",
+    muted: "#f1f0f6",
+    mutedForeground: "#6b7280",
 
-    accent: "#818cf8",
+    accent: "#a78bfa",
     accentForeground: "#ffffff",
 
-    destructive: "#ef4444",
+    destructive: "#dc2626",
     destructiveForeground: "#ffffff",
 
-    border: "#e2e8f0",
-    input: "#e2e8f0",
+    success: "#16a34a",
+    successForeground: "#ffffff",
 
-    userBubble: "#6366f1",
+    warning: "#d97706",
+    warningForeground: "#ffffff",
+
+    border: "#e2dff4",
+    input: "#e2dff4",
+
+    userBubble: "#7c3aed",
     userBubbleText: "#ffffff",
     assistantBubble: "#ffffff",
-    assistantBubbleText: "#0f172a",
-    assistantBubbleBorder: "#e2e8f0",
+    assistantBubbleText: "#0d1117",
+    assistantBubbleBorder: "#e2dff4",
+
+    tabBar: "#ffffff",
+    tabBarBorder: "#e2dff4",
   },
   dark: {
-    text: "#f1f5f9",
-    tint: "#818cf8",
+    text: "#f0eeff",
+    tint: "#a78bfa",
 
-    background: "#0f172a",
-    foreground: "#f1f5f9",
+    background: "#0d0b1a",
+    foreground: "#f0eeff",
 
-    card: "#1e293b",
-    cardForeground: "#f1f5f9",
+    card: "#1a1730",
+    cardForeground: "#f0eeff",
 
-    primary: "#818cf8",
-    primaryForeground: "#0f172a",
+    primary: "#8b5cf6",
+    primaryForeground: "#ffffff",
 
-    secondary: "#1e293b",
-    secondaryForeground: "#c7d2fe",
+    secondary: "#1e1b38",
+    secondaryForeground: "#c4b5fd",
 
-    muted: "#1e293b",
-    mutedForeground: "#94a3b8",
+    muted: "#1a1730",
+    mutedForeground: "#8b7fa8",
 
-    accent: "#6366f1",
+    accent: "#7c3aed",
     accentForeground: "#ffffff",
 
     destructive: "#ef4444",
     destructiveForeground: "#ffffff",
 
-    border: "#334155",
-    input: "#334155",
+    success: "#22c55e",
+    successForeground: "#ffffff",
 
-    userBubble: "#6366f1",
+    warning: "#f59e0b",
+    warningForeground: "#ffffff",
+
+    border: "#2e2850",
+    input: "#2e2850",
+
+    userBubble: "#7c3aed",
     userBubbleText: "#ffffff",
-    assistantBubble: "#1e293b",
-    assistantBubbleText: "#f1f5f9",
-    assistantBubbleBorder: "#334155",
+    assistantBubble: "#1a1730",
+    assistantBubbleText: "#f0eeff",
+    assistantBubbleBorder: "#2e2850",
+
+    tabBar: "#0d0b1a",
+    tabBarBorder: "#2e2850",
   },
-  radius: 16,
+  radius: 14,
 };
 
 export default colors;

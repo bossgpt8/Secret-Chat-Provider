@@ -546,7 +546,7 @@ export default function ChatScreen() {
         )}
 
         {/* ── Input bar ── */}
-        <View style={[styles.inputBar, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: bottomPad + 8 }]}>
+        <View style={[styles.inputBar, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: bottomPad + 57 }]}>
           <View style={styles.inputRow}>
             <View style={[styles.textWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TextInput

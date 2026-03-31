@@ -14,9 +14,15 @@
       "backgroundColor": "#7c3aed"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.boss.assistant",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
-    "android": {},
+    "android": {
+      "package": "com.boss.assistant"
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
@@ -33,6 +39,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8eaf7ab7-7b70-4994-8781-016123ea23be"
+      }
     }
   }
 }

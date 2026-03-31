@@ -49,9 +49,9 @@ export default function ControlsScreen() {
     if (ctrl.toggle) {
       setToggleStates((prev) => ({ ...prev, [ctrl.id]: !prev[ctrl.id] }));
       const newState = !toggleStates[ctrl.id];
-      setLastAction(`${ctrl.label}: ${newState ? "ON" : "OFF"} (requires dev build)`);
+      setLastAction(`${ctrl.label}: ${newState ? "ON" : "OFF"} (enable Accessibility Service to activate)`);
     } else {
-      setLastAction(`${ctrl.label} triggered (requires dev build)`);
+      setLastAction(`${ctrl.label} triggered (enable Accessibility Service to activate)`);
     }
   }
 
@@ -84,9 +84,6 @@ export default function ControlsScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Controls</Text>
-        <View style={[styles.badge, { backgroundColor: colors.warning + "20" }]}>
-          <Text style={[styles.badgeText, { color: colors.warning }]}>Dev build required</Text>
-        </View>
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 80 }]} showsVerticalScrollIndicator={false}>
@@ -96,7 +93,7 @@ export default function ControlsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Native Android Module Required</Text>
             <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
-              Phone controls work in the development build (APK). In Expo Go, the buttons show state changes but don&apos;t execute system commands.
+              Phone controls require Android system permissions to be granted. Enable the Accessibility Service in the Settings tab to activate these controls.
             </Text>
           </View>
         </View>

@@ -53,9 +53,6 @@ export default function MessagesScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Messages</Text>
-        <View style={[styles.badge, { backgroundColor: colors.warning + "20" }]}>
-          <Text style={[styles.badgeText, { color: colors.warning }]}>Dev build required</Text>
-        </View>
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 80 }]} showsVerticalScrollIndicator={false}>
@@ -65,7 +62,7 @@ export default function MessagesScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Accessibility Service Required</Text>
             <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
-              Reading WhatsApp and SMS messages requires a development build with Android AccessibilityService permission. Below is a preview of how messages will appear.
+              Reading WhatsApp and SMS messages requires Android AccessibilityService permission. Enable it in the Settings tab to see real messages here. Below is a preview of how they will appear.
             </Text>
           </View>
         </View>
@@ -92,8 +89,8 @@ export default function MessagesScreen() {
         <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>How it works</Text>
         <View style={[styles.stepsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {[
-            { step: "1", text: "Build with EAS: eas build --platform android --profile preview" },
-            { step: "2", text: "Install APK and open Settings tab" },
+            { step: "1", text: "Install the APK on your Android device" },
+            { step: "2", text: "Open the Settings tab in the app" },
             { step: "3", text: "Enable Accessibility Service permission" },
             { step: "4", text: "Incoming WhatsApp & SMS appear here automatically" },
           ].map(({ step, text }) => (

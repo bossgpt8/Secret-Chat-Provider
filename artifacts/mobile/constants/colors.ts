@@ -1,59 +1,73 @@
-/**
- * Semantic design tokens for the mobile app.
- *
- * These tokens mirror the naming conventions used in web artifacts (index.css)
- * so that multi-artifact projects share a cohesive visual identity.
- *
- * Replace the placeholder values below with values that match the project's
- * brand. If a sibling web artifact exists, read its index.css and convert the
- * HSL values to hex so both artifacts use the same palette.
- *
- * To add dark mode, add a `dark` key with the same token names.
- * The useColors() hook will automatically pick it up.
- */
-
 const colors = {
   light: {
-    // Legacy aliases (kept for backward compatibility)
-    text: "#0a0a0a",
-    tint: "#2f95dc",
+    text: "#0f172a",
+    tint: "#6366f1",
 
-    // Core surfaces
-    background: "#ffffff",
-    foreground: "#0a0a0a",
+    background: "#f8fafc",
+    foreground: "#0f172a",
 
-    // Cards / elevated surfaces
-    card: "#f9f9f9",
-    cardForeground: "#0a0a0a",
+    card: "#ffffff",
+    cardForeground: "#0f172a",
 
-    // Primary action color (buttons, links, active states)
-    primary: "#2f95dc",
+    primary: "#6366f1",
     primaryForeground: "#ffffff",
 
-    // Secondary / less-emphasis interactive surfaces
-    secondary: "#f0f0f0",
-    secondaryForeground: "#1a1a1a",
+    secondary: "#e0e7ff",
+    secondaryForeground: "#3730a3",
 
-    // Muted / subdued elements (dividers, timestamps, placeholders)
-    muted: "#f0f0f0",
-    mutedForeground: "#737373",
+    muted: "#f1f5f9",
+    mutedForeground: "#64748b",
 
-    // Accent highlights (badges, selected items, focus rings)
-    accent: "#f0f0f0",
-    accentForeground: "#1a1a1a",
+    accent: "#818cf8",
+    accentForeground: "#ffffff",
 
-    // Destructive actions (delete, error states)
     destructive: "#ef4444",
     destructiveForeground: "#ffffff",
 
-    // Borders and input outlines
-    border: "#e5e5e5",
-    input: "#e5e5e5",
-  },
+    border: "#e2e8f0",
+    input: "#e2e8f0",
 
-  // Border radius (in px). Sync from the sibling web artifact's --radius
-  // CSS variable. This value applies to cards, buttons, inputs, and modals.
-  radius: 8,
+    userBubble: "#6366f1",
+    userBubbleText: "#ffffff",
+    assistantBubble: "#ffffff",
+    assistantBubbleText: "#0f172a",
+    assistantBubbleBorder: "#e2e8f0",
+  },
+  dark: {
+    text: "#f1f5f9",
+    tint: "#818cf8",
+
+    background: "#0f172a",
+    foreground: "#f1f5f9",
+
+    card: "#1e293b",
+    cardForeground: "#f1f5f9",
+
+    primary: "#818cf8",
+    primaryForeground: "#0f172a",
+
+    secondary: "#1e293b",
+    secondaryForeground: "#c7d2fe",
+
+    muted: "#1e293b",
+    mutedForeground: "#94a3b8",
+
+    accent: "#6366f1",
+    accentForeground: "#ffffff",
+
+    destructive: "#ef4444",
+    destructiveForeground: "#ffffff",
+
+    border: "#334155",
+    input: "#334155",
+
+    userBubble: "#6366f1",
+    userBubbleText: "#ffffff",
+    assistantBubble: "#1e293b",
+    assistantBubbleText: "#f1f5f9",
+    assistantBubbleBorder: "#334155",
+  },
+  radius: 16,
 };
 
 export default colors;

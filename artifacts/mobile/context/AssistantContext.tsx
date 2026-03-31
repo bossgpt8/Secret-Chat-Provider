@@ -3,8 +3,12 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 
 const ASSISTANT_NAME_KEY = "@zeno_assistant_name";
 const CONVERSATIONS_KEY = "@zeno_conversations";
-const VOICE_ID_KEY = "@zeno_voice_id";
+const PHONE_VOICE_ID_KEY = "@zeno_phone_voice_id";
+const EL_VOICE_ID_KEY = "@zeno_el_voice_id";
 const SPEECH_RATE_KEY = "@zeno_speech_rate";
+const TTS_PROVIDER_KEY = "@zeno_tts_provider";
+
+export type TtsProvider = "elevenlabs" | "phone";
 
 export interface Message {
   id: string;
@@ -34,10 +38,14 @@ interface AssistantContextType {
   deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => Promise<void>;
   isLoading: boolean;
-  voiceId: string | null;
-  setVoiceId: (id: string | null) => Promise<void>;
+  phoneVoiceId: string | null;
+  setPhoneVoiceId: (id: string | null) => Promise<void>;
+  elVoiceId: string | null;
+  setElVoiceId: (id: string | null) => Promise<void>;
   speechRate: number;
   setSpeechRate: (rate: number) => Promise<void>;
+  ttsProvider: TtsProvider;
+  setTtsProvider: (p: TtsProvider) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -54,8 +62,10 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [voiceId, setVoiceIdState] = useState<string | null>(null);
+  const [phoneVoiceId, setPhoneVoiceIdState] = useState<string | null>(null);
+  const [elVoiceId, setElVoiceIdState] = useState<string | null>("21m00Tcm4TlvDq8ikWAM");
   const [speechRate, setSpeechRateState] = useState(0.9);
+  const [ttsProvider, setTtsProviderState] = useState<TtsProvider>("elevenlabs");
 
   useEffect(() => {
     loadData();
@@ -63,19 +73,20 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
   async function loadData() {
     try {
-      const [name, convsRaw, vid, rate] = await Promise.all([
+      const [name, convsRaw, pvid, evid, rate, prov] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
-        AsyncStorage.getItem(VOICE_ID_KEY),
+        AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
+        AsyncStorage.getItem(EL_VOICE_ID_KEY),
         AsyncStorage.getItem(SPEECH_RATE_KEY),
+        AsyncStorage.getItem(TTS_PROVIDER_KEY),
       ]);
-      if (name) {
-        setAssistantNameState(name);
-        setIsOnboarded(true);
-      }
+      if (name) { setAssistantNameState(name); setIsOnboarded(true); }
       if (convsRaw) setConversations(JSON.parse(convsRaw));
-      if (vid) setVoiceIdState(vid);
+      if (pvid) setPhoneVoiceIdState(pvid);
+      if (evid) setElVoiceIdState(evid);
       if (rate) setSpeechRateState(parseFloat(rate));
+      if (prov === "phone" || prov === "elevenlabs") setTtsProviderState(prov);
     } catch {
       // ignore
     } finally {
@@ -89,10 +100,16 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setIsOnboarded(true);
   }
 
-  async function setVoiceId(id: string | null) {
-    if (id) await AsyncStorage.setItem(VOICE_ID_KEY, id);
-    else await AsyncStorage.removeItem(VOICE_ID_KEY);
-    setVoiceIdState(id);
+  async function setPhoneVoiceId(id: string | null) {
+    if (id) await AsyncStorage.setItem(PHONE_VOICE_ID_KEY, id);
+    else await AsyncStorage.removeItem(PHONE_VOICE_ID_KEY);
+    setPhoneVoiceIdState(id);
+  }
+
+  async function setElVoiceId(id: string | null) {
+    if (id) await AsyncStorage.setItem(EL_VOICE_ID_KEY, id);
+    else await AsyncStorage.removeItem(EL_VOICE_ID_KEY);
+    setElVoiceIdState(id);
   }
 
   async function setSpeechRate(rate: number) {
@@ -100,16 +117,15 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setSpeechRateState(rate);
   }
 
+  async function setTtsProvider(p: TtsProvider) {
+    await AsyncStorage.setItem(TTS_PROVIDER_KEY, p);
+    setTtsProviderState(p);
+  }
+
   function createConversation(): string {
     const id = `conv-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const now = Date.now();
-    const conv: Conversation = {
-      id,
-      title: "New Chat",
-      messages: [],
-      createdAt: now,
-      updatedAt: now,
-    };
+    const conv: Conversation = { id, title: "New Chat", messages: [], createdAt: now, updatedAt: now };
     setConversations((prev) => [conv, ...prev]);
     return id;
   }
@@ -118,9 +134,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setConversations((prev) => {
       const updated = prev.map((c) => {
         if (c.id !== convId) return c;
-        const newTitle =
-          title ??
-          (messages.find((m) => m.role === "user")?.content.slice(0, 40) || c.title);
+        const newTitle = title ?? (messages.find((m) => m.role === "user")?.content.slice(0, 40) || c.title);
         return { ...c, messages, title: newTitle, updatedAt: Date.now() };
       });
       AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(updated)).catch(() => {});
@@ -146,21 +160,16 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   return (
     <AssistantContext.Provider
       value={{
-        assistantName,
-        setAssistantName,
+        assistantName, setAssistantName,
         isOnboarded,
         conversations,
-        currentConversationId,
-        setCurrentConversationId,
-        createConversation,
-        saveMessages,
-        deleteConversation,
-        clearAllConversations,
+        currentConversationId, setCurrentConversationId,
+        createConversation, saveMessages, deleteConversation, clearAllConversations,
         isLoading,
-        voiceId,
-        setVoiceId,
-        speechRate,
-        setSpeechRate,
+        phoneVoiceId, setPhoneVoiceId,
+        elVoiceId, setElVoiceId,
+        speechRate, setSpeechRate,
+        ttsProvider, setTtsProvider,
       }}
     >
       {children}

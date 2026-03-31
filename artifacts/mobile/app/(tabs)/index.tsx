@@ -197,7 +197,7 @@ const orbStyles = StyleSheet.create({
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, voiceId, speechRate } = useAssistant();
+  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -214,11 +214,13 @@ export default function ChatScreen() {
   const activeConvId = useRef<string | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elSoundRef = useRef<Audio.Sound | null>(null);
 
   useEffect(() => {
     return () => {
       if (durationTimerRef.current) clearInterval(durationTimerRef.current);
       stopRecordingCleanup();
+      elSoundRef.current?.unloadAsync().catch(() => {});
     };
   }, []);
 
@@ -240,21 +242,79 @@ export default function ChatScreen() {
 
   // ── TTS ────────────────────────────────────────────────────────────────────
 
+  async function stopSpeaking() {
+    Speech.stop().catch(() => {});
+    if (elSoundRef.current) {
+      await elSoundRef.current.stopAsync().catch(() => {});
+      await elSoundRef.current.unloadAsync().catch(() => {});
+      elSoundRef.current = null;
+    }
+    setIsSpeaking(false);
+  }
+
+  async function speakWithPhone(text: string) {
+    const opts: Speech.SpeechOptions = {
+      language: "en-US",
+      pitch: 1.05,
+      rate: speechRate,
+      onDone: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+      onStopped: () => setIsSpeaking(false),
+    };
+    if (phoneVoiceId) opts.voice = phoneVoiceId;
+    Speech.speak(text.slice(0, 800), opts);
+  }
+
   async function speakText(text: string) {
     if (!isTtsEnabled || !text.trim()) return;
+    await stopSpeaking();
+    setIsSpeaking(true);
+
+    if (ttsProvider === "elevenlabs" && Platform.OS !== "web") {
+      try {
+        const base = await getApiBase();
+        const resp = await fetch(`${base}tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: text.slice(0, 800), voiceId: elVoiceId }),
+        });
+
+        if (resp.ok) {
+          await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+          const blob = await resp.blob();
+          const reader = new FileReader();
+          const base64 = await new Promise<string>((resolve, reject) => {
+            reader.onloadend = () => {
+              const result = reader.result as string;
+              resolve(result.split(",")[1] ?? "");
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: `data:audio/mpeg;base64,${base64}` },
+            { shouldPlay: true, volume: 1.0 }
+          );
+          elSoundRef.current = sound;
+          sound.setOnPlaybackStatusUpdate((status) => {
+            if (!status.isLoaded) return;
+            if (status.didJustFinish) {
+              setIsSpeaking(false);
+              sound.unloadAsync().catch(() => {});
+              elSoundRef.current = null;
+            }
+          });
+          return;
+        }
+      } catch {
+        // fall through to phone TTS
+      }
+    }
+
+    // Phone TTS (default or fallback)
     try {
-      await Speech.stop();
-      setIsSpeaking(true);
-      const opts: Speech.SpeechOptions = {
-        language: "en-US",
-        pitch: 1.05,
-        rate: speechRate,
-        onDone: () => setIsSpeaking(false),
-        onError: () => setIsSpeaking(false),
-        onStopped: () => setIsSpeaking(false),
-      };
-      if (voiceId) opts.voice = voiceId;
-      Speech.speak(text.slice(0, 800), opts);
+      await speakWithPhone(text);
     } catch {
       setIsSpeaking(false);
     }
@@ -271,8 +331,7 @@ export default function ChatScreen() {
         return;
       }
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      await Speech.stop();
-      setIsSpeaking(false);
+      await stopSpeaking();
 
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
@@ -452,8 +511,7 @@ export default function ChatScreen() {
   }, [input, isStreaming, isSearchMode, messages, assistantName]);
 
   function handleNewChat() {
-    Speech.stop();
-    setIsSpeaking(false);
+    stopSpeaking();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setMessages([]);
     setCurrentConversationId(null);
@@ -484,7 +542,7 @@ export default function ChatScreen() {
             <MaterialIcons name="travel-explore" size={20} color={isSearchMode ? colors.primary : colors.mutedForeground} />
           </Pressable>
           <Pressable style={[styles.iconBtn, isTtsEnabled && { backgroundColor: colors.primary + "18", borderRadius: 8 }]}
-            onPress={() => { setIsTtsEnabled((v) => { if (v) { Speech.stop(); setIsSpeaking(false); } return !v; }); Haptics.selectionAsync(); }}>
+            onPress={() => { setIsTtsEnabled((v) => { if (v) { stopSpeaking(); } return !v; }); Haptics.selectionAsync(); }}>
             <Ionicons name={isTtsEnabled ? "volume-high" : "volume-mute"} size={20} color={isTtsEnabled ? colors.primary : colors.mutedForeground} />
           </Pressable>
           <Pressable style={styles.iconBtn} onPress={handleNewChat}>

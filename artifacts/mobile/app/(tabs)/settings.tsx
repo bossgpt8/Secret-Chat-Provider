@@ -1,6 +1,7 @@
 import { Feather, Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
+import { fetch } from "expo/fetch";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
@@ -13,7 +14,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAssistant } from "@/context/AssistantContext";
+import { useAssistant, type TtsProvider } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
 
 interface Permission {
@@ -24,9 +25,15 @@ interface Permission {
   status: "granted" | "denied" | "unavailable";
 }
 
+interface ElVoice {
+  id: string;
+  name: string;
+  description: string;
+}
+
 const PERMISSIONS: Permission[] = [
   { id: "microphone", label: "Microphone", description: "Voice input and recording", icon: "mic", status: "granted" },
-  { id: "internet", label: "Internet", description: "API calls to Groq / Tavily", icon: "globe-outline", status: "granted" },
+  { id: "internet", label: "Internet", description: "API calls to Groq / Tavily / ElevenLabs", icon: "globe-outline", status: "granted" },
   { id: "camera", label: "Camera / Flashlight", description: "Flashlight control", icon: "flashlight-outline", status: "unavailable" },
   { id: "accessibility", label: "Accessibility Service", description: "Read WhatsApp & SMS messages", icon: "eye-outline", status: "unavailable" },
   { id: "device_admin", label: "Device Administrator", description: "Lock phone via voice", icon: "shield-outline", status: "unavailable" },
@@ -60,40 +67,53 @@ export default function SettingsScreen() {
   const {
     assistantName, setAssistantName,
     conversations, clearAllConversations,
-    voiceId, setVoiceId,
+    phoneVoiceId, setPhoneVoiceId,
+    elVoiceId, setElVoiceId,
     speechRate, setSpeechRate,
+    ttsProvider, setTtsProvider,
   } = useAssistant();
 
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(assistantName);
-  const [voices, setVoices] = useState<Speech.Voice[]>([]);
-  const [loadingVoices, setLoadingVoices] = useState(true);
-  const [previewingId, setPreviewingId] = useState<string | null>(null);
+
+  const [phoneVoices, setPhoneVoices] = useState<Speech.Voice[]>([]);
+  const [loadingPhoneVoices, setLoadingPhoneVoices] = useState(true);
+  const [previewingPhoneId, setPreviewingPhoneId] = useState<string | null>(null);
+
+  const [elVoices, setElVoices] = useState<ElVoice[]>([]);
+  const [loadingElVoices, setLoadingElVoices] = useState(true);
+  const [previewingElId, setPreviewingElId] = useState<string | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   useEffect(() => {
-    loadVoices();
+    loadPhoneVoices();
+    loadElVoices();
   }, []);
 
-  async function loadVoices() {
+  async function loadPhoneVoices() {
     try {
       const all = await Speech.getAvailableVoicesAsync();
       const english = all
         .filter((v) => v.language?.startsWith("en"))
-        .sort((a, b) => {
-          const qa = (a.quality ?? 0);
-          const qb = (b.quality ?? 0);
-          if (qb !== qa) return qb - qa;
-          return (a.name ?? "").localeCompare(b.name ?? "");
-        });
-      setVoices(english);
-    } catch {
-      setVoices([]);
-    } finally {
-      setLoadingVoices(false);
-    }
+        .sort((a, b) => ((b.quality ?? 0) - (a.quality ?? 0)) || (a.name ?? "").localeCompare(b.name ?? ""));
+      setPhoneVoices(english);
+    } catch { setPhoneVoices([]); }
+    finally { setLoadingPhoneVoices(false); }
+  }
+
+  async function loadElVoices() {
+    try {
+      const envUrl = process.env.EXPO_PUBLIC_API_URL;
+      const base = envUrl ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`) : "/api/";
+      const r = await fetch(`${base}tts/voices`);
+      if (r.ok) {
+        const data = await r.json() as { voices: ElVoice[] };
+        setElVoices(data.voices ?? []);
+      }
+    } catch { setElVoices([]); }
+    finally { setLoadingElVoices(false); }
   }
 
   async function saveName() {
@@ -106,9 +126,8 @@ export default function SettingsScreen() {
 
   function handleClearHistory() {
     const doIt = () => { clearAllConversations(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); };
-    if (Platform.OS === "web") {
-      doIt();
-    } else {
+    if (Platform.OS === "web") { doIt(); }
+    else {
       Alert.alert("Clear all history", `Delete all ${conversations.length} conversation(s)?`, [
         { text: "Cancel", style: "cancel" },
         { text: "Clear", style: "destructive", onPress: doIt },
@@ -116,30 +135,58 @@ export default function SettingsScreen() {
     }
   }
 
-  async function previewVoice(v: Speech.Voice) {
-    if (previewingId === v.identifier) {
-      Speech.stop();
-      setPreviewingId(null);
-      return;
+  async function previewPhoneVoice(v: Speech.Voice) {
+    if (previewingPhoneId === v.identifier) {
+      Speech.stop(); setPreviewingPhoneId(null); return;
     }
-    setPreviewingId(v.identifier);
+    setPreviewingPhoneId(v.identifier);
     Haptics.selectionAsync();
-    Speech.speak(`Hi, I'm ${assistantName}. This is how I sound with this voice.`, {
-      voice: v.identifier,
-      language: v.language,
-      rate: speechRate,
-      pitch: 1.05,
-      onDone: () => setPreviewingId(null),
-      onError: () => setPreviewingId(null),
-      onStopped: () => setPreviewingId(null),
+    Speech.speak(`Hi, I'm ${assistantName}. This is the phone voice.`, {
+      voice: v.identifier, language: v.language, rate: speechRate, pitch: 1.05,
+      onDone: () => setPreviewingPhoneId(null),
+      onError: () => setPreviewingPhoneId(null),
+      onStopped: () => setPreviewingPhoneId(null),
     });
   }
 
-  async function selectVoice(v: Speech.Voice | null) {
-    Speech.stop();
-    setPreviewingId(null);
+  async function selectPhoneVoice(v: Speech.Voice | null) {
+    Speech.stop(); setPreviewingPhoneId(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await setVoiceId(v?.identifier ?? null);
+    await setPhoneVoiceId(v?.identifier ?? null);
+  }
+
+  async function previewElVoice(v: ElVoice) {
+    if (previewingElId === v.id) {
+      setPreviewingElId(null); return;
+    }
+    setPreviewingElId(v.id);
+    Haptics.selectionAsync();
+    try {
+      const envUrl = process.env.EXPO_PUBLIC_API_URL;
+      const base = envUrl ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`) : "/api/";
+      const resp = await fetch(`${base}tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `Hi, I'm ${assistantName}. This is the ${v.name} voice from ElevenLabs.`, voiceId: v.id }),
+      });
+      if (resp.ok) {
+        const { Audio } = await import("expo-av");
+        const blob = await resp.blob();
+        const reader = new FileReader();
+        const base64 = await new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => { const r = reader.result as string; resolve(r.split(",")[1] ?? ""); };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: `data:audio/mpeg;base64,${base64}` },
+          { shouldPlay: true }
+        );
+        sound.setOnPlaybackStatusUpdate((s) => {
+          if (s.isLoaded && s.didJustFinish) { setPreviewingElId(null); sound.unloadAsync().catch(() => {}); }
+        });
+      } else { setPreviewingElId(null); }
+    } catch { setPreviewingElId(null); }
   }
 
   function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -169,7 +216,18 @@ export default function SettingsScreen() {
     );
   }
 
-  const selectedVoice = voices.find((v) => v.identifier === voiceId);
+  function ProviderTab({ p, label, icon }: { p: TtsProvider; label: string; icon: string }) {
+    const active = ttsProvider === p;
+    return (
+      <Pressable
+        style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+        onPress={async () => { await setTtsProvider(p); Haptics.selectionAsync(); }}
+      >
+        <Ionicons name={icon as "mic"} size={14} color={active ? "#fff" : colors.mutedForeground} />
+        <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
+      </Pressable>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -185,12 +243,8 @@ export default function SettingsScreen() {
             <View style={[styles.row, { borderBottomColor: colors.border }]}>
               <TextInput
                 style={[styles.nameInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
-                value={nameInput}
-                onChangeText={setNameInput}
-                autoFocus
-                maxLength={24}
-                returnKeyType="done"
-                onSubmitEditing={saveName}
+                value={nameInput} onChangeText={setNameInput} autoFocus maxLength={24}
+                returnKeyType="done" onSubmitEditing={saveName}
               />
               <Pressable style={[styles.saveBtn, { backgroundColor: colors.primary }]} onPress={saveName}>
                 <Feather name="check" size={16} color="#fff" />
@@ -201,7 +255,8 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
           ) : (
-            <Row icon="person-circle-outline" label="Name" value={assistantName} onPress={() => { setEditingName(true); setNameInput(assistantName); }} />
+            <Row icon="person-circle-outline" label="Name" value={assistantName}
+              onPress={() => { setEditingName(true); setNameInput(assistantName); }} />
           )}
           <Row icon="chatbubbles-outline" label="Conversations" value={`${conversations.length} saved`} />
           <Row icon="cube-outline" label="AI Model" value="Groq — LLaMA 3.3 70B Versatile" />
@@ -210,109 +265,137 @@ export default function SettingsScreen() {
 
         {/* ── Voice ── */}
         <Section title="Voice">
-
-          {/* Speed */}
+          {/* Provider selector */}
           <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Ionicons name="speedometer-outline" size={18} color={colors.primary} />
-              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Speaking Speed</Text>
+              <Ionicons name="mic-circle-outline" size={18} color={colors.primary} />
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Voice Engine</Text>
             </View>
-            <View style={styles.speedRow}>
-              {SPEED_OPTIONS.map((opt) => {
-                const active = Math.abs(speechRate - opt.value) < 0.05;
-                return (
-                  <Pressable
-                    key={opt.label}
-                    style={[styles.speedBtn, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
-                    onPress={async () => { await setSpeechRate(opt.value); Haptics.selectionAsync(); }}
-                  >
-                    <Text style={[styles.speedBtnText, { color: active ? "#fff" : colors.foreground }]}>{opt.label}</Text>
-                  </Pressable>
-                );
-              })}
+            <View style={styles.provRow}>
+              <ProviderTab p="elevenlabs" label="ElevenLabs" icon="sparkles" />
+              <ProviderTab p="phone" label="Phone TTS" icon="phone-portrait-outline" />
             </View>
+            <Text style={[styles.rowValue, { color: colors.mutedForeground, paddingLeft: 0 }]}>
+              {ttsProvider === "elevenlabs"
+                ? "High-quality AI voices via ElevenLabs. Phone TTS used as fallback."
+                : "Uses your device's built-in text-to-speech engine."}
+            </Text>
           </View>
 
-          {/* Voice default */}
-          <Pressable
-            style={[styles.row, { borderBottomColor: colors.border }]}
-            onPress={() => selectVoice(null)}
-          >
-            <View style={[styles.voiceRadio, {
-              borderColor: !voiceId ? colors.primary : colors.border,
-              backgroundColor: !voiceId ? colors.primary : "transparent",
-            }]}>
-              {!voiceId && <View style={styles.voiceRadioDot} />}
+          {/* Speed (phone TTS only) */}
+          {ttsProvider === "phone" && (
+            <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="speedometer-outline" size={18} color={colors.primary} />
+                <Text style={[styles.rowLabel, { color: colors.foreground }]}>Speaking Speed</Text>
+              </View>
+              <View style={styles.speedRow}>
+                {SPEED_OPTIONS.map((opt) => {
+                  const active = Math.abs(speechRate - opt.value) < 0.05;
+                  return (
+                    <Pressable key={opt.label}
+                      style={[styles.speedBtn, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+                      onPress={async () => { await setSpeechRate(opt.value); Haptics.selectionAsync(); }}>
+                      <Text style={[styles.speedBtnText, { color: active ? "#fff" : colors.foreground }]}>{opt.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: colors.foreground }]}>System Default</Text>
-              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Device default TTS voice</Text>
-            </View>
-          </Pressable>
-
-          {/* Voice list */}
-          {loadingVoices ? (
-            <View style={[styles.row, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Loading available voices…</Text>
-            </View>
-          ) : voices.length === 0 ? (
-            <View style={[styles.row, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>No English voices found on this device.</Text>
-            </View>
-          ) : (
-            voices.map((v) => {
-              const isSelected = voiceId === v.identifier;
-              const isPreviewing = previewingId === v.identifier;
-              const qualityLabel = v.quality === Speech.VoiceQuality.Enhanced ? "Enhanced" : v.quality === Speech.VoiceQuality.Default ? "" : "";
-              return (
-                <Pressable
-                  key={v.identifier}
-                  style={[styles.voiceRow, { borderBottomColor: colors.border, backgroundColor: isSelected ? colors.primary + "08" : "transparent" }]}
-                  onPress={() => selectVoice(v)}
-                >
-                  <View style={[styles.voiceRadio, {
-                    borderColor: isSelected ? colors.primary : colors.border,
-                    backgroundColor: isSelected ? colors.primary : "transparent",
-                  }]}>
-                    {isSelected && <View style={styles.voiceRadioDot} />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Text style={[styles.rowLabel, { color: colors.foreground }]}>{v.name ?? v.identifier}</Text>
-                      {qualityLabel ? (
-                        <View style={[styles.qualityBadge, { backgroundColor: colors.accent + "20" }]}>
-                          <Text style={[styles.qualityText, { color: colors.accent }]}>{qualityLabel}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{v.language}</Text>
-                  </View>
-                  <Pressable
-                    style={[styles.previewBtn, { backgroundColor: isPreviewing ? colors.accent + "20" : colors.muted }]}
-                    onPress={() => previewVoice(v)}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name={isPreviewing ? "stop-circle-outline" : "play-outline"}
-                      size={16}
-                      color={isPreviewing ? colors.accent : colors.mutedForeground}
-                    />
-                    <Text style={[styles.previewText, { color: isPreviewing ? colors.accent : colors.mutedForeground }]}>
-                      {isPreviewing ? "Stop" : "Try"}
-                    </Text>
-                  </Pressable>
-                </Pressable>
-              );
-            })
           )}
 
-          {voices.length > 0 && (
-            <View style={[styles.row, { borderBottomColor: colors.border }]}>
-              <Ionicons name="information-circle-outline" size={15} color={colors.mutedForeground} />
-              <Text style={[styles.rowValue, { color: colors.mutedForeground, flex: 1 }]}>
-                Tap a voice to select it. Tap Try to hear a preview. More voices can be installed in your device's Text-to-Speech settings.
-              </Text>
-            </View>
+          {/* ElevenLabs voices */}
+          {ttsProvider === "elevenlabs" && (
+            <>
+              {loadingElVoices ? (
+                <View style={[styles.row, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Loading ElevenLabs voices…</Text>
+                </View>
+              ) : elVoices.length === 0 ? (
+                <View style={[styles.row, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Could not load voices. Check your API key.</Text>
+                </View>
+              ) : (
+                elVoices.map((v) => {
+                  const isSelected = elVoiceId === v.id;
+                  const isPreviewing = previewingElId === v.id;
+                  return (
+                    <Pressable key={v.id}
+                      style={[styles.voiceRow, { borderBottomColor: colors.border, backgroundColor: isSelected ? colors.primary + "08" : "transparent" }]}
+                      onPress={() => { setElVoiceId(v.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}>
+                      <View style={[styles.voiceRadio, { borderColor: isSelected ? colors.primary : colors.border, backgroundColor: isSelected ? colors.primary : "transparent" }]}>
+                        {isSelected && <View style={styles.voiceRadioDot} />}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.rowLabel, { color: colors.foreground }]}>{v.name}</Text>
+                        {v.description ? <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{v.description}</Text> : null}
+                      </View>
+                      <Pressable style={[styles.previewBtn, { backgroundColor: isPreviewing ? colors.accent + "20" : colors.muted }]}
+                        onPress={() => previewElVoice(v)} hitSlop={8}>
+                        <Ionicons name={isPreviewing ? "stop-circle-outline" : "play-outline"} size={16} color={isPreviewing ? colors.accent : colors.mutedForeground} />
+                        <Text style={[styles.previewText, { color: isPreviewing ? colors.accent : colors.mutedForeground }]}>{isPreviewing ? "Stop" : "Try"}</Text>
+                      </Pressable>
+                    </Pressable>
+                  );
+                })
+              )}
+            </>
+          )}
+
+          {/* Phone TTS voices */}
+          {ttsProvider === "phone" && (
+            <>
+              <Pressable style={[styles.voiceRow, { borderBottomColor: colors.border }]} onPress={() => selectPhoneVoice(null)}>
+                <View style={[styles.voiceRadio, { borderColor: !phoneVoiceId ? colors.primary : colors.border, backgroundColor: !phoneVoiceId ? colors.primary : "transparent" }]}>
+                  {!phoneVoiceId && <View style={styles.voiceRadioDot} />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>System Default</Text>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Device default TTS voice</Text>
+                </View>
+              </Pressable>
+
+              {loadingPhoneVoices ? (
+                <View style={[styles.row, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Loading device voices…</Text>
+                </View>
+              ) : phoneVoices.length === 0 ? (
+                <View style={[styles.row, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>No English voices found on this device.</Text>
+                </View>
+              ) : (
+                phoneVoices.map((v) => {
+                  const isSelected = phoneVoiceId === v.identifier;
+                  const isPreviewing = previewingPhoneId === v.identifier;
+                  const qualityLabel = v.quality === Speech.VoiceQuality.Enhanced ? "Enhanced" : "";
+                  return (
+                    <Pressable key={v.identifier}
+                      style={[styles.voiceRow, { borderBottomColor: colors.border, backgroundColor: isSelected ? colors.primary + "08" : "transparent" }]}
+                      onPress={() => selectPhoneVoice(v)}>
+                      <View style={[styles.voiceRadio, { borderColor: isSelected ? colors.primary : colors.border, backgroundColor: isSelected ? colors.primary : "transparent" }]}>
+                        {isSelected && <View style={styles.voiceRadioDot} />}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={[styles.rowLabel, { color: colors.foreground }]}>{v.name ?? v.identifier}</Text>
+                          {qualityLabel ? (
+                            <View style={[styles.qualityBadge, { backgroundColor: colors.accent + "20" }]}>
+                              <Text style={[styles.qualityText, { color: colors.accent }]}>{qualityLabel}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{v.language}</Text>
+                      </View>
+                      <Pressable style={[styles.previewBtn, { backgroundColor: isPreviewing ? colors.accent + "20" : colors.muted }]}
+                        onPress={() => previewPhoneVoice(v)} hitSlop={8}>
+                        <Ionicons name={isPreviewing ? "stop-circle-outline" : "play-outline"} size={16} color={isPreviewing ? colors.accent : colors.mutedForeground} />
+                        <Text style={[styles.previewText, { color: isPreviewing ? colors.accent : colors.mutedForeground }]}>{isPreviewing ? "Stop" : "Try"}</Text>
+                      </Pressable>
+                    </Pressable>
+                  );
+                })
+              )}
+            </>
           )}
         </Section>
 
@@ -336,7 +419,7 @@ export default function SettingsScreen() {
             <MaterialIcons name="build" size={18} color={colors.primary} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: colors.foreground }]}>Current Build</Text>
-              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Preview APK — Groq + Tavily enabled</Text>
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Preview APK — Groq + Tavily + ElevenLabs</Text>
             </View>
           </View>
         </Section>
@@ -366,6 +449,9 @@ const styles = StyleSheet.create({
   nameInput: { flex: 1, height: 38, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, fontSize: 15, fontFamily: "Inter_500Medium" },
   saveBtn: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   cancelBtn: { width: 36, height: 36, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  provRow: { flexDirection: "row", gap: 10, paddingLeft: 26 },
+  provTab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, borderWidth: 1 },
+  provTabText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   speedRow: { flexDirection: "row", gap: 10, paddingLeft: 26 },
   speedBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1, alignItems: "center" },
   speedBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },

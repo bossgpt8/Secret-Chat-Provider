@@ -1,5 +1,6 @@
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import { fetch } from "expo/fetch";
@@ -210,6 +211,9 @@ export default function ChatScreen() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isCallMode, setIsCallMode] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   const inputRef = useRef<TextInput>(null);
   const activeConvId = useRef<string | null>(null);
@@ -447,11 +451,78 @@ export default function ChatScreen() {
     }
   }
 
+  // ── Device intent detection ─────────────────────────────────────────────────
+
+  type DeviceAction = "flashlight_on" | "flashlight_off" | "flashlight_toggle" | null;
+
+  function detectDeviceIntent(text: string): DeviceAction {
+    const t = text.toLowerCase();
+    const isFlashlight = /\b(flashlight|torch|flash|light)\b/.test(t);
+    if (!isFlashlight) return null;
+    if (/\b(turn on|switch on|put on|enable|activate|open|start)\b/.test(t)) return "flashlight_on";
+    if (/\b(turn off|switch off|put off|disable|deactivate|close|stop|off)\b/.test(t)) return "flashlight_off";
+    if (/\b(toggle|switch|flip)\b/.test(t)) return "flashlight_toggle";
+    if (/\bon\b/.test(t)) return "flashlight_on";
+    if (/\boff\b/.test(t)) return "flashlight_off";
+    return null;
+  }
+
+  async function handleDeviceCommand(action: NonNullable<DeviceAction>, text: string): Promise<void> {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setInput("");
+
+    const convId = getOrCreateConvId();
+    const userMsg: Message = { id: generateMsgId(), role: "user", content: text, timestamp: Date.now() };
+    const withUser = [...messages, userMsg];
+    setMessages(withUser);
+
+    // Request camera permission (needed for torch on Android)
+    if (Platform.OS !== "web") {
+      if (!cameraPermission?.granted) {
+        const { granted } = await requestCameraPermission();
+        if (!granted) {
+          const deny = "I need camera permission to control the flashlight. Please grant it in your phone settings.";
+          const denyMsg: Message = { id: generateMsgId(), role: "assistant", content: deny, timestamp: Date.now() };
+          const final = [...withUser, denyMsg];
+          setMessages(final);
+          await saveMessages(convId, final);
+          speakText(deny);
+          return;
+        }
+      }
+
+      let nextTorch = torchOn;
+      if (action === "flashlight_on") nextTorch = true;
+      else if (action === "flashlight_off") nextTorch = false;
+      else nextTorch = !torchOn;
+
+      setTorchOn(nextTorch);
+      if (nextTorch) setCameraReady(true);
+      else setTimeout(() => setCameraReady(false), 500);
+
+      const reply = nextTorch
+        ? "Flashlight is on."
+        : "Flashlight is off.";
+      const aMsg: Message = { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() };
+      const final = [...withUser, aMsg];
+      setMessages(final);
+      await saveMessages(convId, final);
+      speakText(reply);
+    } else {
+      const webMsg: Message = { id: generateMsgId(), role: "assistant", content: "Flashlight control is only available on a real Android device.", timestamp: Date.now() };
+      setMessages([...withUser, webMsg]);
+    }
+  }
+
   // ── Send message ───────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || isStreaming) return;
+
+    // Check for device commands first
+    const deviceAction = detectDeviceIntent(text);
+    if (deviceAction) { handleDeviceCommand(deviceAction, text); return; }
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setInput("");
@@ -559,6 +630,15 @@ export default function ChatScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Hidden camera view used purely for torch/flashlight control */}
+      {cameraReady && Platform.OS !== "web" && (
+        <CameraView
+          style={{ position: "absolute", width: 0, height: 0, opacity: 0 }}
+          facing="back"
+          enableTorch={torchOn}
+        />
+      )}
+
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.headerLeft}>
@@ -568,6 +648,12 @@ export default function ChatScreen() {
           {isSearchMode && !isRecording && (
             <View style={[styles.badge, { backgroundColor: colors.accent + "20" }]}>
               <Text style={[styles.badgeText, { color: colors.accent }]}>Web</Text>
+            </View>
+          )}
+          {torchOn && !isRecording && (
+            <View style={[styles.badge, { backgroundColor: "#f59e0b20" }]}>
+              <Ionicons name="flashlight" size={11} color="#f59e0b" />
+              <Text style={[styles.badgeText, { color: "#f59e0b" }]}>Torch</Text>
             </View>
           )}
         </View>
@@ -738,7 +824,7 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4 },
   headerTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
   recLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
+  badge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
   badgeText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 4 },
   iconBtn: { padding: 8 },

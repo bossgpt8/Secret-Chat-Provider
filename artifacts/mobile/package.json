@@ -57,6 +57,8 @@
   },
   "dependencies": {
     "expo-av": "^15.0.2",
+    "expo-battery": "~10.0.8",
+    "expo-brightness": "~14.0.8",
     "expo-camera": "^17.0.10",
     "expo-speech": "^14.0.8"
   }

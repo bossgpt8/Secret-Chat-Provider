@@ -10,11 +10,13 @@ import {
   Animated,
   Easing,
   FlatList,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  Vibration,
   View,
 } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
@@ -453,21 +455,101 @@ export default function ChatScreen() {
 
   // ── Device intent detection ─────────────────────────────────────────────────
 
-  type DeviceAction = "flashlight_on" | "flashlight_off" | "flashlight_toggle" | null;
+  interface DeviceIntent {
+    type:
+      | "flashlight_on" | "flashlight_off" | "flashlight_toggle"
+      | "brightness_up" | "brightness_down" | "brightness_max" | "brightness_min" | "brightness_set"
+      | "battery_check"
+      | "call" | "sms"
+      | "open_app"
+      | "vibrate";
+    value?: number;
+    phone?: string;
+    message?: string;
+    app?: string;
+  }
 
-  function detectDeviceIntent(text: string): DeviceAction {
-    const t = text.toLowerCase();
-    const isFlashlight = /\b(flashlight|torch|flash|light)\b/.test(t);
-    if (!isFlashlight) return null;
-    if (/\b(turn on|switch on|put on|enable|activate|open|start)\b/.test(t)) return "flashlight_on";
-    if (/\b(turn off|switch off|put off|disable|deactivate|close|stop|off)\b/.test(t)) return "flashlight_off";
-    if (/\b(toggle|switch|flip)\b/.test(t)) return "flashlight_toggle";
-    if (/\bon\b/.test(t)) return "flashlight_on";
-    if (/\boff\b/.test(t)) return "flashlight_off";
+  function extractPhoneNumber(text: string): string | undefined {
+    const m = text.match(/(\+?[\d][\d\s\-()]{5,}[\d])/);
+    return m ? m[1].replace(/[\s\-()]/g, "") : undefined;
+  }
+
+  function detectDeviceIntent(text: string): DeviceIntent | null {
+    const t = text.toLowerCase().trim();
+
+    // Flashlight
+    if (/\b(flashlight|torch|flash)\b/.test(t)) {
+      if (/\b(on|turn on|switch on|enable|activate)\b/.test(t)) return { type: "flashlight_on" };
+      if (/\b(off|turn off|switch off|disable|deactivate)\b/.test(t)) return { type: "flashlight_off" };
+      return { type: "flashlight_toggle" };
+    }
+
+    // Brightness
+    if (/\b(brightness|screen bright|dim|bright)\b/.test(t)) {
+      const pct = t.match(/(\d+)\s*(%|percent)/);
+      if (pct) return { type: "brightness_set", value: parseInt(pct[1]) };
+      if (/\b(max|full|100|highest|all the way)\b/.test(t)) return { type: "brightness_max" };
+      if (/\b(min|lowest|0|off)\b/.test(t)) return { type: "brightness_min" };
+      if (/\b(up|increase|raise|more|brighter|higher)\b/.test(t)) return { type: "brightness_up" };
+      if (/\b(down|decrease|lower|less|dimmer|darker|dim|reduce)\b/.test(t)) return { type: "brightness_down" };
+      return null;
+    }
+
+    // Battery
+    if (/\b(battery|charge)\b/.test(t) && /\b(level|percent|status|check|much|left|remaining|low|life)\b/.test(t)) {
+      return { type: "battery_check" };
+    }
+
+    // Call (skip "call mode" phrase)
+    if (/\b(call|dial|phone|ring)\b/.test(t) && !/call mode/.test(t)) {
+      return { type: "call", phone: extractPhoneNumber(t) };
+    }
+
+    // SMS / Text
+    if (/\b(text|sms|send (a )?(text|message|sms)|message)\b/.test(t)) {
+      const phone = extractPhoneNumber(t);
+      let msgBody = "";
+      if (phone) {
+        const afterNum = text.split(phone.slice(-5))[1]?.trim();
+        msgBody = afterNum ?? "";
+      }
+      return { type: "sms", phone, message: msgBody || undefined };
+    }
+
+    // Open app
+    if (/\b(open|launch|start|go to|take me to)\b/.test(t)) {
+      if (/\byoutube\b/.test(t))                              return { type: "open_app", app: "YouTube" };
+      if (/\bwhatsapp\b/.test(t))                            return { type: "open_app", app: "WhatsApp" };
+      if (/\b(maps?|navigation|directions|google maps)\b/.test(t)) return { type: "open_app", app: "Maps" };
+      if (/\bspotify\b/.test(t))                             return { type: "open_app", app: "Spotify" };
+      if (/\binstagram\b/.test(t))                           return { type: "open_app", app: "Instagram" };
+      if (/\b(twitter|x\.com|\bx\b app)\b/.test(t))         return { type: "open_app", app: "Twitter" };
+      if (/\bfacebook\b/.test(t))                            return { type: "open_app", app: "Facebook" };
+      if (/\bnetflix\b/.test(t))                             return { type: "open_app", app: "Netflix" };
+      if (/\btiktok\b/.test(t))                              return { type: "open_app", app: "TikTok" };
+      if (/\bgmail\b/.test(t))                               return { type: "open_app", app: "Gmail" };
+      if (/\btelegram\b/.test(t))                            return { type: "open_app", app: "Telegram" };
+      if (/\b(settings?)\b/.test(t))                        return { type: "open_app", app: "Settings" };
+      if (/\bcamera\b/.test(t))                              return { type: "open_app", app: "Camera" };
+      if (/\b(gallery|photos|pictures)\b/.test(t))          return { type: "open_app", app: "Gallery" };
+      if (/\b(browser|chrome|firefox|internet|safari)\b/.test(t)) return { type: "open_app", app: "Browser" };
+      if (/\b(clock|alarm|timer)\b/.test(t))                return { type: "open_app", app: "Clock" };
+      if (/\b(calculator|calc)\b/.test(t))                  return { type: "open_app", app: "Calculator" };
+      if (/\bplay store\b/.test(t))                         return { type: "open_app", app: "Play Store" };
+    }
+
+    // Vibrate
+    if (/\bvibrat(e|ion|ing)\b/.test(t)) return { type: "vibrate" };
+
+    // Timer / alarm shorthand (without "open" keyword)
+    if (/\b(set (an? )?(alarm|timer)|timer for|alarm (at|for))\b/.test(t)) {
+      return { type: "open_app", app: "Clock" };
+    }
+
     return null;
   }
 
-  async function handleDeviceCommand(action: NonNullable<DeviceAction>, text: string): Promise<void> {
+  async function handleDeviceCommand(intent: DeviceIntent, text: string): Promise<void> {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setInput("");
 
@@ -476,41 +558,148 @@ export default function ChatScreen() {
     const withUser = [...messages, userMsg];
     setMessages(withUser);
 
-    // Request camera permission (needed for torch on Android)
-    if (Platform.OS !== "web") {
-      if (!cameraPermission?.granted) {
-        const { granted } = await requestCameraPermission();
-        if (!granted) {
-          const deny = "I need camera permission to control the flashlight. Please grant it in your phone settings.";
-          const denyMsg: Message = { id: generateMsgId(), role: "assistant", content: deny, timestamp: Date.now() };
-          const final = [...withUser, denyMsg];
-          setMessages(final);
-          await saveMessages(convId, final);
-          speakText(deny);
-          return;
-        }
-      }
-
-      let nextTorch = torchOn;
-      if (action === "flashlight_on") nextTorch = true;
-      else if (action === "flashlight_off") nextTorch = false;
-      else nextTorch = !torchOn;
-
-      setTorchOn(nextTorch);
-      if (nextTorch) setCameraReady(true);
-      else setTimeout(() => setCameraReady(false), 500);
-
-      const reply = nextTorch
-        ? "Flashlight is on."
-        : "Flashlight is off.";
+    async function respond(reply: string) {
       const aMsg: Message = { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() };
       const final = [...withUser, aMsg];
       setMessages(final);
       await saveMessages(convId, final);
       speakText(reply);
-    } else {
-      const webMsg: Message = { id: generateMsgId(), role: "assistant", content: "Flashlight control is only available on a real Android device.", timestamp: Date.now() };
-      setMessages([...withUser, webMsg]);
+    }
+
+    if (Platform.OS === "web") {
+      await respond("Device controls are only available on a real Android device.");
+      return;
+    }
+
+    const Brightness = await import("expo-brightness");
+    const Battery = await import("expo-battery");
+
+    switch (intent.type) {
+
+      case "flashlight_on":
+      case "flashlight_off":
+      case "flashlight_toggle": {
+        if (!cameraPermission?.granted) {
+          const { granted } = await requestCameraPermission();
+          if (!granted) {
+            await respond("I need camera permission to control the flashlight. Please grant it in your settings.");
+            return;
+          }
+        }
+        const next = intent.type === "flashlight_on" ? true : intent.type === "flashlight_off" ? false : !torchOn;
+        setTorchOn(next);
+        if (next) setCameraReady(true); else setTimeout(() => setCameraReady(false), 500);
+        await respond(next ? "Flashlight is on." : "Flashlight is off.");
+        break;
+      }
+
+      case "brightness_set":
+      case "brightness_up":
+      case "brightness_down":
+      case "brightness_max":
+      case "brightness_min": {
+        try {
+          const current = await Brightness.getBrightnessAsync();
+          let next = current;
+          if (intent.type === "brightness_set") next = Math.max(0.05, Math.min(1, (intent.value ?? 50) / 100));
+          else if (intent.type === "brightness_up") next = Math.min(1, current + 0.25);
+          else if (intent.type === "brightness_down") next = Math.max(0.05, current - 0.25);
+          else if (intent.type === "brightness_max") next = 1;
+          else next = 0.05;
+          await Brightness.setBrightnessAsync(next);
+          await respond(`Screen brightness set to ${Math.round(next * 100)}%.`);
+        } catch {
+          await respond("I couldn't change the screen brightness on this device.");
+        }
+        break;
+      }
+
+      case "battery_check": {
+        try {
+          const level = await Battery.getBatteryLevelAsync();
+          const state = await Battery.getBatteryStateAsync();
+          const pct = Math.round(level * 100);
+          const stateStr =
+            state === Battery.BatteryState.CHARGING ? " and currently charging" :
+            state === Battery.BatteryState.FULL ? " and fully charged" : "";
+          await respond(`Your battery is at ${pct}%${stateStr}.`);
+        } catch {
+          await respond("I couldn't read the battery level right now.");
+        }
+        break;
+      }
+
+      case "call": {
+        const url = intent.phone ? `tel:${intent.phone}` : "tel:";
+        const canOpen = await Linking.canOpenURL(url).catch(() => false);
+        if (canOpen || !intent.phone) {
+          await Linking.openURL(url).catch(() => {});
+          await respond(intent.phone ? `Calling ${intent.phone}.` : "Opening the phone dialer.");
+        } else {
+          await respond("I couldn't open the phone dialer on this device.");
+        }
+        break;
+      }
+
+      case "sms": {
+        const base = intent.phone ? `sms:${intent.phone}` : "sms:";
+        const sep = Platform.OS === "ios" ? "&" : "?";
+        const url = intent.message ? `${base}${sep}body=${encodeURIComponent(intent.message)}` : base;
+        await Linking.openURL(url).catch(() => {});
+        await respond(intent.phone ? `Opening messages for ${intent.phone}.` : "Opening the messages app.");
+        break;
+      }
+
+      case "open_app": {
+        const app = intent.app ?? "";
+        const appUrls: Record<string, string[]> = {
+          YouTube:    ["youtube://", "https://youtube.com"],
+          WhatsApp:   ["whatsapp://send", "https://wa.me"],
+          Maps:       ["geo:0,0", "https://maps.google.com"],
+          Spotify:    ["spotify://", "https://open.spotify.com"],
+          Instagram:  ["instagram://", "https://instagram.com"],
+          Twitter:    ["twitter://", "https://x.com"],
+          Facebook:   ["fb://", "https://facebook.com"],
+          Netflix:    ["nflx://", "https://netflix.com"],
+          TikTok:     ["tiktok://", "https://tiktok.com"],
+          Gmail:      ["googlegmail://", "https://mail.google.com"],
+          Telegram:   ["tg://", "https://t.me"],
+          Calculator: ["android-app://com.android.calculator2", ""],
+          Clock:      ["android-app://com.google.android.deskclock", ""],
+          Gallery:    ["content://media/external/images/media", "https://photos.google.com"],
+          Browser:    ["https://google.com"],
+          Camera:     ["android.media.action.IMAGE_CAPTURE", ""],
+          "Play Store": ["market://", "https://play.google.com"],
+        };
+        try {
+          if (app === "Settings") {
+            await Linking.openSettings();
+            await respond("Opening settings.");
+          } else {
+            const urls = appUrls[app] ?? [`https://${app.toLowerCase().replace(/\s/g, "")}.com`];
+            let opened = false;
+            for (const u of urls) {
+              if (!u) continue;
+              const ok = await Linking.canOpenURL(u).catch(() => false);
+              if (ok) { await Linking.openURL(u); opened = true; break; }
+            }
+            if (!opened) {
+              const fallback = urls.find(u => u.startsWith("http"));
+              if (fallback) { await Linking.openURL(fallback).catch(() => {}); opened = true; }
+            }
+            await respond(opened ? `Opening ${app}.` : `I couldn't find ${app} on this device.`);
+          }
+        } catch {
+          await respond(`I couldn't open ${app}.`);
+        }
+        break;
+      }
+
+      case "vibrate": {
+        Vibration.vibrate([0, 300, 100, 300]);
+        await respond("Vibrating.");
+        break;
+      }
     }
   }
 
@@ -521,8 +710,8 @@ export default function ChatScreen() {
     if (!text || isStreaming) return;
 
     // Check for device commands first
-    const deviceAction = detectDeviceIntent(text);
-    if (deviceAction) { handleDeviceCommand(deviceAction, text); return; }
+    const deviceIntent = detectDeviceIntent(text);
+    if (deviceIntent) { handleDeviceCommand(deviceIntent, text); return; }
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setInput("");

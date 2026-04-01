@@ -23,6 +23,8 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
+import { NativeNotifications, type ZenoNotification } from "@/modules/NativeNotifications";
+import { NativeScreenLock } from "@/modules/NativeScreenLock";
 
 // ─── Typing indicator ────────────────────────────────────────────────────────
 
@@ -216,6 +218,9 @@ export default function ChatScreen() {
   const [torchOn, setTorchOn] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [notifPermGranted, setNotifPermGranted] = useState(false);
+  const [lastNotification, setLastNotification] = useState<ZenoNotification | null>(null);
+  const lastNotifRef = useRef<ZenoNotification | null>(null);
 
   const inputRef = useRef<TextInput>(null);
   const activeConvId = useRef<string | null>(null);
@@ -235,6 +240,26 @@ export default function ChatScreen() {
 
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
   useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
+  useEffect(() => { lastNotifRef.current = lastNotification; }, [lastNotification]);
+
+  useEffect(() => {
+    if (!NativeNotifications.isAvailable) return;
+    NativeNotifications.hasPermission().then(setNotifPermGranted);
+    const unsub = NativeNotifications.onNotification((n) => {
+      setLastNotification(n);
+      lastNotifRef.current = n;
+      setNotifPermGranted(true);
+      const announcement = `New message from ${n.sender} on ${n.app}.`;
+      if (isCallModeRef.current && !isStreamingRef.current) {
+        stopSpeaking().then(() => {
+          stopRecordingCleanup();
+          setIsRecording(false);
+          speakText(announcement);
+        });
+      }
+    });
+    return unsub;
+  }, []);
 
   function getOrCreateConvId(): string {
     if (activeConvId.current) return activeConvId.current;
@@ -462,7 +487,11 @@ export default function ChatScreen() {
       | "battery_check"
       | "call" | "sms"
       | "open_app"
-      | "vibrate";
+      | "vibrate"
+      | "lock_screen"
+      | "read_last_message"
+      | "reply_message"
+      | "setup_notifications";
     value?: number;
     phone?: string;
     message?: string;
@@ -544,6 +573,27 @@ export default function ChatScreen() {
     // Timer / alarm shorthand (without "open" keyword)
     if (/\b(set (an? )?(alarm|timer)|timer for|alarm (at|for))\b/.test(t)) {
       return { type: "open_app", app: "Clock" };
+    }
+
+    // Lock screen
+    if (/\b(lock (my )?(phone|screen|device)|lock it|lock now)\b/.test(t)) {
+      return { type: "lock_screen" };
+    }
+
+    // Read last notification
+    if (/\b(what did (she|he|they) say|read (the )?(message|notification)|what('?s| is) the message|read it|what did it say)\b/.test(t)) {
+      return { type: "read_last_message" };
+    }
+
+    // Reply to last notification
+    const replyMatch = t.match(/^(?:tell|reply|respond|say back|text back|message back|send|write|respond)(?:\s+(?:her|him|them|back))+\s+(.+)/);
+    if (replyMatch && replyMatch[1]) {
+      return { type: "reply_message", message: replyMatch[1].trim() };
+    }
+
+    // Setup notification permission
+    if (/\b(set(up)? (notification|message) (access|permission|listener)|allow (reading|access to) notifications)\b/.test(t)) {
+      return { type: "setup_notifications" };
     }
 
     return null;

@@ -13,6 +13,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -67,7 +68,14 @@ function TypingIndicator({ colors }: { colors: ReturnType<typeof useColors> }) {
 
 function MessageBubble({ message, colors }: { message: Message; colors: ReturnType<typeof useColors> }) {
   const isUser = message.role === "user";
+
+  function handleLongPress() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Share.share({ message: message.content });
+  }
+
   return (
+    <Pressable onLongPress={handleLongPress} delayLongPress={400}>
     <View style={[bubbleStyles.row, isUser ? bubbleStyles.uRow : bubbleStyles.aRow]}>
       {!isUser && (
         <View style={[bubbleStyles.avatar, { backgroundColor: colors.primary }]}>
@@ -92,6 +100,7 @@ function MessageBubble({ message, colors }: { message: Message; colors: ReturnTy
         </Text>
       </View>
     </View>
+    </Pressable>
   );
 }
 
@@ -202,7 +211,7 @@ const orbStyles = StyleSheet.create({
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider } = useAssistant();
+  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -271,6 +280,10 @@ export default function ChatScreen() {
   }
 
   async function getApiBase(): Promise<string> {
+    if (customApiUrl && customApiUrl.trim()) {
+      const u = customApiUrl.trim();
+      return u.endsWith("/") ? u : `${u}/`;
+    }
     const envUrl = process.env.EXPO_PUBLIC_API_URL;
     if (envUrl) return envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
     if (Platform.OS === "web") return "/api/";

@@ -8,3 +8,47 @@
 export interface HealthStatus {
   status: string;
 }
+
+export interface Conversation {
+  id: string;
+  deviceId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+}
+
+export interface ListConversationsResponse {
+  conversations: Conversation[];
+}
+
+export interface CreateConversationBody {
+  id: string;
+  title?: string;
+}
+
+export interface CreateConversationResponse {
+  conversation: Conversation | null;
+}
+
+export interface ListMessagesResponse {
+  messages: ConversationMessage[];
+}
+
+export interface CreateMessageBody {
+  messageId: string;
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface CreateMessageResponse {
+  message: ConversationMessage | null;
+}
+

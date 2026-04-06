@@ -1,6 +1,7 @@
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Contacts from "expo-contacts";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import { fetch } from "expo/fetch";
@@ -507,6 +508,7 @@ export default function ChatScreen() {
       | "setup_notifications";
     value?: number;
     phone?: string;
+    name?: string;
     message?: string;
     app?: string;
   }
@@ -514,6 +516,28 @@ export default function ChatScreen() {
   function extractPhoneNumber(text: string): string | undefined {
     const m = text.match(/(\+?[\d][\d\s\-()]{5,}[\d])/);
     return m ? m[1].replace(/[\s\-()]/g, "") : undefined;
+  }
+
+  function extractContactName(text: string, verbPattern: string): string | undefined {
+    const m = text.match(new RegExp(`\\b(?:${verbPattern})\\s+([A-Za-z][A-Za-z\\s'\\-]{1,30})`, "i"));
+    if (!m) return undefined;
+    // Strip trailing filler words ("saying", "to say", etc.) so they don't bleed into the name
+    return m[1].replace(/\s+(?:and say|saying|to say|that)\s+.*$/i, "").trim();
+  }
+
+  async function lookupContactPhone(name: string): Promise<string | undefined> {
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== "granted") return undefined;
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
+        name,
+      });
+      const contact = data[0];
+      return contact?.phoneNumbers?.[0]?.number?.replace(/[\s\-()]/g, "") ?? undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   function detectDeviceIntent(text: string): DeviceIntent | null {
@@ -544,18 +568,29 @@ export default function ChatScreen() {
 
     // Call (skip "call mode" phrase)
     if (/\b(call|dial|phone|ring)\b/.test(t) && !/call mode/.test(t)) {
-      return { type: "call", phone: extractPhoneNumber(t) };
+      const phone = extractPhoneNumber(t);
+      const name = phone ? undefined : extractContactName(t, "call|dial|phone|ring");
+      return { type: "call", phone, name };
     }
 
     // SMS / Text
     if (/\b(text|sms|send (a )?(text|message|sms)|message)\b/.test(t)) {
       const phone = extractPhoneNumber(t);
       let msgBody = "";
+      let contactName: string | undefined;
       if (phone) {
         const afterNum = text.split(phone.slice(-5))[1]?.trim();
         msgBody = afterNum ?? "";
+      } else {
+        contactName = extractContactName(t, "text|sms|message");
+        // Extract the message body that follows the contact name
+        if (contactName) {
+          const escapedContactName = contactName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const afterName = text.replace(/\b(?:text|sms|message)\s+/i, "").replace(new RegExp(`^${escapedContactName}\\s*`, "i"), "").trim();
+          msgBody = afterName;
+        }
       }
-      return { type: "sms", phone, message: msgBody || undefined };
+      return { type: "sms", phone, name: contactName, message: msgBody || undefined };
     }
 
     // Open app
@@ -693,11 +728,19 @@ export default function ChatScreen() {
       }
 
       case "call": {
-        const url = intent.phone ? `tel:${intent.phone}` : "tel:";
+        let phone = intent.phone;
+        if (!phone && intent.name) {
+          phone = await lookupContactPhone(intent.name);
+          if (!phone) {
+            await respond(`I couldn't find a phone number for ${intent.name} in your contacts.`);
+            break;
+          }
+        }
+        const url = phone ? `tel:${phone}` : "tel:";
         const canOpen = await Linking.canOpenURL(url).catch(() => false);
-        if (canOpen || !intent.phone) {
+        if (canOpen || !phone) {
           await Linking.openURL(url).catch(() => {});
-          await respond(intent.phone ? `Calling ${intent.phone}.` : "Opening the phone dialer.");
+          await respond(phone ? `Calling ${intent.name ?? phone}.` : "Opening the phone dialer.");
         } else {
           await respond("I couldn't open the phone dialer on this device.");
         }
@@ -705,11 +748,19 @@ export default function ChatScreen() {
       }
 
       case "sms": {
-        const base = intent.phone ? `sms:${intent.phone}` : "sms:";
+        let phone = intent.phone;
+        if (!phone && intent.name) {
+          phone = await lookupContactPhone(intent.name);
+          if (!phone) {
+            await respond(`I couldn't find a phone number for ${intent.name} in your contacts.`);
+            break;
+          }
+        }
+        const base = phone ? `sms:${phone}` : "sms:";
         const sep = Platform.OS === "ios" ? "&" : "?";
         const url = intent.message ? `${base}${sep}body=${encodeURIComponent(intent.message)}` : base;
         await Linking.openURL(url).catch(() => {});
-        await respond(intent.phone ? `Opening messages for ${intent.phone}.` : "Opening the messages app.");
+        await respond(phone ? `Opening messages for ${intent.name ?? phone}.` : "Opening the messages app.");
         break;
       }
 

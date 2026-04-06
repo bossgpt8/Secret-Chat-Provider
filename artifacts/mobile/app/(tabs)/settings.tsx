@@ -266,7 +266,7 @@ export default function SettingsScreen() {
       if (permId === "microphone") {
         await Audio.requestPermissionsAsync();
       } else if (permId === "camera") {
-        await requestCameraPermission?.();
+        if (requestCameraPermission) await requestCameraPermission();
       } else if (permId === "contacts") {
         await Contacts.requestPermissionsAsync();
       } else if (permId === "accessibility") {

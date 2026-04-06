@@ -245,6 +245,7 @@ export default function ChatScreen() {
   const wakeWordEnabledRef = useRef(wakeWordEnabled);
   const assistantNameRef = useRef(assistantName);
   const pendingCallModeAfterTtsRef = useRef(false);
+  const wakeWordRegexRef = useRef<RegExp | null>(null);
   const isWakeListeningRef = useRef(false);
   const [isWakeListening, setIsWakeListening] = useState(false);
 
@@ -260,7 +261,11 @@ export default function ChatScreen() {
   useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
   useEffect(() => { lastNotifRef.current = lastNotification; }, [lastNotification]);
   useEffect(() => { wakeWordEnabledRef.current = wakeWordEnabled; }, [wakeWordEnabled]);
-  useEffect(() => { assistantNameRef.current = assistantName; }, [assistantName]);
+  useEffect(() => {
+    assistantNameRef.current = assistantName;
+    const escaped = assistantName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    wakeWordRegexRef.current = new RegExp(`(?:hey[\\s,!]+)?${escaped}`, "i");
+  }, [assistantName]);
 
   // Start / stop wake word loop whenever enabled state or call mode changes
   useEffect(() => {
@@ -376,8 +381,8 @@ export default function ChatScreen() {
       const { text = "" } = await resp.json() as { text?: string };
       if (!wakeWordLoopRef.current) return;
       // Check for wake word: "hey [name]" or just "[name]"
-      const escaped = assistantNameRef.current.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (new RegExp(`(?:hey[\\s,!]+)?${escaped}`, "i").test(text.trim())) {
+      const wakeRe = wakeWordRegexRef.current;
+      if (wakeRe && wakeRe.test(text.trim())) {
         // Wake word triggered
         wakeWordLoopRef.current = false;
         setIsWakeListening(false);

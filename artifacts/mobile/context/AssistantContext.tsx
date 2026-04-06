@@ -9,9 +9,21 @@ const SPEECH_RATE_KEY = "@zeno_speech_rate";
 const TTS_PROVIDER_KEY = "@zeno_tts_provider";
 const THEME_KEY = "@zeno_theme";
 const CUSTOM_API_URL_KEY = "@zeno_custom_api_url";
+const USER_PROFILE_KEY = "@zeno_user_profile";
+const PERSONALITY_KEY = "@zeno_personality";
+const WAKE_WORD_KEY = "@zeno_wake_word";
 
 export type TtsProvider = "elevenlabs" | "phone";
 export type ThemeOverride = "system" | "dark" | "light";
+export type AssistantPersonality = "friendly" | "casual" | "professional" | "witty" | "caring";
+
+export interface UserProfile {
+  userName: string;
+  gender: "" | "male" | "female" | "nonbinary" | "other";
+  age: string;
+}
+
+const DEFAULT_USER_PROFILE: UserProfile = { userName: "", gender: "", age: "" };
 
 export interface Message {
   id: string;
@@ -53,6 +65,12 @@ interface AssistantContextType {
   setThemeOverride: (t: ThemeOverride) => Promise<void>;
   customApiUrl: string | null;
   setCustomApiUrl: (url: string | null) => Promise<void>;
+  userProfile: UserProfile;
+  setUserProfile: (p: UserProfile) => Promise<void>;
+  assistantPersonality: AssistantPersonality;
+  setAssistantPersonality: (p: AssistantPersonality) => Promise<void>;
+  wakeWordEnabled: boolean;
+  setWakeWordEnabled: (v: boolean) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -75,6 +93,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [ttsProvider, setTtsProviderState] = useState<TtsProvider>("elevenlabs");
   const [themeOverride, setThemeOverrideState] = useState<ThemeOverride>("system");
   const [customApiUrl, setCustomApiUrlState] = useState<string | null>(null);
+  const [userProfile, setUserProfileState] = useState<UserProfile>(DEFAULT_USER_PROFILE);
+  const [assistantPersonality, setAssistantPersonalityState] = useState<AssistantPersonality>("friendly");
+  const [wakeWordEnabled, setWakeWordEnabledState] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -84,7 +105,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs
     const timeoutId = setTimeout(() => setIsLoading(false), 5000);
     try {
-      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl] = await Promise.all([
+      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
@@ -93,6 +114,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(TTS_PROVIDER_KEY),
         AsyncStorage.getItem(THEME_KEY),
         AsyncStorage.getItem(CUSTOM_API_URL_KEY),
+        AsyncStorage.getItem(USER_PROFILE_KEY),
+        AsyncStorage.getItem(PERSONALITY_KEY),
+        AsyncStorage.getItem(WAKE_WORD_KEY),
       ]);
       if (name) { setAssistantNameState(name); setIsOnboarded(true); }
       if (convsRaw) setConversations(JSON.parse(convsRaw));
@@ -102,6 +126,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (prov === "phone" || prov === "elevenlabs") setTtsProviderState(prov);
       if (theme === "dark" || theme === "light" || theme === "system") setThemeOverrideState(theme);
       if (apiUrl) setCustomApiUrlState(apiUrl);
+      if (profileRaw) { try { setUserProfileState(JSON.parse(profileRaw)); } catch { /* ignore */ } }
+      if (personality === "friendly" || personality === "casual" || personality === "professional" || personality === "witty" || personality === "caring") setAssistantPersonalityState(personality);
+      if (wakeWord === "true") setWakeWordEnabledState(true);
     } catch {
       // ignore
     } finally {
@@ -151,6 +178,21 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.removeItem(CUSTOM_API_URL_KEY);
       setCustomApiUrlState(null);
     }
+  }
+
+  async function setUserProfile(p: UserProfile) {
+    await AsyncStorage.setItem(USER_PROFILE_KEY, JSON.stringify(p));
+    setUserProfileState(p);
+  }
+
+  async function setAssistantPersonality(p: AssistantPersonality) {
+    await AsyncStorage.setItem(PERSONALITY_KEY, p);
+    setAssistantPersonalityState(p);
+  }
+
+  async function setWakeWordEnabled(v: boolean) {
+    await AsyncStorage.setItem(WAKE_WORD_KEY, String(v));
+    setWakeWordEnabledState(v);
   }
 
   function createConversation(): string {
@@ -203,6 +245,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         ttsProvider, setTtsProvider,
         themeOverride, setThemeOverride,
         customApiUrl, setCustomApiUrl,
+        userProfile, setUserProfile,
+        assistantPersonality, setAssistantPersonality,
+        wakeWordEnabled, setWakeWordEnabled,
       }}
     >
       {children}

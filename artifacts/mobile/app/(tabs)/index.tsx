@@ -212,7 +212,7 @@ const orbStyles = StyleSheet.create({
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl } = useAssistant();
+  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -240,6 +240,14 @@ export default function ChatScreen() {
   const isCallModeRef = useRef(false);
   const isStreamingRef = useRef(false);
 
+  // Wake word refs
+  const wakeWordLoopRef = useRef(false);
+  const wakeWordEnabledRef = useRef(wakeWordEnabled);
+  const assistantNameRef = useRef(assistantName);
+  const pendingCallModeAfterTtsRef = useRef(false);
+  const isWakeListeningRef = useRef(false);
+  const [isWakeListening, setIsWakeListening] = useState(false);
+
   useEffect(() => {
     return () => {
       if (durationTimerRef.current) clearInterval(durationTimerRef.current);
@@ -251,6 +259,25 @@ export default function ChatScreen() {
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
   useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
   useEffect(() => { lastNotifRef.current = lastNotification; }, [lastNotification]);
+  useEffect(() => { wakeWordEnabledRef.current = wakeWordEnabled; }, [wakeWordEnabled]);
+  useEffect(() => { assistantNameRef.current = assistantName; }, [assistantName]);
+
+  // Start / stop wake word loop whenever enabled state or call mode changes
+  useEffect(() => {
+    if (wakeWordEnabled && !isCallMode) {
+      if (!wakeWordLoopRef.current) {
+        wakeWordLoopRef.current = true;
+        setTimeout(() => wakeWordLoopTick(), 300);
+      }
+    } else {
+      wakeWordLoopRef.current = false;
+      setIsWakeListening(false);
+    }
+    return () => {
+      wakeWordLoopRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wakeWordEnabled, isCallMode]);
 
   useEffect(() => {
     if (!NativeNotifications.isAvailable) return;
@@ -291,6 +318,83 @@ export default function ChatScreen() {
     return "/api/";
   }
 
+  // ── Wake word ──────────────────────────────────────────────────────────────
+
+  function getWakeWordGreeting(): string {
+    const { gender, userName } = userProfile;
+    const greetName = userName ? `, ${userName}` : "";
+    switch (assistantPersonality) {
+      case "casual":
+        if (gender === "male") return `Yo bro${greetName}! What's up?`;
+        if (gender === "female") return `Hey sis${greetName}! What do you need?`;
+        return `Hey${greetName}! What's up?`;
+      case "professional":
+        return `Hello${greetName}. How can I assist you?`;
+      case "witty":
+        return `${assistantName} is listening${greetName}! What can I do for you?`;
+      case "caring":
+        return `Hey${greetName}! So glad you called. How can I help?`;
+      default: // friendly
+        if (gender === "male") return `Hey bro${greetName}! I'm here. What do you need?`;
+        if (gender === "female") return `Hey sis${greetName}! I'm here. What do you need?`;
+        return `Hey${greetName}! I'm here. What can I do for you?`;
+    }
+  }
+
+  async function wakeWordLoopTick() {
+    if (!wakeWordLoopRef.current) return;
+    // Pause if something else is using audio
+    if (isCallModeRef.current || isStreamingRef.current || recordingRef.current) {
+      setTimeout(() => wakeWordLoopTick(), 800);
+      return;
+    }
+    let rec: Audio.Recording | null = null;
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== "granted") { wakeWordLoopRef.current = false; setIsWakeListening(false); return; }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      rec = recording;
+      isWakeListeningRef.current = true;
+      setIsWakeListening(true);
+      // Listen for 3 seconds
+      await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+      isWakeListeningRef.current = false;
+      setIsWakeListening(false);
+      if (!wakeWordLoopRef.current) { rec.stopAndUnloadAsync().catch(() => {}); return; }
+      await rec.stopAndUnloadAsync();
+      rec = null;
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      if (!wakeWordLoopRef.current) return;
+      const uri = recording.getURI();
+      if (!uri) { setTimeout(() => wakeWordLoopTick(), 300); return; }
+      // Transcribe silently
+      const base = await getApiBase();
+      const fd = new FormData();
+      fd.append("audio", { uri, type: "audio/m4a", name: "audio.m4a" } as unknown as Blob);
+      const resp = await fetch(`${base}transcribe`, { method: "POST", body: fd });
+      const { text = "" } = await resp.json() as { text?: string };
+      if (!wakeWordLoopRef.current) return;
+      // Check for wake word: "hey [name]" or just "[name]"
+      const escaped = assistantNameRef.current.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`(?:hey[\\s,!]+)?${escaped}`, "i").test(text.trim())) {
+        // Wake word triggered
+        wakeWordLoopRef.current = false;
+        setIsWakeListening(false);
+        pendingCallModeAfterTtsRef.current = true;
+        speakText(getWakeWordGreeting());
+      } else {
+        if (wakeWordLoopRef.current) setTimeout(() => wakeWordLoopTick(), 300);
+      }
+    } catch {
+      isWakeListeningRef.current = false;
+      setIsWakeListening(false);
+      if (rec) rec.stopAndUnloadAsync().catch(() => {});
+      try { await Audio.setAudioModeAsync({ allowsRecordingIOS: false }); } catch { /* ignore */ }
+      if (wakeWordLoopRef.current) setTimeout(() => wakeWordLoopTick(), 2000);
+    }
+  }
+
   // ── TTS ────────────────────────────────────────────────────────────────────
 
   async function stopSpeaking() {
@@ -305,7 +409,10 @@ export default function ChatScreen() {
 
   function onTtsDone() {
     setIsSpeaking(false);
-    if (isCallModeRef.current && !isStreamingRef.current) {
+    if (pendingCallModeAfterTtsRef.current && !isStreamingRef.current) {
+      pendingCallModeAfterTtsRef.current = false;
+      startCallMode();
+    } else if (isCallModeRef.current && !isStreamingRef.current) {
       setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
     }
   }
@@ -396,12 +503,28 @@ export default function ChatScreen() {
     setRecordingDuration(0);
     await stopSpeaking();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    // Resume wake word listener if the user has it enabled
+    if (wakeWordEnabledRef.current) {
+      setTimeout(() => {
+        if (wakeWordEnabledRef.current && !isCallModeRef.current) {
+          wakeWordLoopRef.current = true;
+          wakeWordLoopTick();
+        }
+      }, 600);
+    }
   }
 
   // ── Voice recording ────────────────────────────────────────────────────────
 
   async function startRecording() {
     if (isStreaming || isTranscribing) return;
+    // If wake word loop is mid-recording, stop it first
+    if (isWakeListeningRef.current) {
+      wakeWordLoopRef.current = false;
+      isWakeListeningRef.current = false;
+      setIsWakeListening(false);
+      await new Promise<void>((r) => setTimeout(r, 300));
+    }
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== "granted") {
@@ -1069,7 +1192,27 @@ export default function ChatScreen() {
       }
 
       const chatHistory = withUser.map((m) => ({ role: m.role, content: m.content }));
-      const systemPrompt = `You are ${assistantName}, a voice assistant like Siri. Be conversational, warm, and concise. 1-3 sentences max. No markdown.`;
+
+      // Build personality-aware, profile-aware system prompt
+      const personalityText: Record<string, string> = {
+        friendly: "Be warm, supportive, and upbeat.",
+        casual: "Be relaxed and casual. Use informal, everyday language.",
+        professional: "Be formal, precise, and to the point.",
+        witty: "Be clever and add light humor when appropriate.",
+        caring: "Be empathetic, gentle, and attentive to the user's feelings.",
+      };
+      const promptParts: string[] = [
+        `You are ${assistantName}, a voice assistant.`,
+        personalityText[assistantPersonality] ?? personalityText.friendly,
+      ];
+      if (userProfile.userName) promptParts.push(`The user's name is ${userProfile.userName}.`);
+      if (userProfile.age) promptParts.push(`They are ${userProfile.age} years old.`);
+      if (assistantPersonality === "casual" || assistantPersonality === "friendly") {
+        if (userProfile.gender === "male") promptParts.push("Occasionally address them as 'bro'.");
+        else if (userProfile.gender === "female") promptParts.push("Occasionally address them as 'sis'.");
+      }
+      promptParts.push("Keep responses to 1-3 sentences. No markdown.");
+      const systemPrompt = promptParts.join(" ");
 
       const response = await fetch(`${baseUrl}chat`, {
         method: "POST",
@@ -1126,7 +1269,7 @@ export default function ChatScreen() {
       setIsStreaming(false);
       setShowTyping(false);
     }
-  }, [input, isStreaming, isSearchMode, messages, assistantName]);
+  }, [input, isStreaming, isSearchMode, messages, assistantName, userProfile, assistantPersonality]);
 
   function handleNewChat() {
     endCallMode();
@@ -1158,12 +1301,18 @@ export default function ChatScreen() {
           <View style={[styles.dot, { backgroundColor: isRecording ? colors.destructive : isSpeaking ? colors.accent : colors.success }]} />
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>{assistantName}</Text>
           {isRecording && <Text style={[styles.recLabel, { color: colors.destructive }]}>● {recordingDuration}s</Text>}
-          {isSearchMode && !isRecording && (
+          {isWakeListening && !isRecording && (
+            <View style={[styles.badge, { backgroundColor: colors.primary + "20" }]}>
+              <Ionicons name="ear-outline" size={11} color={colors.primary} />
+              <Text style={[styles.badgeText, { color: colors.primary }]}>Listening</Text>
+            </View>
+          )}
+          {isSearchMode && !isRecording && !isWakeListening && (
             <View style={[styles.badge, { backgroundColor: colors.accent + "20" }]}>
               <Text style={[styles.badgeText, { color: colors.accent }]}>Web</Text>
             </View>
           )}
-          {torchOn && !isRecording && (
+          {torchOn && !isRecording && !isWakeListening && (
             <View style={[styles.badge, { backgroundColor: "#f59e0b20" }]}>
               <Ionicons name="flashlight" size={11} color="#f59e0b" />
               <Text style={[styles.badgeText, { color: "#f59e0b" }]}>Torch</Text>
@@ -1210,7 +1359,7 @@ export default function ChatScreen() {
         {messages.length === 0 && !isTranscribing ? (
           /* ── Empty / Voice-first state ── */
           <View style={styles.voiceHome}>
-            <Pressable onPress={isRecording ? stopRecording : startRecording} disabled={isStreaming || isCallMode}>
+            <Pressable onPress={isRecording ? stopRecording : startRecording} disabled={isStreaming || isCallMode || isWakeListening}>
               <SiriOrb isRecording={isRecording} isSpeaking={isSpeaking} colors={colors} />
             </Pressable>
 
@@ -1312,7 +1461,7 @@ export default function ChatScreen() {
                 },
               ]}
               onPress={isRecording ? stopRecording : startRecording}
-              disabled={isStreaming}
+              disabled={isStreaming || isWakeListening}
             >
               {isTranscribing
                 ? <ActivityIndicator size="small" color={colors.primary} />

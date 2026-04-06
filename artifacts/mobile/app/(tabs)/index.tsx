@@ -781,8 +781,11 @@ export default function ChatScreen() {
           await respond("I don't have notification access yet. Say 'set up notifications' to enable it.");
           break;
         }
-        const notif = lastNotifRef.current;
-        if (!notif) {
+        // Prefer the most recently received notification; fall back to fetching from the system
+        const cachedNotif = lastNotifRef.current;
+        if (cachedNotif) {
+          await respond(`${cachedNotif.sender} on ${cachedNotif.app} said: "${cachedNotif.text}"`);
+        } else {
           const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
           const latest = recent[0];
           if (latest) {
@@ -790,8 +793,6 @@ export default function ChatScreen() {
           } else {
             await respond("You have no recent notifications.");
           }
-        } else {
-          await respond(`${notif.sender} on ${notif.app} said: "${notif.text}"`);
         }
         break;
       }
@@ -834,8 +835,12 @@ export default function ChatScreen() {
           await respond("Notification access is only available on Android devices.");
           break;
         }
-        await NativeNotifications.requestPermission().catch(() => {});
-        await respond("Opening notification access settings. Please enable it for me, then come back.");
+        try {
+          await NativeNotifications.requestPermission();
+          await respond("Opening notification access settings. Please enable it for me, then come back.");
+        } catch {
+          await respond("I couldn't open notification settings. Please enable it manually in Settings > Apps > Special app access > Notification access.");
+        }
         break;
       }
     }

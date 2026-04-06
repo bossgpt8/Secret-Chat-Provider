@@ -8,7 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -37,14 +37,31 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+  const [fontTimeoutExpired, setFontTimeoutExpired] = useState(false);
+  const fontTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fallback: hide splash after 3 s even if fonts never resolve
+  useEffect(() => {
+    fontTimerRef.current = setTimeout(() => {
+      setFontTimeoutExpired(true);
+      SplashScreen.hideAsync();
+    }, 3000);
+    return () => {
+      if (fontTimerRef.current) clearTimeout(fontTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
+      if (fontTimerRef.current) {
+        clearTimeout(fontTimerRef.current);
+        fontTimerRef.current = null;
+      }
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) return null;
+  if (!fontsLoaded && !fontError && !fontTimeoutExpired) return null;
 
   return (
     <SafeAreaProvider>

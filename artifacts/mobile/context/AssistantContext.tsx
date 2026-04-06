@@ -81,6 +81,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function loadData() {
+    // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs
+    const timeoutId = setTimeout(() => setIsLoading(false), 5000);
     try {
       const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
@@ -103,6 +105,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore
     } finally {
+      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   }

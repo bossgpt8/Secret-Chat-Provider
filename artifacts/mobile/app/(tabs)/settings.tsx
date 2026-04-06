@@ -8,13 +8,14 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAssistant, type TtsProvider } from "@/context/AssistantContext";
+import { useAssistant, type TtsProvider, type ThemeOverride } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
 
 interface Permission {
@@ -71,6 +72,8 @@ export default function SettingsScreen() {
     elVoiceId, setElVoiceId,
     speechRate, setSpeechRate,
     ttsProvider, setTtsProvider,
+    themeOverride, setThemeOverride,
+    customApiUrl, setCustomApiUrl,
   } = useAssistant();
 
   const [editingName, setEditingName] = useState(false);
@@ -78,6 +81,9 @@ export default function SettingsScreen() {
 
   const [phoneVoices, setPhoneVoices] = useState<Speech.Voice[]>([]);
   const [loadingPhoneVoices, setLoadingPhoneVoices] = useState(true);
+
+  const [editingApiUrl, setEditingApiUrl] = useState(false);
+  const [apiUrlInput, setApiUrlInput] = useState(customApiUrl ?? "");
   const [previewingPhoneId, setPreviewingPhoneId] = useState<string | null>(null);
 
   const [elVoices, setElVoices] = useState<ElVoice[]>([]);
@@ -97,7 +103,11 @@ export default function SettingsScreen() {
       const all = await Speech.getAvailableVoicesAsync();
       const english = all
         .filter((v) => v.language?.startsWith("en"))
-        .sort((a, b) => ((b.quality ?? 0) - (a.quality ?? 0)) || (a.name ?? "").localeCompare(b.name ?? ""));
+        .sort((a, b) => {
+          const qA = a.quality === Speech.VoiceQuality.Enhanced ? 1 : 0;
+          const qB = b.quality === Speech.VoiceQuality.Enhanced ? 1 : 0;
+          return (qB - qA) || (a.name ?? "").localeCompare(b.name ?? "");
+        });
       setPhoneVoices(english);
     } catch { setPhoneVoices([]); }
     finally { setLoadingPhoneVoices(false); }
@@ -124,6 +134,13 @@ export default function SettingsScreen() {
     setEditingName(false);
   }
 
+  async function saveApiUrl() {
+    const trimmed = apiUrlInput.trim();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await setCustomApiUrl(trimmed || null);
+    setEditingApiUrl(false);
+  }
+
   function handleClearHistory() {
     const doIt = () => { clearAllConversations(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); };
     if (Platform.OS === "web") { doIt(); }
@@ -133,6 +150,23 @@ export default function SettingsScreen() {
         { text: "Clear", style: "destructive", onPress: doIt },
       ]);
     }
+  }
+
+  function handleExportHistory() {
+    if (conversations.length === 0) {
+      Alert.alert("No history", "You have no saved conversations to export.");
+      return;
+    }
+    const text = conversations
+      .map((conv) => {
+        const header = `=== ${conv.title} ===\n${new Date(conv.createdAt).toLocaleDateString()}\n`;
+        const msgs = conv.messages
+          .map((m) => `${m.role === "user" ? "You" : assistantName}: ${m.content}`)
+          .join("\n");
+        return header + msgs;
+      })
+      .join("\n\n");
+    Share.share({ message: text, title: "Chat history" });
   }
 
   async function previewPhoneVoice(v: Speech.Voice) {
@@ -222,6 +256,19 @@ export default function SettingsScreen() {
       <Pressable
         style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
         onPress={async () => { await setTtsProvider(p); Haptics.selectionAsync(); }}
+      >
+        <Ionicons name={icon as "mic"} size={14} color={active ? "#fff" : colors.mutedForeground} />
+        <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
+      </Pressable>
+    );
+  }
+
+  function ThemeTab({ t, label, icon }: { t: ThemeOverride; label: string; icon: string }) {
+    const active = themeOverride === t;
+    return (
+      <Pressable
+        style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+        onPress={async () => { await setThemeOverride(t); Haptics.selectionAsync(); }}
       >
         <Ionicons name={icon as "mic"} size={14} color={active ? "#fff" : colors.mutedForeground} />
         <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
@@ -424,8 +471,66 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        {/* ── Appearance ── */}
+        <Section title="Appearance">
+          <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="color-palette-outline" size={18} color={colors.primary} />
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Theme</Text>
+            </View>
+            <View style={styles.provRow}>
+              <ThemeTab t="system" label="System" icon="phone-portrait-outline" />
+              <ThemeTab t="light" label="Light" icon="sunny-outline" />
+              <ThemeTab t="dark" label="Dark" icon="moon-outline" />
+            </View>
+            <Text style={[styles.rowValue, { color: colors.mutedForeground, paddingLeft: 0 }]}>
+              {themeOverride === "system" ? "Follows your device's appearance setting." : themeOverride === "dark" ? "Always use dark mode." : "Always use light mode."}
+            </Text>
+          </View>
+        </Section>
+
+        {/* ── Advanced ── */}
+        <Section title="Advanced">
+          {editingApiUrl ? (
+            <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>API Server URL</Text>
+              <TextInput
+                style={[styles.nameInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
+                value={apiUrlInput}
+                onChangeText={setApiUrlInput}
+                autoFocus
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                placeholder="https://your-server.example.com/api"
+                placeholderTextColor={colors.mutedForeground}
+                returnKeyType="done"
+                onSubmitEditing={saveApiUrl}
+              />
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Leave blank to use the default server.</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable style={[styles.saveBtn, { backgroundColor: colors.primary, flex: 1, borderRadius: 10, alignItems: "center", height: 38, justifyContent: "center" }]} onPress={saveApiUrl}>
+                  <Text style={{ color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 14 }}>Save</Text>
+                </Pressable>
+                <Pressable style={[styles.cancelBtn, { borderColor: colors.border, width: 38 }]}
+                  onPress={() => { setEditingApiUrl(false); setApiUrlInput(customApiUrl ?? ""); }}>
+                  <Feather name="x" size={16} color={colors.foreground} />
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Row
+              icon="globe-outline"
+              label="API Server URL"
+              value={customApiUrl ? customApiUrl : "Default (built-in)"}
+              onPress={() => { setEditingApiUrl(true); setApiUrlInput(customApiUrl ?? ""); }}
+            />
+          )}
+        </Section>
+
         {/* ── Data ── */}
         <Section title="Data">
+          <Row icon="share-outline" label="Export chat history" onPress={handleExportHistory} />
           <Row icon="trash-outline" label="Clear all chat history" destructive onPress={handleClearHistory} />
         </Section>
 

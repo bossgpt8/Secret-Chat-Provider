@@ -7,8 +7,11 @@ const PHONE_VOICE_ID_KEY = "@zeno_phone_voice_id";
 const EL_VOICE_ID_KEY = "@zeno_el_voice_id";
 const SPEECH_RATE_KEY = "@zeno_speech_rate";
 const TTS_PROVIDER_KEY = "@zeno_tts_provider";
+const THEME_KEY = "@zeno_theme";
+const CUSTOM_API_URL_KEY = "@zeno_custom_api_url";
 
 export type TtsProvider = "elevenlabs" | "phone";
+export type ThemeOverride = "system" | "dark" | "light";
 
 export interface Message {
   id: string;
@@ -46,6 +49,10 @@ interface AssistantContextType {
   setSpeechRate: (rate: number) => Promise<void>;
   ttsProvider: TtsProvider;
   setTtsProvider: (p: TtsProvider) => Promise<void>;
+  themeOverride: ThemeOverride;
+  setThemeOverride: (t: ThemeOverride) => Promise<void>;
+  customApiUrl: string | null;
+  setCustomApiUrl: (url: string | null) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -66,6 +73,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [elVoiceId, setElVoiceIdState] = useState<string | null>("21m00Tcm4TlvDq8ikWAM");
   const [speechRate, setSpeechRateState] = useState(0.9);
   const [ttsProvider, setTtsProviderState] = useState<TtsProvider>("elevenlabs");
+  const [themeOverride, setThemeOverrideState] = useState<ThemeOverride>("system");
+  const [customApiUrl, setCustomApiUrlState] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -73,13 +82,15 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
   async function loadData() {
     try {
-      const [name, convsRaw, pvid, evid, rate, prov] = await Promise.all([
+      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
         AsyncStorage.getItem(EL_VOICE_ID_KEY),
         AsyncStorage.getItem(SPEECH_RATE_KEY),
         AsyncStorage.getItem(TTS_PROVIDER_KEY),
+        AsyncStorage.getItem(THEME_KEY),
+        AsyncStorage.getItem(CUSTOM_API_URL_KEY),
       ]);
       if (name) { setAssistantNameState(name); setIsOnboarded(true); }
       if (convsRaw) setConversations(JSON.parse(convsRaw));
@@ -87,6 +98,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (evid) setElVoiceIdState(evid);
       if (rate) setSpeechRateState(parseFloat(rate));
       if (prov === "phone" || prov === "elevenlabs") setTtsProviderState(prov);
+      if (theme === "dark" || theme === "light" || theme === "system") setThemeOverrideState(theme);
+      if (apiUrl) setCustomApiUrlState(apiUrl);
     } catch {
       // ignore
     } finally {
@@ -120,6 +133,21 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   async function setTtsProvider(p: TtsProvider) {
     await AsyncStorage.setItem(TTS_PROVIDER_KEY, p);
     setTtsProviderState(p);
+  }
+
+  async function setThemeOverride(t: ThemeOverride) {
+    await AsyncStorage.setItem(THEME_KEY, t);
+    setThemeOverrideState(t);
+  }
+
+  async function setCustomApiUrl(url: string | null) {
+    if (url && url.trim()) {
+      await AsyncStorage.setItem(CUSTOM_API_URL_KEY, url.trim());
+      setCustomApiUrlState(url.trim());
+    } else {
+      await AsyncStorage.removeItem(CUSTOM_API_URL_KEY);
+      setCustomApiUrlState(null);
+    }
   }
 
   function createConversation(): string {
@@ -170,6 +198,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         elVoiceId, setElVoiceId,
         speechRate, setSpeechRate,
         ttsProvider, setTtsProvider,
+        themeOverride, setThemeOverride,
+        customApiUrl, setCustomApiUrl,
       }}
     >
       {children}
@@ -182,3 +212,4 @@ export function useAssistant() {
   if (!ctx) throw new Error("useAssistant must be used within AssistantProvider");
   return ctx;
 }
+

@@ -500,6 +500,7 @@ export default function ChatScreen() {
       | "brightness_up" | "brightness_down" | "brightness_max" | "brightness_min" | "brightness_set"
       | "battery_check"
       | "call" | "sms"
+      | "send_app_message"
       | "open_app"
       | "vibrate"
       | "lock_screen"
@@ -518,9 +519,22 @@ export default function ChatScreen() {
     return m ? m[1].replace(/[\s\-()]/g, "") : undefined;
   }
 
+  function escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  // A name is 1–30 chars: letter, then letters/spaces/apostrophes/hyphens (ASCII subset for intent matching).
+  const NAME_PAT = "[A-Za-z][A-Za-z\\s'\\-]{1,29}";
+
+  // Returns true when the notification sender name contains the target name as a whole word.
+  function matchesSenderName(sender: string, targetName: string): boolean {
+    const pattern = new RegExp(`\\b${escapeRegex(targetName)}\\b`, "i");
+    return pattern.test(sender);
+  }
+
   // verbPattern is a regex alternation string (e.g. "call|dial|phone|ring"), not a plain string.
   function extractContactName(text: string, verbPattern: string): string | undefined {
-    const m = text.match(new RegExp(`\\b(?:${verbPattern})\\s+([A-Za-z][A-Za-z\\s'\\-]{1,30})`, "i"));
+    const m = text.match(new RegExp(`\\b(?:${verbPattern})\\s+(${NAME_PAT})`, "i"));
     if (!m) return undefined;
     // Strip trailing filler words ("saying", "to say", etc.) so they don't bleed into the name
     return m[1].replace(/\s+(?:and say|saying|to say|that)\s+.*$/i, "").trim();
@@ -586,12 +600,39 @@ export default function ChatScreen() {
         contactName = extractContactName(t, "text|sms|message");
         // Extract the message body that follows the contact name
         if (contactName) {
-          const escapedContactName = contactName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          const afterName = text.replace(/\b(?:text|sms|message)\s+/i, "").replace(new RegExp(`^${escapedContactName}\\s*`, "i"), "").trim();
+          const afterName = text.replace(/\b(?:text|sms|message)\s+/i, "").replace(new RegExp(`^${escapeRegex(contactName)}\\s*`, "i"), "").trim();
           msgBody = afterName;
         }
       }
       return { type: "sms", phone, name: contactName, message: msgBody || undefined };
+    }
+
+    // WhatsApp / Telegram direct message — "tell Precious on WhatsApp I'm hungry"
+    // Pattern 1: tell/send/message [name] on/via WhatsApp/Telegram [text]
+    const appMsgVerb = t.match(
+      new RegExp(`\\b(?:tell|send|message)\\s+(${NAME_PAT}?)\\s+(?:on|via)\\s+(whatsapp|telegram)\\b(?:\\s+(?:that\\s+|saying\\s+)?(.+))?`, "i")
+    );
+    if (appMsgVerb) {
+      const [, rawName, rawApp, rawMsg] = appMsgVerb;
+      return {
+        type: "send_app_message",
+        name: rawName?.trim(),
+        app: rawApp.charAt(0).toUpperCase() + rawApp.slice(1).toLowerCase(),
+        message: rawMsg?.trim() || undefined,
+      };
+    }
+    // Pattern 2: WhatsApp/Telegram [name] [text]
+    const appMsgPrefix = t.match(
+      new RegExp(`^(whatsapp|telegram)\\s+(${NAME_PAT}?)\\s+(?:(?:that|saying)\\s+)?(.+)`, "i")
+    );
+    if (appMsgPrefix && !/\b(open|launch|start)\b/.test(t)) {
+      const [, rawApp, rawName, rawMsg] = appMsgPrefix;
+      return {
+        type: "send_app_message",
+        name: rawName?.trim(),
+        app: rawApp.charAt(0).toUpperCase() + rawApp.slice(1).toLowerCase(),
+        message: rawMsg?.trim() || undefined,
+      };
     }
 
     // Open app
@@ -634,10 +675,15 @@ export default function ChatScreen() {
       return { type: "read_last_message" };
     }
 
-    // Reply to last notification
+    // Reply to last notification — pronouns: "tell her / tell them back [message]"
     const replyMatch = t.match(/^(?:tell|reply|respond|say back|text back|message back|send|write|respond)(?:\s+(?:her|him|them|back))+\s+(.+)/);
     if (replyMatch && replyMatch[1]) {
       return { type: "reply_message", message: replyMatch[1].trim() };
+    }
+    // Reply by person name: "tell Precious I'm on my way"
+    const replyByName = t.match(new RegExp(`^(?:tell|reply to|respond to)\\s+(${NAME_PAT}?)\\s+(?:(?:that|saying|to say)\\s+)?([^]+)`, "i"));
+    if (replyByName && replyByName[2] && !/\b(on|via)\s+(whatsapp|telegram)\b/i.test(t)) {
+      return { type: "reply_message", name: replyByName[1].trim(), message: replyByName[2].trim() };
     }
 
     // Setup notification permission
@@ -872,7 +918,18 @@ export default function ChatScreen() {
           await respond("I don't have notification access to reply. Say 'set up notifications' to enable it.");
           break;
         }
-        const target = lastNotifRef.current;
+        // When a person name is given, search recent notifications for that sender
+        let target = lastNotifRef.current;
+        if (intent.name) {
+          const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
+          const named = recent.find((n) => matchesSenderName(n.sender, intent.name!));
+          if (named) {
+            target = named;
+          } else {
+            await respond(`I don't have a recent notification from ${intent.name} to reply to.`);
+            break;
+          }
+        }
         if (!target) {
           await respond("There's no recent message to reply to.");
           break;
@@ -891,6 +948,65 @@ export default function ChatScreen() {
           await respond(`Replied to ${target.sender}: "${replyText}"`);
         } else {
           await respond(`I couldn't send the reply to ${target.sender}.`);
+        }
+        break;
+      }
+
+      case "send_app_message": {
+        if (!intent.message) {
+          await respond(`What would you like to say to ${intent.name ?? "them"} on ${intent.app ?? "WhatsApp"}?`);
+          break;
+        }
+        // 1. Try auto-reply via notification system if a recent message from this person exists
+        if (NativeNotifications.isAvailable && intent.name) {
+          const hasPerm = await NativeNotifications.hasPermission().catch(() => false);
+          if (hasPerm) {
+            const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
+            const appFilter = intent.app?.toLowerCase();
+            const match = recent.find((n) => {
+              const nameOk = matchesSenderName(n.sender, intent.name!);
+              const appOk = !appFilter || n.app.toLowerCase().includes(appFilter);
+              return nameOk && appOk;
+            });
+            if (match?.hasReply) {
+              const autoSent = await NativeNotifications.replyTo(match.key, intent.message).catch(() => false);
+              if (autoSent) {
+                await respond(`Sent to ${intent.name} on ${intent.app ?? match.app}: "${intent.message}"`);
+                break;
+              }
+            }
+          }
+        }
+        // 2. Fall back to deep link — pre-fills message but user must tap Send
+        if (Platform.OS === "web") {
+          await respond("Messaging apps can only be opened on a real device.");
+          break;
+        }
+        const encodedMsg = encodeURIComponent(intent.message);
+        let phone: string | undefined;
+        if (intent.name) {
+          phone = await lookupContactPhone(intent.name);
+        }
+        let deepUrl: string;
+        const targetApp = (intent.app ?? "WhatsApp").toLowerCase();
+        if (targetApp === "telegram") {
+          deepUrl = phone
+            ? `tg://msg?to=${phone}&text=${encodedMsg}`
+            : `tg://msg?text=${encodedMsg}`;
+        } else {
+          // WhatsApp
+          deepUrl = phone
+            ? `whatsapp://send?phone=${phone}&text=${encodedMsg}`
+            : `whatsapp://send?text=${encodedMsg}`;
+        }
+        try {
+          await Linking.openURL(deepUrl);
+          const label = intent.name ? ` for ${intent.name}` : "";
+          await respond(
+            `Opening ${intent.app ?? "WhatsApp"} with your message${label} pre-filled — tap Send to deliver it.`
+          );
+        } catch {
+          await respond(`I couldn't open ${intent.app ?? "WhatsApp"} on this device.`);
         }
         break;
       }

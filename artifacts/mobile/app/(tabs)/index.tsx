@@ -750,6 +750,94 @@ export default function ChatScreen() {
         await respond("Vibrating.");
         break;
       }
+
+      case "lock_screen": {
+        if (!NativeScreenLock.isAvailable) {
+          await respond("Screen lock control is only available on Android devices.");
+          break;
+        }
+        const isAdmin = await NativeScreenLock.isAdminEnabled().catch(() => false);
+        if (!isAdmin) {
+          await NativeScreenLock.requestAdmin();
+          await respond("I need device admin permission to lock your screen. Please grant it.");
+        } else {
+          const locked = await NativeScreenLock.lock().catch(() => false);
+          if (locked) {
+            await respond("Locking your screen now.");
+          } else {
+            await respond("I couldn't lock the screen. Please check device admin permissions in Settings.");
+          }
+        }
+        break;
+      }
+
+      case "read_last_message": {
+        if (!NativeNotifications.isAvailable) {
+          await respond("Notification reading is only available on Android devices.");
+          break;
+        }
+        const hasPermN = await NativeNotifications.hasPermission().catch(() => false);
+        if (!hasPermN) {
+          await respond("I don't have notification access yet. Say 'set up notifications' to enable it.");
+          break;
+        }
+        const notif = lastNotifRef.current;
+        if (!notif) {
+          const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
+          const latest = recent[0];
+          if (latest) {
+            await respond(`Latest message from ${latest.sender} on ${latest.app}: "${latest.text}"`);
+          } else {
+            await respond("You have no recent notifications.");
+          }
+        } else {
+          await respond(`${notif.sender} on ${notif.app} said: "${notif.text}"`);
+        }
+        break;
+      }
+
+      case "reply_message": {
+        if (!NativeNotifications.isAvailable) {
+          await respond("Replying to messages is only available on Android devices.");
+          break;
+        }
+        const hasPermR = await NativeNotifications.hasPermission().catch(() => false);
+        if (!hasPermR) {
+          await respond("I don't have notification access to reply. Say 'set up notifications' to enable it.");
+          break;
+        }
+        const target = lastNotifRef.current;
+        if (!target) {
+          await respond("There's no recent message to reply to.");
+          break;
+        }
+        if (!target.hasReply) {
+          await respond(`I can't reply directly to ${target.sender}'s message — it doesn't support inline replies.`);
+          break;
+        }
+        const replyText = intent.message ?? "";
+        if (!replyText) {
+          await respond("What would you like to say in your reply?");
+          break;
+        }
+        const sent = await NativeNotifications.replyTo(target.key, replyText).catch(() => false);
+        if (sent) {
+          await respond(`Replied to ${target.sender}: "${replyText}"`);
+        } else {
+          await respond(`I couldn't send the reply to ${target.sender}.`);
+        }
+        break;
+      }
+
+      case "setup_notifications": {
+        if (!NativeNotifications.isAvailable) {
+          await respond("Notification access is only available on Android devices.");
+          break;
+        }
+        await NativeNotifications.requestPermission().catch(() => {});
+        await respond("Opening notification access settings. Please enable it for me, then come back.");
+        break;
+      }
     }
   }
 

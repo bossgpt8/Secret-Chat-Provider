@@ -22,6 +22,7 @@ import { useAssistant, type TtsProvider, type ThemeOverride } from "@/context/As
 import { useColors } from "@/hooks/useColors";
 import { NativeNotifications } from "@/modules/NativeNotifications";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
+import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
 
 interface Permission {
   id: string;
@@ -45,7 +46,8 @@ const PERMISSIONS: Permission[] = [
   { id: "contacts", label: "Contacts", description: "Look up contacts by name for calls & SMS", icon: "people-outline" },
   { id: "accessibility", label: "Accessibility Service", description: "Read WhatsApp & SMS messages", icon: "eye-outline" },
   { id: "device_admin", label: "Device Administrator", description: "Lock phone via voice", icon: "shield-outline" },
-  { id: "write_settings", label: "Write Settings", description: "Control screen brightness", icon: "sunny-outline" },
+  { id: "write_settings", label: "Modify System Settings", description: "Control screen brightness & audio", icon: "settings-outline" },
+  { id: "overlay", label: "Display Over Other Apps", description: "Show assistant overlay on top of apps", icon: "layers-outline" },
 ];
 
 const DEFAULT_PERM_STATUSES: Record<string, PermStatus> = {
@@ -55,7 +57,8 @@ const DEFAULT_PERM_STATUSES: Record<string, PermStatus> = {
   contacts: "unavailable",
   accessibility: "unavailable",
   device_admin: "unavailable",
-  write_settings: "granted",
+  write_settings: "unavailable",
+  overlay: "unavailable",
 };
 
 const SPEED_OPTIONS = [
@@ -105,7 +108,7 @@ export default function SettingsScreen() {
   const [elVoices, setElVoices] = useState<ElVoice[]>([]);
 
   const [permStatuses, setPermStatuses] = useState<Record<string, PermStatus>>(DEFAULT_PERM_STATUSES);
-  const [cameraPermission] = useCameraPermissions();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [loadingElVoices, setLoadingElVoices] = useState(true);
   const [previewingElId, setPreviewingElId] = useState<string | null>(null);
 
@@ -168,6 +171,18 @@ export default function SettingsScreen() {
         const isAdmin = await NativeScreenLock.isAdminEnabled();
         updates.device_admin = isAdmin ? "granted" : "unavailable";
       }
+    } catch { /* leave default */ }
+
+    // Write system settings
+    try {
+      const hasWrite = await NativeSystemPermissions.hasWriteSettingsPermission();
+      updates.write_settings = hasWrite ? "granted" : "unavailable";
+    } catch { /* leave default */ }
+
+    // Overlay (display over other apps)
+    try {
+      const hasOverlay = await NativeSystemPermissions.hasOverlayPermission();
+      updates.overlay = hasOverlay ? "granted" : "unavailable";
     } catch { /* leave default */ }
 
     setPermStatuses((prev) => ({ ...prev, ...updates }));
@@ -242,6 +257,30 @@ export default function SettingsScreen() {
       })
       .join("\n\n");
     Share.share({ message: text, title: "Chat history" });
+  }
+
+  async function handlePermissionPress(permId: string) {
+    if (Platform.OS !== "android") return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      if (permId === "microphone") {
+        await Audio.requestPermissionsAsync();
+      } else if (permId === "camera") {
+        await requestCameraPermission?.();
+      } else if (permId === "contacts") {
+        await Contacts.requestPermissionsAsync();
+      } else if (permId === "accessibility") {
+        await NativeNotifications.requestPermission();
+      } else if (permId === "device_admin") {
+        await NativeScreenLock.requestAdmin();
+      } else if (permId === "write_settings") {
+        await NativeSystemPermissions.requestWriteSettingsPermission();
+      } else if (permId === "overlay") {
+        await NativeSystemPermissions.requestOverlayPermission();
+      }
+    } catch { /* ignore */ }
+    // Re-check status after returning from system settings
+    setTimeout(() => refreshPermissions(), 800);
   }
 
   async function previewPhoneVoice(v: Speech.Voice) {
@@ -523,16 +562,28 @@ export default function SettingsScreen() {
 
         {/* ── Permissions ── */}
         <Section title="Permissions">
-          {PERMISSIONS.map((perm) => (
-            <View key={perm.id} style={[styles.row, { borderBottomColor: colors.border }]}>
-              <Ionicons name={perm.icon as "mic"} size={18} color={colors.primary} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.rowLabel, { color: colors.foreground }]}>{perm.label}</Text>
-                <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{perm.description}</Text>
-              </View>
-              <StatusBadge status={permStatuses[perm.id] ?? "unavailable"} colors={colors} />
-            </View>
-          ))}
+          {PERMISSIONS.map((perm) => {
+            const status = permStatuses[perm.id] ?? "unavailable";
+            const canRequest = Platform.OS === "android" && perm.id !== "internet";
+            return (
+              <Pressable
+                key={perm.id}
+                style={[styles.row, { borderBottomColor: colors.border }]}
+                onPress={canRequest ? () => handlePermissionPress(perm.id) : undefined}
+                disabled={!canRequest || status === "granted"}
+              >
+                <Ionicons name={perm.icon as "mic"} size={18} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>{perm.label}</Text>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{perm.description}</Text>
+                </View>
+                <StatusBadge status={status} colors={colors} />
+                {canRequest && status !== "granted" && (
+                  <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
+                )}
+              </Pressable>
+            );
+          })}
         </Section>
 
         {/* ── Build info ── */}

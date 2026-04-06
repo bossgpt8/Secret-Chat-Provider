@@ -136,16 +136,22 @@ export default function SettingsScreen() {
     if (Platform.OS === "web") return;
     const updates: Record<string, PermStatus> = {};
 
+    function toPermStatus(status: string): PermStatus {
+      if (status === "granted") return "granted";
+      if (status === "denied") return "denied";
+      return "unavailable";
+    }
+
     // Microphone
     try {
       const { status } = await Audio.getPermissionsAsync();
-      updates.microphone = status === "granted" ? "granted" : status === "denied" ? "denied" : "unavailable";
+      updates.microphone = toPermStatus(status);
     } catch { /* leave default */ }
 
     // Contacts
     try {
       const { status } = await Contacts.getPermissionsAsync();
-      updates.contacts = status === "granted" ? "granted" : status === "denied" ? "denied" : "unavailable";
+      updates.contacts = toPermStatus(status);
     } catch { /* leave default */ }
 
     // Notification listener / Accessibility

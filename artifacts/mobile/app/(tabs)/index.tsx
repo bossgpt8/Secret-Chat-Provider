@@ -518,6 +518,7 @@ export default function ChatScreen() {
     return m ? m[1].replace(/[\s\-()]/g, "") : undefined;
   }
 
+  // verbPattern is a regex alternation string (e.g. "call|dial|phone|ring"), not a plain string.
   function extractContactName(text: string, verbPattern: string): string | undefined {
     const m = text.match(new RegExp(`\\b(?:${verbPattern})\\s+([A-Za-z][A-Za-z\\s'\\-]{1,30})`, "i"));
     if (!m) return undefined;

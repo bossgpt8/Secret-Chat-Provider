@@ -203,10 +203,10 @@ export default function ProfileScreen() {
             <Ionicons name="ear-outline" size={18} color={colors.primary} />
             <View style={{ flex: 1, gap: 4 }}>
               <Text style={[styles.fieldLabel, { color: colors.foreground }]}>
-                &ldquo;Hey {assistantName}&rdquo; Listener
+                {"\u201C"}Hey {assistantName}{"\u201D"} Listener
               </Text>
               <Text style={[styles.fieldHint, { color: colors.mutedForeground }]}>
-                When enabled, the app listens in the foreground for your wake word. Say &ldquo;Hey {assistantName}&rdquo; to start a conversation hands-free. Requires the app to be open.
+                When enabled, the app listens in the foreground for your wake word. Say {"\u201C"}Hey {assistantName}{"\u201D"} to start a conversation hands-free. Requires the app to be open.
               </Text>
             </View>
             <Switch

@@ -1,6 +1,7 @@
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Contacts from "expo-contacts";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import { fetch } from "expo/fetch";
@@ -13,6 +14,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -67,7 +69,14 @@ function TypingIndicator({ colors }: { colors: ReturnType<typeof useColors> }) {
 
 function MessageBubble({ message, colors }: { message: Message; colors: ReturnType<typeof useColors> }) {
   const isUser = message.role === "user";
+
+  function handleLongPress() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Share.share({ message: message.content });
+  }
+
   return (
+    <Pressable onLongPress={handleLongPress} delayLongPress={400}>
     <View style={[bubbleStyles.row, isUser ? bubbleStyles.uRow : bubbleStyles.aRow]}>
       {!isUser && (
         <View style={[bubbleStyles.avatar, { backgroundColor: colors.primary }]}>
@@ -92,6 +101,7 @@ function MessageBubble({ message, colors }: { message: Message; colors: ReturnTy
         </Text>
       </View>
     </View>
+    </Pressable>
   );
 }
 
@@ -202,7 +212,7 @@ const orbStyles = StyleSheet.create({
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider } = useAssistant();
+  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -230,6 +240,15 @@ export default function ChatScreen() {
   const isCallModeRef = useRef(false);
   const isStreamingRef = useRef(false);
 
+  // Wake word refs
+  const wakeWordLoopRef = useRef(false);
+  const wakeWordEnabledRef = useRef(wakeWordEnabled);
+  const assistantNameRef = useRef(assistantName);
+  const pendingCallModeAfterTtsRef = useRef(false);
+  const wakeWordRegexRef = useRef<RegExp | null>(null);
+  const isWakeListeningRef = useRef(false);
+  const [isWakeListening, setIsWakeListening] = useState(false);
+
   useEffect(() => {
     return () => {
       if (durationTimerRef.current) clearInterval(durationTimerRef.current);
@@ -241,6 +260,29 @@ export default function ChatScreen() {
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
   useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
   useEffect(() => { lastNotifRef.current = lastNotification; }, [lastNotification]);
+  useEffect(() => { wakeWordEnabledRef.current = wakeWordEnabled; }, [wakeWordEnabled]);
+  useEffect(() => {
+    assistantNameRef.current = assistantName;
+    const escaped = assistantName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    wakeWordRegexRef.current = new RegExp(`(?:hey[\\s,!]+)?${escaped}`, "i");
+  }, [assistantName]);
+
+  // Start / stop wake word loop whenever enabled state or call mode changes
+  useEffect(() => {
+    if (wakeWordEnabled && !isCallMode) {
+      if (!wakeWordLoopRef.current) {
+        wakeWordLoopRef.current = true;
+        setTimeout(() => wakeWordLoopTick(), 300);
+      }
+    } else {
+      wakeWordLoopRef.current = false;
+      setIsWakeListening(false);
+    }
+    return () => {
+      wakeWordLoopRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wakeWordEnabled, isCallMode]);
 
   useEffect(() => {
     if (!NativeNotifications.isAvailable) return;
@@ -271,10 +313,91 @@ export default function ChatScreen() {
   }
 
   async function getApiBase(): Promise<string> {
+    if (customApiUrl && customApiUrl.trim()) {
+      const u = customApiUrl.trim();
+      return u.endsWith("/") ? u : `${u}/`;
+    }
     const envUrl = process.env.EXPO_PUBLIC_API_URL;
     if (envUrl) return envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
     if (Platform.OS === "web") return "/api/";
     return "/api/";
+  }
+
+  // ── Wake word ──────────────────────────────────────────────────────────────
+
+  function getWakeWordGreeting(): string {
+    const { gender, userName } = userProfile;
+    const greetName = userName ? `, ${userName}` : "";
+    switch (assistantPersonality) {
+      case "casual":
+        if (gender === "male") return `Yo bro${greetName}! What's up?`;
+        if (gender === "female") return `Hey sis${greetName}! What do you need?`;
+        return `Hey${greetName}! What's up?`;
+      case "professional":
+        return `Hello${greetName}. How can I assist you?`;
+      case "witty":
+        return `${assistantName} is listening${greetName}! What can I do for you?`;
+      case "caring":
+        return `Hey${greetName}! So glad you called. How can I help?`;
+      default: // friendly
+        if (gender === "male") return `Hey bro${greetName}! I'm here. What do you need?`;
+        if (gender === "female") return `Hey sis${greetName}! I'm here. What do you need?`;
+        return `Hey${greetName}! I'm here. What can I do for you?`;
+    }
+  }
+
+  async function wakeWordLoopTick() {
+    if (!wakeWordLoopRef.current) return;
+    // Pause if something else is using audio
+    if (isCallModeRef.current || isStreamingRef.current || recordingRef.current) {
+      setTimeout(() => wakeWordLoopTick(), 800);
+      return;
+    }
+    let rec: Audio.Recording | null = null;
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== "granted") { wakeWordLoopRef.current = false; setIsWakeListening(false); return; }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      rec = recording;
+      isWakeListeningRef.current = true;
+      setIsWakeListening(true);
+      // Listen for 3 seconds
+      await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+      isWakeListeningRef.current = false;
+      setIsWakeListening(false);
+      if (!wakeWordLoopRef.current) { rec.stopAndUnloadAsync().catch(() => {}); return; }
+      await rec.stopAndUnloadAsync();
+      rec = null;
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      if (!wakeWordLoopRef.current) return;
+      const uri = recording.getURI();
+      if (!uri) { setTimeout(() => wakeWordLoopTick(), 300); return; }
+      // Transcribe silently
+      const base = await getApiBase();
+      const fd = new FormData();
+      fd.append("audio", { uri, type: "audio/m4a", name: "audio.m4a" } as unknown as Blob);
+      const resp = await fetch(`${base}transcribe`, { method: "POST", body: fd });
+      const { text = "" } = await resp.json() as { text?: string };
+      if (!wakeWordLoopRef.current) return;
+      // Check for wake word: "hey [name]" or just "[name]"
+      const wakeRe = wakeWordRegexRef.current;
+      if (wakeRe && wakeRe.test(text.trim())) {
+        // Wake word triggered
+        wakeWordLoopRef.current = false;
+        setIsWakeListening(false);
+        pendingCallModeAfterTtsRef.current = true;
+        speakText(getWakeWordGreeting());
+      } else {
+        if (wakeWordLoopRef.current) setTimeout(() => wakeWordLoopTick(), 300);
+      }
+    } catch {
+      isWakeListeningRef.current = false;
+      setIsWakeListening(false);
+      if (rec) rec.stopAndUnloadAsync().catch(() => {});
+      try { await Audio.setAudioModeAsync({ allowsRecordingIOS: false }); } catch { /* ignore */ }
+      if (wakeWordLoopRef.current) setTimeout(() => wakeWordLoopTick(), 2000);
+    }
   }
 
   // ── TTS ────────────────────────────────────────────────────────────────────
@@ -291,7 +414,10 @@ export default function ChatScreen() {
 
   function onTtsDone() {
     setIsSpeaking(false);
-    if (isCallModeRef.current && !isStreamingRef.current) {
+    if (pendingCallModeAfterTtsRef.current && !isStreamingRef.current) {
+      pendingCallModeAfterTtsRef.current = false;
+      startCallMode();
+    } else if (isCallModeRef.current && !isStreamingRef.current) {
       setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
     }
   }
@@ -382,12 +508,28 @@ export default function ChatScreen() {
     setRecordingDuration(0);
     await stopSpeaking();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    // Resume wake word listener if the user has it enabled
+    if (wakeWordEnabledRef.current) {
+      setTimeout(() => {
+        if (wakeWordEnabledRef.current && !isCallModeRef.current) {
+          wakeWordLoopRef.current = true;
+          wakeWordLoopTick();
+        }
+      }, 600);
+    }
   }
 
   // ── Voice recording ────────────────────────────────────────────────────────
 
   async function startRecording() {
     if (isStreaming || isTranscribing) return;
+    // If wake word loop is mid-recording, stop it first
+    if (isWakeListeningRef.current) {
+      wakeWordLoopRef.current = false;
+      isWakeListeningRef.current = false;
+      setIsWakeListening(false);
+      await new Promise<void>((r) => setTimeout(r, 300));
+    }
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== "granted") {
@@ -486,6 +628,7 @@ export default function ChatScreen() {
       | "brightness_up" | "brightness_down" | "brightness_max" | "brightness_min" | "brightness_set"
       | "battery_check"
       | "call" | "sms"
+      | "send_app_message"
       | "open_app"
       | "vibrate"
       | "lock_screen"
@@ -494,6 +637,7 @@ export default function ChatScreen() {
       | "setup_notifications";
     value?: number;
     phone?: string;
+    name?: string;
     message?: string;
     app?: string;
   }
@@ -501,6 +645,42 @@ export default function ChatScreen() {
   function extractPhoneNumber(text: string): string | undefined {
     const m = text.match(/(\+?[\d][\d\s\-()]{5,}[\d])/);
     return m ? m[1].replace(/[\s\-()]/g, "") : undefined;
+  }
+
+  function escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  // A name is 1–30 chars: letter, then letters/spaces/apostrophes/hyphens (ASCII subset for intent matching).
+  const NAME_PAT = "[A-Za-z][A-Za-z\\s'\\-]{1,29}";
+
+  // Returns true when the notification sender name contains the target name as a whole word.
+  function matchesSenderName(sender: string, targetName: string): boolean {
+    const pattern = new RegExp(`\\b${escapeRegex(targetName)}\\b`, "i");
+    return pattern.test(sender);
+  }
+
+  // verbPattern is a regex alternation string (e.g. "call|dial|phone|ring"), not a plain string.
+  function extractContactName(text: string, verbPattern: string): string | undefined {
+    const m = text.match(new RegExp(`\\b(?:${verbPattern})\\s+(${NAME_PAT})`, "i"));
+    if (!m) return undefined;
+    // Strip trailing filler words ("saying", "to say", etc.) so they don't bleed into the name
+    return m[1].replace(/\s+(?:and say|saying|to say|that)\s+.*$/i, "").trim();
+  }
+
+  async function lookupContactPhone(name: string): Promise<string | undefined> {
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== "granted") return undefined;
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
+        name,
+      });
+      const contact = data[0];
+      return contact?.phoneNumbers?.[0]?.number?.replace(/[\s\-()]/g, "") ?? undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   function detectDeviceIntent(text: string): DeviceIntent | null {
@@ -531,18 +711,56 @@ export default function ChatScreen() {
 
     // Call (skip "call mode" phrase)
     if (/\b(call|dial|phone|ring)\b/.test(t) && !/call mode/.test(t)) {
-      return { type: "call", phone: extractPhoneNumber(t) };
+      const phone = extractPhoneNumber(t);
+      const name = phone ? undefined : extractContactName(t, "call|dial|phone|ring");
+      return { type: "call", phone, name };
     }
 
     // SMS / Text
     if (/\b(text|sms|send (a )?(text|message|sms)|message)\b/.test(t)) {
       const phone = extractPhoneNumber(t);
       let msgBody = "";
+      let contactName: string | undefined;
       if (phone) {
         const afterNum = text.split(phone.slice(-5))[1]?.trim();
         msgBody = afterNum ?? "";
+      } else {
+        contactName = extractContactName(t, "text|sms|message");
+        // Extract the message body that follows the contact name
+        if (contactName) {
+          const afterName = text.replace(/\b(?:text|sms|message)\s+/i, "").replace(new RegExp(`^${escapeRegex(contactName)}\\s*`, "i"), "").trim();
+          msgBody = afterName;
+        }
       }
-      return { type: "sms", phone, message: msgBody || undefined };
+      return { type: "sms", phone, name: contactName, message: msgBody || undefined };
+    }
+
+    // WhatsApp / Telegram direct message — "tell Precious on WhatsApp I'm hungry"
+    // Pattern 1: tell/send/message [name] on/via WhatsApp/Telegram [text]
+    const appMsgVerb = t.match(
+      new RegExp(`\\b(?:tell|send|message)\\s+(${NAME_PAT}?)\\s+(?:on|via)\\s+(whatsapp|telegram)\\b(?:\\s+(?:that\\s+|saying\\s+)?(.+))?`, "i")
+    );
+    if (appMsgVerb) {
+      const [, rawName, rawApp, rawMsg] = appMsgVerb;
+      return {
+        type: "send_app_message",
+        name: rawName?.trim(),
+        app: rawApp.charAt(0).toUpperCase() + rawApp.slice(1).toLowerCase(),
+        message: rawMsg?.trim() || undefined,
+      };
+    }
+    // Pattern 2: WhatsApp/Telegram [name] [text]
+    const appMsgPrefix = t.match(
+      new RegExp(`^(whatsapp|telegram)\\s+(${NAME_PAT}?)\\s+(?:(?:that|saying)\\s+)?(.+)`, "i")
+    );
+    if (appMsgPrefix && !/\b(open|launch|start)\b/.test(t)) {
+      const [, rawApp, rawName, rawMsg] = appMsgPrefix;
+      return {
+        type: "send_app_message",
+        name: rawName?.trim(),
+        app: rawApp.charAt(0).toUpperCase() + rawApp.slice(1).toLowerCase(),
+        message: rawMsg?.trim() || undefined,
+      };
     }
 
     // Open app
@@ -585,10 +803,15 @@ export default function ChatScreen() {
       return { type: "read_last_message" };
     }
 
-    // Reply to last notification
+    // Reply to last notification — pronouns: "tell her / tell them back [message]"
     const replyMatch = t.match(/^(?:tell|reply|respond|say back|text back|message back|send|write|respond)(?:\s+(?:her|him|them|back))+\s+(.+)/);
     if (replyMatch && replyMatch[1]) {
       return { type: "reply_message", message: replyMatch[1].trim() };
+    }
+    // Reply by person name: "tell Precious I'm on my way"
+    const replyByName = t.match(new RegExp(`^(?:tell|reply to|respond to)\\s+(${NAME_PAT}?)\\s+(?:(?:that|saying|to say)\\s+)?([^]+)`, "i"));
+    if (replyByName && replyByName[2] && !/\b(on|via)\s+(whatsapp|telegram)\b/i.test(t)) {
+      return { type: "reply_message", name: replyByName[1].trim(), message: replyByName[2].trim() };
     }
 
     // Setup notification permission
@@ -680,11 +903,19 @@ export default function ChatScreen() {
       }
 
       case "call": {
-        const url = intent.phone ? `tel:${intent.phone}` : "tel:";
+        let phone = intent.phone;
+        if (!phone && intent.name) {
+          phone = await lookupContactPhone(intent.name);
+          if (!phone) {
+            await respond(`I couldn't find a phone number for ${intent.name} in your contacts.`);
+            break;
+          }
+        }
+        const url = phone ? `tel:${phone}` : "tel:";
         const canOpen = await Linking.canOpenURL(url).catch(() => false);
-        if (canOpen || !intent.phone) {
+        if (canOpen || !phone) {
           await Linking.openURL(url).catch(() => {});
-          await respond(intent.phone ? `Calling ${intent.phone}.` : "Opening the phone dialer.");
+          await respond(phone ? `Calling ${intent.name ?? phone}.` : "Opening the phone dialer.");
         } else {
           await respond("I couldn't open the phone dialer on this device.");
         }
@@ -692,11 +923,19 @@ export default function ChatScreen() {
       }
 
       case "sms": {
-        const base = intent.phone ? `sms:${intent.phone}` : "sms:";
+        let phone = intent.phone;
+        if (!phone && intent.name) {
+          phone = await lookupContactPhone(intent.name);
+          if (!phone) {
+            await respond(`I couldn't find a phone number for ${intent.name} in your contacts.`);
+            break;
+          }
+        }
+        const base = phone ? `sms:${phone}` : "sms:";
         const sep = Platform.OS === "ios" ? "&" : "?";
         const url = intent.message ? `${base}${sep}body=${encodeURIComponent(intent.message)}` : base;
         await Linking.openURL(url).catch(() => {});
-        await respond(intent.phone ? `Opening messages for ${intent.phone}.` : "Opening the messages app.");
+        await respond(phone ? `Opening messages for ${intent.name ?? phone}.` : "Opening the messages app.");
         break;
       }
 
@@ -750,6 +989,169 @@ export default function ChatScreen() {
         await respond("Vibrating.");
         break;
       }
+
+      case "lock_screen": {
+        if (!NativeScreenLock.isAvailable) {
+          await respond("Screen lock control is only available on Android devices.");
+          break;
+        }
+        const isAdmin = await NativeScreenLock.isAdminEnabled().catch(() => false);
+        if (!isAdmin) {
+          await NativeScreenLock.requestAdmin();
+          await respond("I need device admin permission to lock your screen. Please grant it.");
+        } else {
+          const locked = await NativeScreenLock.lock().catch(() => false);
+          if (locked) {
+            await respond("Locking your screen now.");
+          } else {
+            await respond("I couldn't lock the screen. Please check device admin permissions in Settings.");
+          }
+        }
+        break;
+      }
+
+      case "read_last_message": {
+        if (!NativeNotifications.isAvailable) {
+          await respond("Notification reading is only available on Android devices.");
+          break;
+        }
+        const hasPermN = await NativeNotifications.hasPermission().catch(() => false);
+        if (!hasPermN) {
+          await respond("I don't have notification access yet. Say 'set up notifications' to enable it.");
+          break;
+        }
+        // Prefer the most recently received notification; fall back to fetching from the system
+        const cachedNotif = lastNotifRef.current;
+        if (cachedNotif) {
+          await respond(`${cachedNotif.sender} on ${cachedNotif.app} said: "${cachedNotif.text}"`);
+        } else {
+          const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
+          const latest = recent[0];
+          if (latest) {
+            await respond(`Latest message from ${latest.sender} on ${latest.app}: "${latest.text}"`);
+          } else {
+            await respond("You have no recent notifications.");
+          }
+        }
+        break;
+      }
+
+      case "reply_message": {
+        if (!NativeNotifications.isAvailable) {
+          await respond("Replying to messages is only available on Android devices.");
+          break;
+        }
+        const hasPermR = await NativeNotifications.hasPermission().catch(() => false);
+        if (!hasPermR) {
+          await respond("I don't have notification access to reply. Say 'set up notifications' to enable it.");
+          break;
+        }
+        // When a person name is given, search recent notifications for that sender
+        let target = lastNotifRef.current;
+        if (intent.name) {
+          const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
+          const named = recent.find((n) => matchesSenderName(n.sender, intent.name!));
+          if (named) {
+            target = named;
+          } else {
+            await respond(`I don't have a recent notification from ${intent.name} to reply to.`);
+            break;
+          }
+        }
+        if (!target) {
+          await respond("There's no recent message to reply to.");
+          break;
+        }
+        if (!target.hasReply) {
+          await respond(`I can't reply directly to ${target.sender}'s message — it doesn't support inline replies.`);
+          break;
+        }
+        const replyText = intent.message ?? "";
+        if (!replyText) {
+          await respond("What would you like to say in your reply?");
+          break;
+        }
+        const sent = await NativeNotifications.replyTo(target.key, replyText).catch(() => false);
+        if (sent) {
+          await respond(`Replied to ${target.sender}: "${replyText}"`);
+        } else {
+          await respond(`I couldn't send the reply to ${target.sender}.`);
+        }
+        break;
+      }
+
+      case "send_app_message": {
+        if (!intent.message) {
+          await respond(`What would you like to say to ${intent.name ?? "them"} on ${intent.app ?? "WhatsApp"}?`);
+          break;
+        }
+        // 1. Try auto-reply via notification system if a recent message from this person exists
+        if (NativeNotifications.isAvailable && intent.name) {
+          const hasPerm = await NativeNotifications.hasPermission().catch(() => false);
+          if (hasPerm) {
+            const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
+            const appFilter = intent.app?.toLowerCase();
+            const match = recent.find((n) => {
+              const nameOk = matchesSenderName(n.sender, intent.name!);
+              const appOk = !appFilter || n.app.toLowerCase().includes(appFilter);
+              return nameOk && appOk;
+            });
+            if (match?.hasReply) {
+              const autoSent = await NativeNotifications.replyTo(match.key, intent.message).catch(() => false);
+              if (autoSent) {
+                await respond(`Sent to ${intent.name} on ${intent.app ?? match.app}: "${intent.message}"`);
+                break;
+              }
+            }
+          }
+        }
+        // 2. Fall back to deep link — pre-fills message but user must tap Send
+        if (Platform.OS === "web") {
+          await respond("Messaging apps can only be opened on a real device.");
+          break;
+        }
+        const encodedMsg = encodeURIComponent(intent.message);
+        let phone: string | undefined;
+        if (intent.name) {
+          phone = await lookupContactPhone(intent.name);
+        }
+        let deepUrl: string;
+        const targetApp = (intent.app ?? "WhatsApp").toLowerCase();
+        if (targetApp === "telegram") {
+          deepUrl = phone
+            ? `tg://msg?to=${phone}&text=${encodedMsg}`
+            : `tg://msg?text=${encodedMsg}`;
+        } else {
+          // WhatsApp
+          deepUrl = phone
+            ? `whatsapp://send?phone=${phone}&text=${encodedMsg}`
+            : `whatsapp://send?text=${encodedMsg}`;
+        }
+        try {
+          await Linking.openURL(deepUrl);
+          const label = intent.name ? ` for ${intent.name}` : "";
+          await respond(
+            `Opening ${intent.app ?? "WhatsApp"} with your message${label} pre-filled — tap Send to deliver it.`
+          );
+        } catch {
+          await respond(`I couldn't open ${intent.app ?? "WhatsApp"} on this device.`);
+        }
+        break;
+      }
+
+      case "setup_notifications": {
+        if (!NativeNotifications.isAvailable) {
+          await respond("Notification access is only available on Android devices.");
+          break;
+        }
+        try {
+          await NativeNotifications.requestPermission();
+          await respond("Opening notification access settings. Please enable it for me, then come back.");
+        } catch {
+          await respond("I couldn't open notification settings. Please enable it manually in Settings > Apps > Special app access > Notification access.");
+        }
+        break;
+      }
     }
   }
 
@@ -795,7 +1197,27 @@ export default function ChatScreen() {
       }
 
       const chatHistory = withUser.map((m) => ({ role: m.role, content: m.content }));
-      const systemPrompt = `You are ${assistantName}, a voice assistant like Siri. Be conversational, warm, and concise. 1-3 sentences max. No markdown.`;
+
+      // Build personality-aware, profile-aware system prompt
+      const personalityText: Record<string, string> = {
+        friendly: "Be warm, supportive, and upbeat.",
+        casual: "Be relaxed and casual. Use informal, everyday language.",
+        professional: "Be formal, precise, and to the point.",
+        witty: "Be clever and add light humor when appropriate.",
+        caring: "Be empathetic, gentle, and attentive to the user's feelings.",
+      };
+      const promptParts: string[] = [
+        `You are ${assistantName}, a voice assistant.`,
+        personalityText[assistantPersonality] ?? personalityText.friendly,
+      ];
+      if (userProfile.userName) promptParts.push(`The user's name is ${userProfile.userName}.`);
+      if (userProfile.age) promptParts.push(`They are ${userProfile.age} years old.`);
+      if (assistantPersonality === "casual" || assistantPersonality === "friendly") {
+        if (userProfile.gender === "male") promptParts.push("Occasionally address them as 'bro'.");
+        else if (userProfile.gender === "female") promptParts.push("Occasionally address them as 'sis'.");
+      }
+      promptParts.push("Keep responses to 1-3 sentences. No markdown.");
+      const systemPrompt = promptParts.join(" ");
 
       const response = await fetch(`${baseUrl}chat`, {
         method: "POST",
@@ -852,7 +1274,7 @@ export default function ChatScreen() {
       setIsStreaming(false);
       setShowTyping(false);
     }
-  }, [input, isStreaming, isSearchMode, messages, assistantName]);
+  }, [input, isStreaming, isSearchMode, messages, assistantName, userProfile, assistantPersonality]);
 
   function handleNewChat() {
     endCallMode();
@@ -884,12 +1306,18 @@ export default function ChatScreen() {
           <View style={[styles.dot, { backgroundColor: isRecording ? colors.destructive : isSpeaking ? colors.accent : colors.success }]} />
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>{assistantName}</Text>
           {isRecording && <Text style={[styles.recLabel, { color: colors.destructive }]}>● {recordingDuration}s</Text>}
-          {isSearchMode && !isRecording && (
+          {isWakeListening && !isRecording && (
+            <View style={[styles.badge, { backgroundColor: colors.primary + "20" }]}>
+              <Ionicons name="ear-outline" size={11} color={colors.primary} />
+              <Text style={[styles.badgeText, { color: colors.primary }]}>Listening</Text>
+            </View>
+          )}
+          {isSearchMode && !isRecording && !isWakeListening && (
             <View style={[styles.badge, { backgroundColor: colors.accent + "20" }]}>
               <Text style={[styles.badgeText, { color: colors.accent }]}>Web</Text>
             </View>
           )}
-          {torchOn && !isRecording && (
+          {torchOn && !isRecording && !isWakeListening && (
             <View style={[styles.badge, { backgroundColor: "#f59e0b20" }]}>
               <Ionicons name="flashlight" size={11} color="#f59e0b" />
               <Text style={[styles.badgeText, { color: "#f59e0b" }]}>Torch</Text>
@@ -936,7 +1364,7 @@ export default function ChatScreen() {
         {messages.length === 0 && !isTranscribing ? (
           /* ── Empty / Voice-first state ── */
           <View style={styles.voiceHome}>
-            <Pressable onPress={isRecording ? stopRecording : startRecording} disabled={isStreaming || isCallMode}>
+            <Pressable onPress={isRecording ? stopRecording : startRecording} disabled={isStreaming || isCallMode || isWakeListening}>
               <SiriOrb isRecording={isRecording} isSpeaking={isSpeaking} colors={colors} />
             </Pressable>
 
@@ -1038,7 +1466,7 @@ export default function ChatScreen() {
                 },
               ]}
               onPress={isRecording ? stopRecording : startRecording}
-              disabled={isStreaming}
+              disabled={isStreaming || isWakeListening}
             >
               {isTranscribing
                 ? <ActivityIndicator size="small" color={colors.primary} />

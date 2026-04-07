@@ -18,14 +18,20 @@
       "bundleIdentifier": "com.boss.assistant",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "Camera access is used to control the flashlight."
+        "NSCameraUsageDescription": "Camera access is used to control the flashlight.",
+        "NSMicrophoneUsageDescription": "Microphone access is used for voice input.",
+        "NSContactsUsageDescription": "Contacts access is used to look up names when making calls or sending messages."
       }
     },
     "android": {
       "package": "com.boss.assistant",
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.FLASHLIGHT"
+        "android.permission.FLASHLIGHT",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CONTACTS",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WRITE_SETTINGS"
       ]
     },
     "web": {
@@ -44,6 +50,18 @@
         "expo-camera",
         {
           "cameraPermission": "Camera access is used to control the flashlight."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Microphone access is used for voice input."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Contacts access is used to look up names when making calls or sending messages."
         }
       ]
     ],

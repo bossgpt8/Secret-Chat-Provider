@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { conversationsTable, messagesTable } from "@workspace/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -79,7 +79,7 @@ router.patch("/conversations/:id", async (req, res) => {
     const [row] = await db
       .update(conversationsTable)
       .set({ title: title.trim(), updatedAt: new Date() })
-      .where(eq(conversationsTable.id, id))
+      .where(and(eq(conversationsTable.id, id), eq(conversationsTable.deviceId, deviceId)))
       .returning();
 
     if (!row) {
@@ -107,7 +107,7 @@ router.delete("/conversations/:id", async (req, res) => {
   try {
     const deleted = await db
       .delete(conversationsTable)
-      .where(eq(conversationsTable.id, id))
+      .where(and(eq(conversationsTable.id, id), eq(conversationsTable.deviceId, deviceId)))
       .returning();
 
     if (deleted.length === 0) {
@@ -133,6 +133,16 @@ router.get("/conversations/:id/messages", async (req, res) => {
   const { id } = req.params;
 
   try {
+    const [conv] = await db
+      .select({ id: conversationsTable.id })
+      .from(conversationsTable)
+      .where(and(eq(conversationsTable.id, id), eq(conversationsTable.deviceId, deviceId)));
+
+    if (!conv) {
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
     const rows = await db
       .select()
       .from(messagesTable)
@@ -172,6 +182,16 @@ router.post("/conversations/:id/messages", async (req, res) => {
   }
 
   try {
+    const [conv] = await db
+      .select({ id: conversationsTable.id })
+      .from(conversationsTable)
+      .where(and(eq(conversationsTable.id, id), eq(conversationsTable.deviceId, deviceId)));
+
+    if (!conv) {
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
     const [row] = await db
       .insert(messagesTable)
       .values({
@@ -188,7 +208,7 @@ router.post("/conversations/:id/messages", async (req, res) => {
     await db
       .update(conversationsTable)
       .set({ updatedAt: new Date() })
-      .where(eq(conversationsTable.id, id));
+      .where(and(eq(conversationsTable.id, id), eq(conversationsTable.deviceId, deviceId)));
 
     res.status(201).json({ message: row ?? null });
   } catch (err) {

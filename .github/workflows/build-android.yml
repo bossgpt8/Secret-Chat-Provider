@@ -12,6 +12,18 @@ on:
           - production
           - preview
           - development
+      architecture:
+        description: "Target ABI architecture (armeabi-v7a+arm64-v8a builds both)"
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - arm64-v8a
+          - armeabi-v7a
+          - x86
+          - x86_64
+          - armeabi-v7a+arm64-v8a
   push:
     tags:
       - "v*"
@@ -66,16 +78,28 @@ jobs:
         working-directory: artifacts/mobile/android
         run: chmod +x ./gradlew
 
+      - name: Resolve ABI flag
+        id: abi
+        run: |
+          ARCH="${{ github.event.inputs.architecture || 'all' }}"
+          if [ "$ARCH" = "all" ]; then
+            echo "flag=" >> "$GITHUB_OUTPUT"
+          elif [ "$ARCH" = "armeabi-v7a+arm64-v8a" ]; then
+            echo "flag=-Pandroid.injected.build.abi=armeabi-v7a,arm64-v8a" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=-Pandroid.injected.build.abi=$ARCH" >> "$GITHUB_OUTPUT"
+          fi
+
       # production → AAB for Play Store;  preview/development → debug APK
       - name: Build AAB (production)
         if: ${{ github.event.inputs.profile == 'production' || github.event_name == 'push' }}
         working-directory: artifacts/mobile/android
-        run: ./gradlew bundleRelease --no-daemon
+        run: ./gradlew bundleRelease --no-daemon ${{ steps.abi.outputs.flag }}
 
       - name: Build APK (preview / development)
         if: ${{ github.event.inputs.profile != 'production' && github.event_name != 'push' }}
         working-directory: artifacts/mobile/android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon ${{ steps.abi.outputs.flag }}
 
       - name: Upload AAB
         if: ${{ github.event.inputs.profile == 'production' || github.event_name == 'push' }}

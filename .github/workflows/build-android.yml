@@ -39,6 +39,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          echo "=== Disk usage before cleanup ==="
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo docker image prune --all --force 2>/dev/null || true
+          echo "=== Disk usage after cleanup ==="
+          df -h
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:

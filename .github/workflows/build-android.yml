@@ -1,19 +1,14 @@
-name: Build Android (Native)
+name: Android Build
 
 on:
+  push:
+    branches:
+      - main
+      - master
   workflow_dispatch:
     inputs:
-      profile:
-        description: Build profile
-        required: true
-        default: production
-        type: choice
-        options:
-          - production
-          - preview
-          - development
       architecture:
-        description: "Target ABI architecture (armeabi-v7a+arm64-v8a builds both)"
+        description: "Target CPU architecture"
         required: false
         default: all
         type: choice
@@ -21,34 +16,20 @@ on:
           - all
           - arm64-v8a
           - armeabi-v7a
+          - armeabi-v7a+arm64-v8a
           - x86
           - x86_64
-          - armeabi-v7a+arm64-v8a
-  push:
-    tags:
-      - "v*"
 
 jobs:
   build:
-    name: Gradle Build
+    name: Build Android APK
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Free disk space
-        run: |
-          echo "=== Disk usage before cleanup ==="
-          df -h
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/.ghcup
-          sudo docker image prune --all --force 2>/dev/null || true
-          echo "=== Disk usage after cleanup ==="
-          df -h
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -58,7 +39,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 20
           cache: pnpm
 
       - name: Setup Java 17
@@ -70,11 +51,35 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run expo prebuild (Android)
+      - name: Generate native Android project
         working-directory: artifacts/mobile
         env:
           EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://secret-chat-provider--israelifeoluwa.replit.app/api' }}
         run: pnpm exec expo prebuild --platform android --clean --non-interactive
+
+      - name: Configure ABI filter
+        env:
+          TARGET_ABI: ${{ github.event.inputs.architecture }}
+        run: |
+          if [ "$TARGET_ABI" = "all" ] || [ -z "$TARGET_ABI" ] || [ "$TARGET_ABI" = "null" ]; then
+            echo "Building universal APK (all architectures)"
+          else
+            python3 - <<'PYEOF'
+          import re, os
+          abi = os.environ['TARGET_ABI']
+          abi_filters = ', '.join(f'"{a}"' for a in abi.split('+'))
+          f = 'artifacts/mobile/android/app/build.gradle'
+          content = open(f).read()
+          content = re.sub(
+              r'(defaultConfig\s*\{)',
+              r'\1\n        ndk { abiFilters ' + abi_filters + ' }',
+              content,
+              count=1,
+          )
+          open(f, 'w').write(content)
+          print(f'ABI filter set to: {abi_filters}')
+          PYEOF
+          fi
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -89,68 +94,51 @@ jobs:
         working-directory: artifacts/mobile/android
         run: chmod +x ./gradlew
 
-      - name: Resolve ABI flag
-        id: abi
+      - name: Decode keystore
         run: |
-          ARCH="${{ github.event.inputs.architecture || 'all' }}"
-          if [ "$ARCH" = "all" ]; then
-            echo "flag=" >> "$GITHUB_OUTPUT"
-          elif [ "$ARCH" = "armeabi-v7a+arm64-v8a" ]; then
-            echo "flag=-Pandroid.injected.build.abi=armeabi-v7a,arm64-v8a" >> "$GITHUB_OUTPUT"
-          else
-            echo "flag=-Pandroid.injected.build.abi=$ARCH" >> "$GITHUB_OUTPUT"
-          fi
-
-      # production → AAB for Play Store;  preview/development → debug APK
-      - name: Build AAB (production)
-        if: ${{ github.event.inputs.profile == 'production' || github.event_name == 'push' }}
-        working-directory: artifacts/mobile/android
-        run: ./gradlew bundleRelease --no-daemon ${{ steps.abi.outputs.flag }}
-
-      - name: Build APK (preview / development)
-        if: ${{ github.event.inputs.profile != 'production' && github.event_name != 'push' }}
-        working-directory: artifacts/mobile/android
-        run: ./gradlew assembleDebug --no-daemon ${{ steps.abi.outputs.flag }}
-
-      - name: Upload AAB
-        if: ${{ github.event.inputs.profile == 'production' || github.event_name == 'push' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-release-aab
-          path: artifacts/mobile/android/app/build/outputs/bundle/release/*.aab
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Find APKs (debug)
-        if: ${{ github.event.inputs.profile != 'production' && github.event_name != 'push' }}
-        run: |
-          echo "=== Searching for APKs under app/build/outputs/ ==="
-          find artifacts/mobile/android/app/build/outputs -name "*.apk" 2>/dev/null || echo "No APK files found under app/build/outputs/"
-          echo "=== outputs/ directory tree ==="
-          find artifacts/mobile/android/app/build/outputs -type f 2>/dev/null | sort || echo "outputs/ directory does not exist"
-
-      - name: Stage APK for upload
-        if: ${{ github.event.inputs.profile != 'production' && github.event_name != 'push' }}
-        run: |
-          mkdir -p /tmp/apk-staging
-          # Locate the debug APK regardless of subdirectory structure (handles AGP product-flavor paths)
-          find artifacts/mobile/android/app/build/outputs -name "*.apk" \
-            ! -name "*androidTest*" \
-            ! -name "*Test*" \
-            ! -name "*test*" \
-            -exec cp {} /tmp/apk-staging/ \;
-          echo "Staged APKs:"
-          ls -lh /tmp/apk-staging/
-          if [ -z "$(ls -A /tmp/apk-staging/)" ]; then
-            echo "::error::No APK found in app/build/outputs after build"
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r' | base64 --decode > artifacts/mobile/android/app/release.keystore
+          if [ ! -s artifacts/mobile/android/app/release.keystore ]; then
+            echo "Error: release.keystore is empty after decoding." >&2
+            echo "Ensure the KEYSTORE_BASE64 repository secret is set and contains a valid base64-encoded keystore." >&2
             exit 1
           fi
+          echo "Keystore decoded successfully ($(wc -c < artifacts/mobile/android/app/release.keystore) bytes)"
 
-      - name: Upload APK
-        if: ${{ github.event.inputs.profile != 'production' && github.event_name != 'push' }}
+      - name: Convert keystore to PKCS12 for Java 17 compatibility
+        run: |
+          keytool -importkeystore \
+            -srckeystore artifacts/mobile/android/app/release.keystore \
+            -srcstorepass "${{ secrets.STORE_PASSWORD }}" \
+            -destkeystore artifacts/mobile/android/app/release.keystore.pkcs12 \
+            -deststoretype PKCS12 \
+            -deststorepass "${{ secrets.STORE_PASSWORD }}" \
+            -destkeypass "${{ secrets.KEY_PASSWORD }}" \
+            -noprompt
+          if [ ! -f artifacts/mobile/android/app/release.keystore.pkcs12 ]; then
+            echo "Error: PKCS12 keystore was not created by keytool" >&2
+            exit 1
+          fi
+          mv artifacts/mobile/android/app/release.keystore.pkcs12 artifacts/mobile/android/app/release.keystore
+
+      - name: Build release APK
+        working-directory: artifacts/mobile/android
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file="$GITHUB_WORKSPACE/artifacts/mobile/android/app/release.keystore" \
+            -Pandroid.injected.signing.store.password="${{ secrets.STORE_PASSWORD }}" \
+            -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}" \
+            -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}"
+
+      - name: Remove sensitive files
+        if: always()
+        run: |
+          rm -f artifacts/mobile/android/app/release.keystore
+          rm -f artifacts/mobile/android/app/release.keystore.pkcs12
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
-          path: /tmp/apk-staging/*.apk
+          name: secret-chat-release-${{ github.event.inputs.architecture || 'all' }}-apk
+          path: artifacts/mobile/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30

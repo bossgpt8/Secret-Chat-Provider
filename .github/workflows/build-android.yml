@@ -112,15 +112,34 @@ jobs:
 
       - name: Find APKs (debug)
         if: ${{ github.event.inputs.profile != 'production' && github.event_name != 'push' }}
-        run: find artifacts/mobile/android/app/build/outputs/apk -name "*.apk" 2>/dev/null || echo "No APK files found under apk/"
+        run: |
+          echo "=== Searching for APKs under app/build/outputs/ ==="
+          find artifacts/mobile/android/app/build/outputs -name "*.apk" 2>/dev/null || echo "No APK files found under app/build/outputs/"
+          echo "=== outputs/ directory tree ==="
+          find artifacts/mobile/android/app/build/outputs -type f 2>/dev/null | sort || echo "outputs/ directory does not exist"
+
+      - name: Stage APK for upload
+        if: ${{ github.event.inputs.profile != 'production' && github.event_name != 'push' }}
+        run: |
+          mkdir -p /tmp/apk-staging
+          # Locate the debug APK regardless of subdirectory structure (handles AGP product-flavor paths)
+          find artifacts/mobile/android/app/build/outputs -name "*.apk" \
+            ! -name "*androidTest*" \
+            ! -name "*Test*" \
+            ! -name "*test*" \
+            -exec cp {} /tmp/apk-staging/ \;
+          echo "Staged APKs:"
+          ls -lh /tmp/apk-staging/
+          if [ -z "$(ls -A /tmp/apk-staging/)" ]; then
+            echo "::error::No APK found in app/build/outputs after build"
+            exit 1
+          fi
 
       - name: Upload APK
         if: ${{ github.event.inputs.profile != 'production' && github.event_name != 'push' }}
         uses: actions/upload-artifact@v4
         with:
           name: android-debug-apk
-          path: |
-            artifacts/mobile/android/app/build/outputs/apk/debug/*.apk
-            artifacts/mobile/android/app/build/outputs/apk/debug/**/*.apk
+          path: /tmp/apk-staging/*.apk
           if-no-files-found: error
           retention-days: 7

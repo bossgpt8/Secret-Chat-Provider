@@ -113,7 +113,7 @@ jobs:
             -destkeystore artifacts/mobile/android/app/release.keystore.pkcs12 \
             -deststoretype PKCS12 \
             -deststorepass "${{ secrets.STORE_PASSWORD }}" \
-            -destkeyalias "${{ secrets.KEY_ALIAS }}" \
+            -destalias "${{ secrets.KEY_ALIAS }}" \
             -destkeypass "${{ secrets.KEY_PASSWORD }}" \
             -noprompt
           if [ ! -f artifacts/mobile/android/app/release.keystore.pkcs12 ]; then

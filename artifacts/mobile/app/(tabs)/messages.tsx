@@ -5,6 +5,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { NativeNotifications, type ZenoNotification } from "@/modules/NativeNotifications";
 
+const MAX_RECENT_MESSAGES = 50;
+
 function formatAge(ts: number): string {
   const diffMs = Date.now() - ts;
   const mins = Math.max(1, Math.floor(diffMs / 60000));
@@ -52,7 +54,7 @@ export default function MessagesScreen() {
   const mergeNotification = useCallback((incoming: ZenoNotification) => {
     setMessages((prev) => {
       const next = [incoming, ...prev.filter((n) => n.key !== incoming.key)];
-      return next.slice(0, 50);
+      return next.slice(0, MAX_RECENT_MESSAGES);
     });
   }, []);
 

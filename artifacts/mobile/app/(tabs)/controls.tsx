@@ -95,7 +95,7 @@ export default function ControlsScreen() {
       await Brightness.setBrightnessAsync(initial);
       brightnessWasAdjustedRef.current = false;
     } catch {
-      // ignore
+      // Safe to ignore: app may be backgrounding/tearing down while restoring.
     }
   }
 
@@ -147,9 +147,6 @@ export default function ControlsScreen() {
         }
         case "bright_up":
         case "bright_down": {
-          if (typeof initialAppBrightnessRef.current !== "number") {
-            initialAppBrightnessRef.current = await Brightness.getBrightnessAsync();
-          }
           const current = await Brightness.getBrightnessAsync();
           const next = ctrl.id === "bright_up"
             ? Math.min(1, current + BRIGHTNESS_STEP)
@@ -179,8 +176,7 @@ export default function ControlsScreen() {
             setLastAction("Volume control is only available on Android.");
             return;
           }
-          const current = await NativeAudioControl.getStatus();
-          const status = await NativeAudioControl.setMuted(!(current?.muted ?? false));
+          const status = await NativeAudioControl.setMuted(!volumeMuted);
           if (!status) {
             setLastAction("Could not change mute state.");
             return;

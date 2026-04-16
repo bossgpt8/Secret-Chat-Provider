@@ -11,12 +11,12 @@ import com.facebook.react.bridge.ReactMethod
 class AudioControlModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
-    companion object {
-        private var lastNonZeroVolume = 5
-    }
+    @Volatile
+    private var lastNonZeroVolume = 5
 
     override fun getName(): String = "AudioControlModule"
 
+    @Synchronized
     @ReactMethod
     fun getStatus(promise: Promise) {
         try {
@@ -26,6 +26,7 @@ class AudioControlModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    @Synchronized
     @ReactMethod
     fun adjust(direction: String, promise: Promise) {
         try {
@@ -47,6 +48,7 @@ class AudioControlModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    @Synchronized
     @ReactMethod
     fun setMuted(muted: Boolean, promise: Promise) {
         try {
@@ -60,7 +62,7 @@ class AudioControlModule(reactContext: ReactApplicationContext) :
                 }
                 am.setStreamVolume(AudioManager.STREAM_MUSIC, 0, AudioManager.FLAG_SHOW_UI)
             } else {
-                val restoreTo = lastNonZeroVolume.coerceIn(1, max.coerceAtLeast(1))
+                val restoreTo = if (max <= 0) 0 else lastNonZeroVolume.coerceIn(1, max)
                 am.setStreamVolume(AudioManager.STREAM_MUSIC, restoreTo, AudioManager.FLAG_SHOW_UI)
             }
 

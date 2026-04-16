@@ -2,7 +2,7 @@ import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-ic
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Brightness from "expo-brightness";
 import * as Haptics from "expo-haptics";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
@@ -31,6 +31,7 @@ const CONTROLS: Control[] = [
 ];
 
 const CATEGORIES = ["Quick", "Audio", "Display"];
+// Delay unmount slightly so camera/torch state settles cleanly across devices.
 const CAMERA_CLEANUP_DELAY_MS = 500;
 const BRIGHTNESS_STEP = 0.25;
 const MIN_BRIGHTNESS = 0.05;
@@ -49,9 +50,28 @@ export default function ControlsScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [busyControlId, setBusyControlId] = useState<string | null>(null);
+  const cameraCleanupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+
+  useEffect(() => {
+    return () => {
+      if (cameraCleanupTimeoutRef.current) {
+        clearTimeout(cameraCleanupTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  function scheduleCameraCleanup() {
+    if (cameraCleanupTimeoutRef.current) {
+      clearTimeout(cameraCleanupTimeoutRef.current);
+    }
+    cameraCleanupTimeoutRef.current = setTimeout(() => {
+      setCameraReady(false);
+      cameraCleanupTimeoutRef.current = null;
+    }, CAMERA_CLEANUP_DELAY_MS);
+  }
 
   function isSupportedControl(controlId: string): boolean {
     return controlId === "flashlight" || controlId === "bright_up" || controlId === "bright_down" || controlId === "lock";
@@ -74,7 +94,7 @@ export default function ControlsScreen() {
           const next = !torchOn;
           setTorchOn(next);
           if (next) setCameraReady(true);
-          else setTimeout(() => setCameraReady(false), CAMERA_CLEANUP_DELAY_MS);
+          else scheduleCameraCleanup();
           setLastAction(`Flashlight turned ${next ? "ON" : "OFF"}.`);
           return;
         }
@@ -93,7 +113,7 @@ export default function ControlsScreen() {
             setLastAction("Screen lock control is only available on Android.");
             return;
           }
-          const isAdmin = await NativeScreenLock.isAdminEnabled().catch(() => false);
+          const isAdmin = await NativeScreenLock.isAdminEnabled();
           if (!isAdmin) {
             await NativeScreenLock.requestAdmin();
             setLastAction("Please grant Device Administrator permission, then try again.");

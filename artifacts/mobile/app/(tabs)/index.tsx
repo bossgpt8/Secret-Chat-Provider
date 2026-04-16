@@ -1285,7 +1285,8 @@ export default function ChatScreen() {
 
       setMessages((finalMsgs) => { saveMessages(convId, finalMsgs); return finalMsgs; });
       speakText(fullContent);
-    } catch {
+    } catch (error) {
+      console.warn("Chat send failed", error);
       setShowTyping(false);
       setMessages((prev) => [...prev, { id: generateMsgId(), role: "assistant", content: "Sorry, something went wrong. Please try again.", timestamp: Date.now() }]);
     } finally {

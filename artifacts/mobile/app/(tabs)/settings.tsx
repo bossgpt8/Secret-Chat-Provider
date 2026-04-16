@@ -21,6 +21,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, type TtsProvider, type ThemeOverride } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
+import { NativeAccessibility } from "@/modules/NativeAccessibility";
 import { NativeNotifications } from "@/modules/NativeNotifications";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
@@ -168,11 +169,11 @@ export default function SettingsScreen() {
       updates.contacts = toPermStatus(status);
     } catch { /* leave default */ }
 
-    // Notification listener / Accessibility
+    // Accessibility Service
     try {
-      if (NativeNotifications.isAvailable) {
-        const granted = await NativeNotifications.hasPermission();
-        updates.accessibility = granted ? "granted" : "unavailable";
+      if (NativeAccessibility.isAvailable) {
+        const enabled = await NativeAccessibility.isEnabled();
+        updates.accessibility = enabled ? "granted" : "unavailable";
       }
     } catch { /* leave default */ }
 
@@ -281,7 +282,7 @@ export default function SettingsScreen() {
       } else if (permId === "contacts") {
         await Contacts.requestPermissionsAsync();
       } else if (permId === "accessibility") {
-        await NativeNotifications.requestPermission();
+        await NativeAccessibility.requestEnable();
       } else if (permId === "device_admin") {
         await NativeScreenLock.requestAdmin();
       } else if (permId === "write_settings") {

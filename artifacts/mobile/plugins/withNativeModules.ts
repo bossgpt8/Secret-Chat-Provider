@@ -1,16 +1,18 @@
 /**
- * Expo config plugin that wires up three custom Android native modules:
+ * Expo config plugin that wires up four custom Android native modules:
  *
  *  1. SystemPermissionsModule  – check / request WRITE_SETTINGS and SYSTEM_ALERT_WINDOW
  *  2. ScreenLockModule         – check / request Device Administrator, lock screen
  *  3. NotificationListenerModule – check / request Notification Listener access,
  *                                  read / reply to / dismiss notifications
+ *  4. AccessibilityModule      – check / request AccessibilityService, read recent events
  *
  * What this plugin does during `expo prebuild`:
  *  • Copies Kotlin source files from plugins/kotlin/ into the generated Android project.
- *  • Copies device_admin.xml resource from plugins/xml/ into res/xml/.
- *  • Adds the NotificationListenerService and DeviceAdminReceiver entries to AndroidManifest.xml.
- *  • Registers the three ReactPackages in MainApplication.kt.
+ *  • Copies XML resources from plugins/xml/ into res/xml/.
+ *  • Adds the NotificationListenerService, AccessibilityService, and DeviceAdminReceiver
+ *    entries to AndroidManifest.xml.
+ *  • Registers the four ReactPackages in MainApplication.kt.
  */
 
 import {
@@ -38,6 +40,9 @@ const KOTLIN_FILES = [
   "NotificationListenerModule.kt",
   "NotificationListenerPackage.kt",
   "ZenoNotificationService.kt",
+  "AccessibilityModule.kt",
+  "AccessibilityPackage.kt",
+  "ZenoAccessibilityService.kt",
 ];
 
 /** Resolves the com.boss.assistant java source directory inside the android project. */
@@ -68,12 +73,16 @@ const withKotlinSources: ConfigPlugin = (config) =>
         fs.copyFileSync(path.join(KOTLIN_SRC_DIR, file), path.join(dest, file));
       }
 
-      // device_admin.xml
+      // device_admin.xml + accessibility_service_config.xml
       const resDir = xmlResDir(root);
       fs.mkdirSync(resDir, { recursive: true });
       fs.copyFileSync(
         path.join(XML_SRC_DIR, "device_admin.xml"),
         path.join(resDir, "device_admin.xml")
+      );
+      fs.copyFileSync(
+        path.join(XML_SRC_DIR, "accessibility_service_config.xml"),
+        path.join(resDir, "accessibility_service_config.xml")
       );
 
       return config;
@@ -115,6 +124,40 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
                 },
               },
             ],
+          },
+        ],
+      });
+    }
+
+    // ── AccessibilityService ──────────────────────────────────────────────
+    const accessibilityServiceExists = (
+      app.service as Array<{ $?: Record<string, string> }>
+    ).some((s) => s.$?.["android:name"] === ".ZenoAccessibilityService");
+    if (!accessibilityServiceExists) {
+      app.service.push({
+        $: {
+          "android:name": ".ZenoAccessibilityService",
+          "android:label": "Zeno Assistant",
+          "android:permission": "android.permission.BIND_ACCESSIBILITY_SERVICE",
+          "android:exported": "true",
+        },
+        "intent-filter": [
+          {
+            action: [
+              {
+                $: {
+                  "android:name": "android.accessibilityservice.AccessibilityService",
+                },
+              },
+            ],
+          },
+        ],
+        "meta-data": [
+          {
+            $: {
+              "android:name": "android.accessibilityservice",
+              "android:resource": "@xml/accessibility_service_config",
+            },
           },
         ],
       });
@@ -167,6 +210,7 @@ const PACKAGES = [
   "SystemPermissionsPackage()",
   "ScreenLockPackage()",
   "NotificationListenerPackage()",
+  "AccessibilityPackage()",
 ];
 
 /** Marker inserted to detect that our packages have already been added (idempotency). */

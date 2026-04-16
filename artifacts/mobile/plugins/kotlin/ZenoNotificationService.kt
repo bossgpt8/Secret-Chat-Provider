@@ -37,6 +37,9 @@ class ZenoNotificationService : NotificationListenerService() {
         val recentNotifications = CopyOnWriteArrayList<NotificationData>()
         private const val MAX_RECENT = 50
         private const val TAG = "ZenoNotificationService"
+
+        /** Set by NotificationListenerModule to receive live events in React Native. */
+        @Volatile var onNotificationPostedCallback: ((NotificationData) -> Unit)? = null
     }
 
     override fun onCreate() {
@@ -55,6 +58,7 @@ class ZenoNotificationService : NotificationListenerService() {
         if (recentNotifications.size > MAX_RECENT) {
             recentNotifications.removeAt(recentNotifications.size - 1)
         }
+        onNotificationPostedCallback?.invoke(data)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {}

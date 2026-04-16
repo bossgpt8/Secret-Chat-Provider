@@ -7,11 +7,27 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.WritableMap
+import com.facebook.react.modules.core.DeviceEventManagerModule
 
 class NotificationListenerModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
+    init {
+        ZenoNotificationService.onNotificationPostedCallback = { data ->
+            sendEvent("onZenoNotification", data.toWritableMap())
+        }
+    }
+
     override fun getName(): String = "NotificationListenerModule"
+
+    private fun sendEvent(eventName: String, params: WritableMap?) {
+        try {
+            reactApplicationContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit(eventName, params)
+        } catch (_: Exception) {}
+    }
 
     @ReactMethod
     fun hasPermission(promise: Promise) {

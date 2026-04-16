@@ -1226,43 +1226,61 @@ export default function ChatScreen() {
       });
 
       if (!response.ok) throw new Error("Chat failed");
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No stream");
 
-      const decoder = new TextDecoder();
-      let buf = "";
-      let fullContent = "";
-      let assistantId = generateMsgId();
-      let added = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
+      const parseSseChunk = (chunk: string): string => {
+        let out = "";
+        const lines = chunk.split("\n");
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") continue;
+          const data = line.slice(6).trim();
+          if (!data || data === "[DONE]") continue;
           try {
-            const parsed = JSON.parse(data) as { content?: string };
-            if (parsed.content) {
-              fullContent += parsed.content;
-              if (!added) {
-                setShowTyping(false);
-                setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: fullContent, timestamp: Date.now() }]);
-                added = true;
-              } else {
-                setMessages((prev) => {
-                  const u = [...prev];
-                  u[u.length - 1] = { ...u[u.length - 1], content: fullContent };
-                  return u;
-                });
-              }
-            }
-          } catch { /* skip */ }
+            const parsed = JSON.parse(data) as { content?: string; error?: string };
+            if (parsed.content) out += parsed.content;
+            else if (parsed.error) out += parsed.error;
+          } catch { /* skip malformed lines */ }
         }
+        return out;
+      };
+
+      const reader = response.body?.getReader();
+      let fullContent = "";
+      const assistantId = generateMsgId();
+      let added = false;
+
+      if (!reader) {
+        fullContent = parseSseChunk(await response.text());
+      } else {
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          const delta = parseSseChunk(lines.join("\n"));
+          if (!delta) continue;
+          fullContent += delta;
+          if (!added) {
+            setShowTyping(false);
+            setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: fullContent, timestamp: Date.now() }]);
+            added = true;
+          } else {
+            setMessages((prev) => {
+              const u = [...prev];
+              u[u.length - 1] = { ...u[u.length - 1], content: fullContent };
+              return u;
+            });
+          }
+        }
+        if (buf) fullContent += parseSseChunk(buf);
+      }
+
+      if (!fullContent.trim()) throw new Error("Empty response");
+      if (!added) {
+        setShowTyping(false);
+        setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: fullContent, timestamp: Date.now() }]);
       }
 
       setMessages((finalMsgs) => { saveMessages(convId, finalMsgs); return finalMsgs; });

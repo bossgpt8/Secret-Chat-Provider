@@ -8,6 +8,7 @@ import { fetch } from "expo/fetch";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -20,6 +21,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, type TtsProvider, type ThemeOverride } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
+import { NativeAccessibility } from "@/modules/NativeAccessibility";
 import { NativeNotifications } from "@/modules/NativeNotifications";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
@@ -121,6 +123,16 @@ export default function SettingsScreen() {
     refreshPermissions();
   }, []);
 
+  // Re-check permissions whenever the app returns to the foreground (e.g. after
+  // the user grants write-settings / overlay in system settings and comes back).
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshPermissions();
+    });
+    return () => sub.remove();
+  }, []);
+
   // Sync camera permission state from the hook whenever it changes
   useEffect(() => {
     if (!cameraPermission) return;
@@ -157,11 +169,11 @@ export default function SettingsScreen() {
       updates.contacts = toPermStatus(status);
     } catch { /* leave default */ }
 
-    // Notification listener / Accessibility
+    // Accessibility Service
     try {
-      if (NativeNotifications.isAvailable) {
-        const granted = await NativeNotifications.hasPermission();
-        updates.accessibility = granted ? "granted" : "unavailable";
+      if (NativeAccessibility.isAvailable) {
+        const enabled = await NativeAccessibility.isEnabled();
+        updates.accessibility = enabled ? "granted" : "unavailable";
       }
     } catch { /* leave default */ }
 
@@ -205,8 +217,15 @@ export default function SettingsScreen() {
 
   async function loadElVoices() {
     try {
-      const envUrl = process.env.EXPO_PUBLIC_API_URL;
-      const base = envUrl ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`) : "/api/";
+      // Priority: user-configured URL → build-time env var → web relative fallback
+      let base: string;
+      if (customApiUrl && customApiUrl.trim()) {
+        const u = customApiUrl.trim();
+        base = u.endsWith("/") ? u : `${u}/`;
+      } else {
+        const envUrl = process.env.EXPO_PUBLIC_API_URL;
+        base = envUrl ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`) : "/api/";
+      }
       const r = await fetch(`${base}tts/voices`);
       if (r.ok) {
         const data = await r.json() as { voices: ElVoice[] };
@@ -229,6 +248,8 @@ export default function SettingsScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await setCustomApiUrl(trimmed || null);
     setEditingApiUrl(false);
+    // Reload ElevenLabs voices using the new API base
+    loadElVoices();
   }
 
   function handleClearHistory() {
@@ -270,7 +291,7 @@ export default function SettingsScreen() {
       } else if (permId === "contacts") {
         await Contacts.requestPermissionsAsync();
       } else if (permId === "accessibility") {
-        await NativeNotifications.requestPermission();
+        await NativeAccessibility.requestEnable();
       } else if (permId === "device_admin") {
         await NativeScreenLock.requestAdmin();
       } else if (permId === "write_settings") {

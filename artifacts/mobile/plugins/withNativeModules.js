@@ -14,6 +14,8 @@ const KOTLIN_SRC_DIR = path.join(__dirname, "kotlin");
 const XML_SRC_DIR = path.join(__dirname, "xml");
 
 const KOTLIN_FILES = [
+  "AudioControlModule.kt",
+  "AudioControlPackage.kt",
   "SystemPermissionsModule.kt",
   "SystemPermissionsPackage.kt",
   "ScreenLockModule.kt",
@@ -167,6 +169,7 @@ const withAndroidManifestEntries = (config) =>
   });
 
 const PACKAGES = [
+  "AudioControlPackage()",
   "SystemPermissionsPackage()",
   "ScreenLockPackage()",
   "NotificationListenerPackage()",

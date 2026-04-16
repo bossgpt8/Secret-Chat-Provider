@@ -14,6 +14,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -46,7 +47,8 @@ const PERMISSIONS: Permission[] = [
   { id: "internet", label: "Internet", description: "API calls to Groq / Tavily / ElevenLabs", icon: "globe-outline" },
   { id: "camera", label: "Camera / Flashlight", description: "Flashlight control", icon: "flashlight-outline" },
   { id: "contacts", label: "Contacts", description: "Look up contacts by name for calls & SMS", icon: "people-outline" },
-  { id: "accessibility", label: "Accessibility Service", description: "Read WhatsApp & SMS messages", icon: "eye-outline" },
+  { id: "notification_listener", label: "Notification Access", description: "Read incoming messages from app notifications", icon: "notifications-outline" },
+  { id: "accessibility", label: "Accessibility Service", description: "Read app screen text for assistant automation", icon: "eye-outline" },
   { id: "device_admin", label: "Device Administrator", description: "Lock phone via voice", icon: "shield-outline" },
   { id: "write_settings", label: "Modify System Settings", description: "Control screen brightness & audio", icon: "settings-outline" },
   { id: "overlay", label: "Display Over Other Apps", description: "Show assistant overlay on top of apps", icon: "layers-outline" },
@@ -57,6 +59,7 @@ const DEFAULT_PERM_STATUSES: Record<string, PermStatus> = {
   internet: "granted",
   camera: "unavailable",
   contacts: "unavailable",
+  notification_listener: "unavailable",
   accessibility: "unavailable",
   device_admin: "unavailable",
   write_settings: "unavailable",
@@ -95,6 +98,7 @@ export default function SettingsScreen() {
     ttsProvider, setTtsProvider,
     themeOverride, setThemeOverride,
     customApiUrl, setCustomApiUrl,
+    readIncomingEnabled, setReadIncomingEnabled,
   } = useAssistant();
 
   const [editingName, setEditingName] = useState(false);
@@ -174,6 +178,14 @@ export default function SettingsScreen() {
       if (NativeAccessibility.isAvailable) {
         const enabled = await NativeAccessibility.isEnabled();
         updates.accessibility = enabled ? "granted" : "unavailable";
+      }
+    } catch { /* leave default */ }
+
+    // Notification listener access
+    try {
+      if (NativeNotifications.isAvailable) {
+        const enabled = await NativeNotifications.hasPermission();
+        updates.notification_listener = enabled ? "granted" : "unavailable";
       }
     } catch { /* leave default */ }
 
@@ -294,6 +306,8 @@ export default function SettingsScreen() {
         await Contacts.requestPermissionsAsync();
       } else if (permId === "accessibility") {
         await NativeAccessibility.requestEnable();
+      } else if (permId === "notification_listener") {
+        await NativeNotifications.requestPermission();
       } else if (permId === "device_admin") {
         await NativeScreenLock.requestAdmin();
       } else if (permId === "write_settings") {
@@ -587,6 +601,28 @@ export default function SettingsScreen() {
               )}
             </>
           )}
+        </Section>
+
+        {/* ── Notifications ── */}
+        <Section title="Notifications">
+          <View style={[styles.row, { borderBottomColor: colors.border }]}>
+            <Ionicons name="volume-medium-outline" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Read Incoming Messages</Text>
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+                Speak incoming notifications aloud using the assistant's voice. Requires notification access.
+              </Text>
+            </View>
+            <Switch
+              value={readIncomingEnabled}
+              onValueChange={async (v) => {
+                await setReadIncomingEnabled(v);
+                Haptics.selectionAsync();
+              }}
+              trackColor={{ false: colors.muted, true: colors.primary + "80" }}
+              thumbColor={readIncomingEnabled ? colors.primary : colors.mutedForeground}
+            />
+          </View>
         </Section>
 
         {/* ── Permissions ── */}

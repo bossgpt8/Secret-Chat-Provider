@@ -12,6 +12,7 @@ const CUSTOM_API_URL_KEY = "@zeno_custom_api_url";
 const USER_PROFILE_KEY = "@zeno_user_profile";
 const PERSONALITY_KEY = "@zeno_personality";
 const WAKE_WORD_KEY = "@zeno_wake_word";
+const READ_INCOMING_KEY = "@zeno_read_incoming";
 
 export type TtsProvider = "elevenlabs" | "phone";
 export type ThemeOverride = "system" | "dark" | "light";
@@ -71,6 +72,8 @@ interface AssistantContextType {
   setAssistantPersonality: (p: AssistantPersonality) => Promise<void>;
   wakeWordEnabled: boolean;
   setWakeWordEnabled: (v: boolean) => Promise<void>;
+  readIncomingEnabled: boolean;
+  setReadIncomingEnabled: (v: boolean) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -96,6 +99,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [userProfile, setUserProfileState] = useState<UserProfile>(DEFAULT_USER_PROFILE);
   const [assistantPersonality, setAssistantPersonalityState] = useState<AssistantPersonality>("friendly");
   const [wakeWordEnabled, setWakeWordEnabledState] = useState(false);
+  const [readIncomingEnabled, setReadIncomingEnabledState] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -105,7 +109,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs
     const timeoutId = setTimeout(() => setIsLoading(false), 5000);
     try {
-      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord] = await Promise.all([
+      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
@@ -117,6 +121,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(USER_PROFILE_KEY),
         AsyncStorage.getItem(PERSONALITY_KEY),
         AsyncStorage.getItem(WAKE_WORD_KEY),
+        AsyncStorage.getItem(READ_INCOMING_KEY),
       ]);
       if (name) { setAssistantNameState(name); setIsOnboarded(true); }
       if (convsRaw) setConversations(JSON.parse(convsRaw));
@@ -129,6 +134,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (profileRaw) { try { setUserProfileState(JSON.parse(profileRaw)); } catch { /* ignore */ } }
       if (personality === "friendly" || personality === "casual" || personality === "professional" || personality === "witty" || personality === "caring") setAssistantPersonalityState(personality);
       if (wakeWord === "true") setWakeWordEnabledState(true);
+      if (readIncoming === "true") setReadIncomingEnabledState(true);
     } catch {
       // ignore
     } finally {
@@ -195,6 +201,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setWakeWordEnabledState(v);
   }
 
+  async function setReadIncomingEnabled(v: boolean) {
+    await AsyncStorage.setItem(READ_INCOMING_KEY, String(v));
+    setReadIncomingEnabledState(v);
+  }
+
   function createConversation(): string {
     const id = `conv-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const now = Date.now();
@@ -248,6 +259,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         userProfile, setUserProfile,
         assistantPersonality, setAssistantPersonality,
         wakeWordEnabled, setWakeWordEnabled,
+        readIncomingEnabled, setReadIncomingEnabled,
       }}
     >
       {children}

@@ -1,18 +1,19 @@
 /**
- * Expo config plugin that wires up four custom Android native modules:
+ * Expo config plugin that wires up custom Android native modules:
  *
- *  1. SystemPermissionsModule  – check / request WRITE_SETTINGS and SYSTEM_ALERT_WINDOW
- *  2. ScreenLockModule         – check / request Device Administrator, lock screen
- *  3. NotificationListenerModule – check / request Notification Listener access,
+ *  1. AudioControlModule       – read/adjust media volume
+ *  2. SystemPermissionsModule  – check / request WRITE_SETTINGS and SYSTEM_ALERT_WINDOW
+ *  3. ScreenLockModule         – check / request Device Administrator, lock screen
+ *  4. NotificationListenerModule – check / request Notification Listener access,
  *                                  read / reply to / dismiss notifications
- *  4. AccessibilityModule      – check / request AccessibilityService, read recent events
+ *  5. AccessibilityModule      – check / request AccessibilityService, read recent events
  *
  * What this plugin does during `expo prebuild`:
  *  • Copies Kotlin source files from plugins/kotlin/ into the generated Android project.
  *  • Copies XML resources from plugins/xml/ into res/xml/.
  *  • Adds the NotificationListenerService, AccessibilityService, and DeviceAdminReceiver
  *    entries to AndroidManifest.xml.
- *  • Registers the four ReactPackages in MainApplication.kt.
+ *  • Registers the ReactPackages in MainApplication.kt.
  */
 
 import {
@@ -32,6 +33,8 @@ const KOTLIN_SRC_DIR = path.join(__dirname, "kotlin");
 const XML_SRC_DIR = path.join(__dirname, "xml");
 
 const KOTLIN_FILES = [
+  "AudioControlModule.kt",
+  "AudioControlPackage.kt",
   "SystemPermissionsModule.kt",
   "SystemPermissionsPackage.kt",
   "ScreenLockModule.kt",
@@ -207,6 +210,7 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
 // ---------------------------------------------------------------------------
 
 const PACKAGES = [
+  "AudioControlPackage()",
   "SystemPermissionsPackage()",
   "ScreenLockPackage()",
   "NotificationListenerPackage()",

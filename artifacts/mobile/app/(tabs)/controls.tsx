@@ -31,6 +31,9 @@ const CONTROLS: Control[] = [
 ];
 
 const CATEGORIES = ["Quick", "Audio", "Display"];
+const CAMERA_CLEANUP_DELAY_MS = 500;
+const BRIGHTNESS_STEP = 0.25;
+const MIN_BRIGHTNESS = 0.05;
 
 function ControlIcon({ control, color, size }: { control: Control; color: string; size: number }) {
   if (control.iconSet === "ionicons") return <Ionicons name={control.icon as "mic"} size={size} color={color} />;
@@ -71,14 +74,16 @@ export default function ControlsScreen() {
           const next = !torchOn;
           setTorchOn(next);
           if (next) setCameraReady(true);
-          else setTimeout(() => setCameraReady(false), 500);
+          else setTimeout(() => setCameraReady(false), CAMERA_CLEANUP_DELAY_MS);
           setLastAction(`Flashlight turned ${next ? "ON" : "OFF"}.`);
           return;
         }
         case "bright_up":
         case "bright_down": {
           const current = await Brightness.getBrightnessAsync();
-          const next = ctrl.id === "bright_up" ? Math.min(1, current + 0.25) : Math.max(0.05, current - 0.25);
+          const next = ctrl.id === "bright_up"
+            ? Math.min(1, current + BRIGHTNESS_STEP)
+            : Math.max(MIN_BRIGHTNESS, current - BRIGHTNESS_STEP);
           await Brightness.setBrightnessAsync(next);
           setLastAction(`Screen brightness set to ${Math.round(next * 100)}%.`);
           return;

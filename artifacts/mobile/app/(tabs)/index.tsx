@@ -1277,7 +1277,7 @@ export default function ChatScreen() {
         if (buf) fullContent += parseSseChunk(buf);
       }
 
-      if (!fullContent.trim()) throw new Error("Empty response");
+      if (!fullContent.trim()) throw new Error("No response received from chat service.");
       if (!added) {
         setShowTyping(false);
         setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: fullContent, timestamp: Date.now() }]);

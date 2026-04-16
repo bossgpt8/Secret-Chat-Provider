@@ -1,42 +1,44 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
-import { NativeNotifications, type ZenoNotification } from "@/modules/NativeNotifications";
+import { NativeNotifications, ZenoNotification } from "@/modules/NativeNotifications";
 
-const MAX_RECENT_MESSAGES = 50;
+const APP_META: Record<string, { name: string; color: string; icon: string }> = {
+  "com.whatsapp":                        { name: "WhatsApp",  color: "#25D366", icon: "logo-whatsapp" },
+  "com.whatsapp.w4b":                    { name: "WhatsApp Business", color: "#25D366", icon: "logo-whatsapp" },
+  "com.google.android.apps.messaging":   { name: "Messages",  color: "#4285F4", icon: "chatbubble-ellipses" },
+  "com.android.mms":                     { name: "SMS",       color: "#4285F4", icon: "chatbubble-ellipses" },
+  "com.samsung.android.messaging":       { name: "Messages",  color: "#1428A0", icon: "chatbubble-ellipses" },
+  "org.telegram.messenger":             { name: "Telegram",  color: "#2AABEE", icon: "paper-plane" },
+  "com.instagram.android":              { name: "Instagram", color: "#E1306C", icon: "logo-instagram" },
+  "com.facebook.orca":                  { name: "Messenger", color: "#0084FF", icon: "chatbubbles" },
+  "com.google.android.gm":              { name: "Gmail",     color: "#EA4335", icon: "mail" },
+  "com.snapchat.android":               { name: "Snapchat",  color: "#FFFC00", icon: "camera" },
+  "com.twitter.android":                { name: "Twitter",   color: "#1DA1F2", icon: "logo-twitter" },
+  "com.discord":                        { name: "Discord",   color: "#5865F2", icon: "chatbubbles" },
+};
 
-function formatAge(ts: number): string {
-  const diffMs = Date.now() - ts;
-  const mins = Math.max(1, Math.floor(diffMs / 60000));
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+function getAppMeta(pkg: string, defaultName: string) {
+  return APP_META[pkg] ?? { name: defaultName || pkg, color: "#6366f1", icon: "notifications-outline" };
 }
 
-function appLabel(n: ZenoNotification): string {
-  if (n.app && !n.app.includes(".")) return n.app;
-  const pkg = n.packageName || n.app;
-  if (pkg.includes("whatsapp")) return "WhatsApp";
-  if (pkg.includes("messaging") || pkg.includes("sms")) return "SMS";
-  if (pkg.includes("telegram")) return "Telegram";
-  if (pkg.includes("messenger")) return "Messenger";
-  return pkg || "Unknown app";
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function AppIcon({ label, colors }: { label: string; colors: ReturnType<typeof useColors> }) {
-  const normalized = label.toLowerCase();
-  const isWA = normalized.includes("whatsapp");
+function AppIcon({ pkg, appName, colors }: { pkg: string; appName: string; colors: ReturnType<typeof useColors> }) {
+  const meta = getAppMeta(pkg, appName);
+  const iconColor = meta.color === "#FFFC00" ? "#000" : "#fff";
   return (
-    <View style={[styles.appIcon, { backgroundColor: isWA ? "#25D366" : colors.secondary }]}>
-      <Ionicons
-        name={isWA ? "logo-whatsapp" : "chatbubble-ellipses"}
-        size={16}
-        color={isWA ? "#fff" : colors.primary}
-      />
+    <View style={[styles.appIcon, { backgroundColor: meta.color }]}>
+      <Ionicons name={meta.icon as "mic"} size={16} color={iconColor} />
     </View>
   );
 }
@@ -44,122 +46,186 @@ function AppIcon({ label, colors }: { label: string; colors: ReturnType<typeof u
 export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [permissionGranted, setPermissionGranted] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [messages, setMessages] = useState<ZenoNotification[]>([]);
-
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const mergeNotification = useCallback((incoming: ZenoNotification) => {
-    setMessages((prev) => {
-      const next = [incoming, ...prev.filter((n) => n.key !== incoming.key)];
-      return next.slice(0, MAX_RECENT_MESSAGES);
-    });
-  }, []);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [notifications, setNotifications] = useState<ZenoNotification[]>([]);
+  const [loading, setLoading] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const refresh = useCallback(async () => {
+  async function checkPermissionAndLoad() {
     if (!NativeNotifications.isAvailable) {
-      setLoading(false);
+      setHasPermission(false);
       return;
     }
-    const hasPermission = await NativeNotifications.hasPermission().catch(() => false);
-    setPermissionGranted(hasPermission);
-    if (!hasPermission) {
-      setMessages([]);
-      setLoading(false);
-      return;
+    const granted = await NativeNotifications.hasPermission();
+    setHasPermission(granted);
+    if (granted) {
+      await loadNotifications();
     }
-    const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
-    recent.sort((a, b) => b.timestamp - a.timestamp);
-    setMessages(recent);
-    setLoading(false);
-  }, []);
+  }
 
-  useEffect(() => {
-    void refresh();
-    if (!NativeNotifications.isAvailable) return;
-    const unsub = NativeNotifications.onNotification(mergeNotification);
-    return () => unsub();
-  }, [mergeNotification, refresh]);
+  async function loadNotifications() {
+    setLoading(true);
+    try {
+      const items = await NativeNotifications.getRecent();
+      const filtered = items.filter((n) => n.sender?.trim() || n.text?.trim());
+      setNotifications(filtered);
+    } catch (e) {
+      console.warn("getRecent error", e);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const groupedCountLabel = useMemo(() => `${messages.length} recent`, [messages.length]);
+  useFocusEffect(
+    useCallback(() => {
+      checkPermissionAndLoad();
+
+      if (NativeNotifications.isAvailable) {
+        pollRef.current = setInterval(() => {
+          if (hasPermission) loadNotifications();
+        }, 5000);
+      }
+
+      const unsub = NativeNotifications.onNotification((n) => {
+        setNotifications((prev) => {
+          const filtered = prev.filter((p) => p.key !== n.key);
+          return [n, ...filtered].slice(0, 50);
+        });
+      });
+
+      return () => {
+        if (pollRef.current) clearInterval(pollRef.current);
+        unsub();
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasPermission])
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Messages</Text>
+        {hasPermission && notifications.length > 0 && (
+          <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+            <Text style={[styles.badgeText, { color: colors.primaryForeground }]}>{notifications.length}</Text>
+          </View>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 80 }]} showsVerticalScrollIndicator={false}>
-        {!NativeNotifications.isAvailable ? (
+
+        {/* ── Not on Android ─────────────────────────────────────────── */}
+        {Platform.OS !== "android" && (
           <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border, borderLeftColor: colors.primary }]}>
-            <Ionicons name="information-circle" size={18} color={colors.primary} />
+            <Ionicons name="phone-portrait-outline" size={18} color={colors.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Android Only</Text>
+              <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Android only</Text>
               <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
-                Real incoming app messages require the Android notification listener service.
+                Notification interception is only available in the Android APK. Install the APK on your device and grant Notification Access.
               </Text>
             </View>
           </View>
-        ) : !permissionGranted ? (
-          <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border, borderLeftColor: colors.primary }]}>
-            <Ionicons name="notifications-outline" size={18} color={colors.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Enable Notification Access</Text>
-              <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
-                Turn on notification access to see real incoming messages from apps here.
-              </Text>
-              <View style={styles.noticeButtons}>
-                <Pressable
-                  style={[styles.noticeBtn, { backgroundColor: colors.primary }]}
-                  onPress={async () => {
-                    await NativeNotifications.requestPermission();
-                    setTimeout(() => void refresh(), 800);
-                  }}
-                >
-                  <Text style={styles.noticeBtnText}>Open Settings</Text>
-                </Pressable>
-                <Pressable style={[styles.noticeBtnSecondary, { borderColor: colors.border }]} onPress={() => void refresh()}>
-                  <Text style={[styles.noticeBtnSecondaryText, { color: colors.foreground }]}>Refresh</Text>
-                </Pressable>
+        )}
+
+        {/* ── Permission not granted ─────────────────────────────────── */}
+        {Platform.OS === "android" && hasPermission === false && (
+          <>
+            <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border, borderLeftColor: "#f59e0b" }]}>
+              <Ionicons name="notifications-off-outline" size={18} color="#f59e0b" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Notification Access needed</Text>
+                <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
+                  Grant Notification Access so Zeno can read your incoming messages from WhatsApp, SMS, and other apps.
+                </Text>
               </View>
             </View>
-          </View>
-        ) : (
-          <>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Incoming</Text>
-              <Text style={[styles.countText, { color: colors.mutedForeground }]}>{groupedCountLabel}</Text>
-            </View>
-            {loading ? (
-              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>Loading…</Text>
-            ) : messages.length === 0 ? (
-              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No recent messages yet.</Text>
-            ) : (
-              messages.map((msg) => {
-                const label = appLabel(msg);
-                const sender = msg.sender?.trim() || label;
-                const preview = msg.text?.trim() || "(No preview text)";
-                return (
-                  <View key={msg.key} style={[styles.msgCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <AppIcon label={label} colors={colors} />
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.msgTop}>
-                        <Text style={[styles.sender, { color: colors.foreground }]} numberOfLines={1}>{sender}</Text>
-                        <Text style={[styles.time, { color: colors.mutedForeground }]}>{formatAge(msg.timestamp)}</Text>
-                      </View>
-                      <Text style={[styles.preview, { color: colors.mutedForeground }]} numberOfLines={2}>
-                        {preview}
-                      </Text>
-                      <Text style={[styles.appName, { color: colors.primary }]} numberOfLines={1}>{label}</Text>
-                    </View>
+            <Pressable
+              style={[styles.grantBtn, { backgroundColor: colors.primary }]}
+              onPress={async () => {
+                await NativeNotifications.requestPermission();
+                setTimeout(checkPermissionAndLoad, 1500);
+              }}
+            >
+              <Ionicons name="settings-outline" size={16} color={colors.primaryForeground} />
+              <Text style={[styles.grantBtnText, { color: colors.primaryForeground }]}>Grant Notification Access</Text>
+            </Pressable>
+            <View style={[styles.stepsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              {[
+                { step: "1", text: "Tap Grant above" },
+                { step: "2", text: "Find \"Zeno\" in the list and toggle it ON" },
+                { step: "3", text: "Come back — messages appear here automatically" },
+              ].map(({ step, text }) => (
+                <View key={step} style={styles.stepRow}>
+                  <View style={[styles.stepBadge, { backgroundColor: colors.primary }]}>
+                    <Text style={[styles.stepNum, { color: colors.primaryForeground }]}>{step}</Text>
                   </View>
-                );
-              })
-            )}
+                  <Text style={[styles.stepText, { color: colors.foreground }]}>{text}</Text>
+                </View>
+              ))}
+            </View>
           </>
         )}
+
+        {/* ── Loading ────────────────────────────────────────────────── */}
+        {hasPermission === true && loading && notifications.length === 0 && (
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>Loading notifications…</Text>
+          </View>
+        )}
+
+        {/* ── Empty state ────────────────────────────────────────────── */}
+        {hasPermission === true && !loading && notifications.length === 0 && (
+          <View style={styles.centered}>
+            <Ionicons name="notifications-outline" size={40} color={colors.mutedForeground} />
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No notifications yet</Text>
+            <Text style={[styles.emptySubText, { color: colors.mutedForeground }]}>
+              New messages from WhatsApp, SMS, and other apps will appear here.
+            </Text>
+          </View>
+        )}
+
+        {/* ── Real notifications ─────────────────────────────────────── */}
+        {hasPermission === true && notifications.length > 0 && (
+          <>
+            <View style={[styles.liveRow, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "30" }]}>
+              <View style={[styles.liveDot, { backgroundColor: "#22c55e" }]} />
+              <Text style={[styles.liveText, { color: colors.primary }]}>Live — refreshes automatically</Text>
+              <Pressable onPress={loadNotifications}>
+                <Ionicons name="refresh" size={15} color={colors.primary} />
+              </Pressable>
+            </View>
+            {notifications.map((n) => {
+              const meta = getAppMeta(n.packageName, n.app);
+              return (
+                <View key={n.key} style={[styles.msgCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <AppIcon pkg={n.packageName} appName={n.app} colors={colors} />
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.msgTop}>
+                      <Text style={[styles.sender, { color: colors.foreground }]} numberOfLines={1}>
+                        {n.sender || meta.name}
+                      </Text>
+                      <Text style={[styles.time, { color: colors.mutedForeground }]}>{timeAgo(n.timestamp)}</Text>
+                    </View>
+                    <Text style={[styles.appLabel, { color: colors.mutedForeground }]}>{meta.name}</Text>
+                    <Text style={[styles.preview, { color: colors.mutedForeground }]} numberOfLines={2}>
+                      {n.text || "(no text)"}
+                    </Text>
+                  </View>
+                  {n.hasReply && (
+                    <View style={[styles.replyDot, { backgroundColor: colors.primary }]}>
+                      <Ionicons name="return-down-back" size={10} color={colors.primaryForeground} />
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </>
+        )}
+
       </ScrollView>
     </View>
   );
@@ -176,47 +242,31 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: { fontSize: 22, fontFamily: "Inter_700Bold" },
-  scroll: { padding: 16, gap: 0 },
-  notice: {
-    flexDirection: "row",
-    gap: 12,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderLeftWidth: 3,
-    marginBottom: 20,
-  },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
+  badgeText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  scroll: { padding: 16 },
+  notice: { flexDirection: "row", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderLeftWidth: 3, marginBottom: 16 },
   noticeTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginBottom: 4 },
   noticeText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
-  noticeButtons: { flexDirection: "row", gap: 8, marginTop: 10 },
-  noticeBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
-  noticeBtnText: { color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 12 },
-  noticeBtnSecondary: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
-  noticeBtnSecondaryText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  sectionLabel: {
-    fontSize: 11,
-    fontFamily: "Inter_500Medium",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 10,
-    marginTop: 4,
-  },
-  countText: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
-  msgCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    marginBottom: 8,
-    gap: 12,
-  },
-  appIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  msgTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2, gap: 8 },
-  sender: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 },
-  time: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  preview: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 4 },
-  appName: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  emptyText: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 8 },
+  grantBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, padding: 14, borderRadius: 14, marginBottom: 16 },
+  grantBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  stepsCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 12, marginBottom: 16 },
+  stepRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  stepBadge: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  stepNum: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  stepText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
+  centered: { alignItems: "center", paddingTop: 60, gap: 12 },
+  emptyText: { fontSize: 15, fontFamily: "Inter_500Medium" },
+  emptySubText: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19, paddingHorizontal: 20 },
+  liveRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, marginBottom: 14 },
+  liveDot: { width: 7, height: 7, borderRadius: 4 },
+  liveText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },
+  msgCard: { flexDirection: "row", alignItems: "flex-start", padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 8, gap: 12 },
+  appIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  msgTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
+  sender: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1, marginRight: 8 },
+  appLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 2 },
+  time: { fontSize: 12, fontFamily: "Inter_400Regular", flexShrink: 0 },
+  preview: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  replyDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
 });

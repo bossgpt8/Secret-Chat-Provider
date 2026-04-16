@@ -1,13 +1,12 @@
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import * as Brightness from "expo-brightness";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useRef, useState } from "react";
-import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
-import { NativeAudioControl } from "@/modules/NativeAudioControl";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
+import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
 
 interface Control {
   id: string;
@@ -32,10 +31,8 @@ const CONTROLS: Control[] = [
 ];
 
 const CATEGORIES = ["Quick", "Audio", "Display"];
-// Delay unmount slightly so camera/torch state settles cleanly across devices.
-// 500ms avoids intermittent torch-off race issues seen when tearing down CameraView immediately.
 const CAMERA_CLEANUP_DELAY_MS = 500;
-const BRIGHTNESS_STEP = 0.25;
+const BRIGHTNESS_STEP = 0.2;
 const MIN_BRIGHTNESS = 0.05;
 
 function ControlIcon({ control, color, size }: { control: Control; color: string; size: number }) {
@@ -50,59 +47,27 @@ export default function ControlsScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [torchOn, setTorchOn] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [volMuted, setVolMuted] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [busyControlId, setBusyControlId] = useState<string | null>(null);
-  const [volumeMuted, setVolumeMuted] = useState(false);
   const cameraCleanupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const initialAppBrightnessRef = useRef<number | null>(null);
-  const brightnessWasAdjustedRef = useRef(false);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   useEffect(() => {
-    Brightness.getBrightnessAsync()
-      .then((value) => {
-        initialAppBrightnessRef.current = value;
-      })
-      .catch(() => {});
-    if (NativeAudioControl.isAvailable) {
-      NativeAudioControl.getStatus().then((status) => {
-        if (status) setVolumeMuted(status.muted);
-      }).catch(() => {});
+    if (Platform.OS === "android" && NativeSystemPermissions.isAvailable) {
+      NativeSystemPermissions.getVolume().then((v) => {
+        if (v) setVolMuted(v.muted);
+      });
     }
-
-    const appStateSub = AppState.addEventListener("change", (nextState) => {
-      if (nextState !== "active") {
-        void restoreAppBrightness();
-      }
-    });
-
     return () => {
-      if (cameraCleanupTimeoutRef.current) {
-        clearTimeout(cameraCleanupTimeoutRef.current);
-      }
-      appStateSub.remove();
-      void restoreAppBrightness();
+      if (cameraCleanupTimeoutRef.current) clearTimeout(cameraCleanupTimeoutRef.current);
     };
   }, []);
 
-  async function restoreAppBrightness() {
-    if (!brightnessWasAdjustedRef.current) return;
-    const initial = initialAppBrightnessRef.current;
-    if (typeof initial !== "number") return;
-    try {
-      await Brightness.setBrightnessAsync(initial);
-      brightnessWasAdjustedRef.current = false;
-    } catch {
-      // Safe to ignore: app may be backgrounding/tearing down while restoring.
-    }
-  }
-
   function scheduleDelayedCameraUnmount() {
-    if (cameraCleanupTimeoutRef.current) {
-      clearTimeout(cameraCleanupTimeoutRef.current);
-    }
+    if (cameraCleanupTimeoutRef.current) clearTimeout(cameraCleanupTimeoutRef.current);
     cameraCleanupTimeoutRef.current = setTimeout(() => {
       setCameraReady(false);
       cameraCleanupTimeoutRef.current = null;
@@ -110,15 +75,26 @@ export default function ControlsScreen() {
   }
 
   function isSupportedControl(controlId: string): boolean {
-    return (
-      controlId === "flashlight" ||
-      controlId === "bright_up" ||
-      controlId === "bright_down" ||
-      controlId === "lock" ||
-      controlId === "vol_up" ||
-      controlId === "vol_down" ||
-      controlId === "vol_mute"
-    );
+    return [
+      "flashlight", "lock",
+      "vol_up", "vol_down", "vol_mute",
+      "bright_up", "bright_down",
+    ].includes(controlId);
+  }
+
+  async function handleBrightness(direction: "up" | "down") {
+    const hasPerm = await NativeSystemPermissions.hasWriteSettingsPermission();
+    if (!hasPerm) {
+      await NativeSystemPermissions.requestWriteSettingsPermission();
+      setLastAction("Please grant \"Modify system settings\" permission, then try again.");
+      return;
+    }
+    const current = await NativeSystemPermissions.getSystemBrightness() ?? 0.5;
+    const next = direction === "up"
+      ? Math.min(1, current + BRIGHTNESS_STEP)
+      : Math.max(MIN_BRIGHTNESS, current - BRIGHTNESS_STEP);
+    await NativeSystemPermissions.setSystemBrightness(next);
+    setLastAction(`System brightness set to ${Math.round(next * 100)}%.`);
   }
 
   async function handleControl(ctrl: Control) {
@@ -145,44 +121,51 @@ export default function ControlsScreen() {
           setLastAction(`Flashlight turned ${next ? "ON" : "OFF"}.`);
           return;
         }
-        case "bright_up":
-        case "bright_down": {
-          const current = await Brightness.getBrightnessAsync();
-          const next = ctrl.id === "bright_up"
-            ? Math.min(1, current + BRIGHTNESS_STEP)
-            : Math.max(MIN_BRIGHTNESS, current - BRIGHTNESS_STEP);
-          await Brightness.setBrightnessAsync(next);
-          brightnessWasAdjustedRef.current = true;
-          setLastAction(`Screen brightness set to ${Math.round(next * 100)}%.`);
-          return;
-        }
         case "vol_up":
         case "vol_down": {
-          if (!NativeAudioControl.isAvailable) {
+          if (!NativeSystemPermissions.isAvailable) {
             setLastAction("Volume control is only available on Android.");
             return;
           }
-          const status = await NativeAudioControl.adjust(ctrl.id === "vol_up" ? "up" : "down");
-          if (!status) {
-            setLastAction("Could not adjust media volume.");
-            return;
+          const dir = ctrl.id === "vol_up" ? "up" : "down";
+          const result = await NativeSystemPermissions.adjustVolume(dir);
+          if (result) {
+            setVolMuted(result.muted);
+            const pct = Math.round((result.current / result.max) * 100);
+            setLastAction(`Volume ${dir === "up" ? "increased" : "decreased"} to ${pct}%.`);
           }
-          setVolumeMuted(status.muted);
-          setLastAction(`Media volume set to ${Math.round(status.percent)}%.`);
           return;
         }
         case "vol_mute": {
-          if (!NativeAudioControl.isAvailable) {
+          if (!NativeSystemPermissions.isAvailable) {
             setLastAction("Volume control is only available on Android.");
             return;
           }
-          const status = await NativeAudioControl.setMuted(!volumeMuted);
-          if (!status) {
-            setLastAction("Could not change mute state.");
+          const dir = volMuted ? "unmute" : "mute";
+          const result = await NativeSystemPermissions.adjustVolume(dir);
+          if (result) {
+            setVolMuted(result.muted);
+            setLastAction(result.muted ? "Media muted." : "Media unmuted.");
+          }
+          return;
+        }
+        case "bright_up":
+        case "bright_down": {
+          if (!NativeSystemPermissions.isAvailable) {
+            try {
+              const Brightness = await import("expo-brightness");
+              const current = await Brightness.getBrightnessAsync();
+              const next = ctrl.id === "bright_up"
+                ? Math.min(1, current + BRIGHTNESS_STEP)
+                : Math.max(MIN_BRIGHTNESS, current - BRIGHTNESS_STEP);
+              await Brightness.setBrightnessAsync(next);
+              setLastAction(`App brightness set to ${Math.round(next * 100)}%.`);
+            } catch {
+              setLastAction("Brightness control unavailable.");
+            }
             return;
           }
-          setVolumeMuted(status.muted);
-          setLastAction(status.muted ? "Media volume muted." : `Media volume restored to ${Math.round(status.percent)}%.`);
+          await handleBrightness(ctrl.id === "bright_up" ? "up" : "down");
           return;
         }
         case "lock": {
@@ -201,7 +184,7 @@ export default function ControlsScreen() {
           return;
         }
         default:
-          setLastAction(`${ctrl.label} is not supported on standard Android app permissions.`);
+          setLastAction(`${ctrl.label} cannot be controlled by regular Android apps.`);
       }
     } catch (error) {
       console.warn("Control action failed", error);
@@ -212,14 +195,21 @@ export default function ControlsScreen() {
   }
 
   function ControlButton({ ctrl }: { ctrl: Control }) {
-    const isOn = (ctrl.id === "flashlight" && torchOn) || (ctrl.id === "vol_mute" && volumeMuted);
+    const isFlashlightOn = ctrl.id === "flashlight" && torchOn;
+    const isMuteOn = ctrl.id === "vol_mute" && volMuted;
+    const isOn = isFlashlightOn || isMuteOn;
     const isBusy = busyControlId === ctrl.id;
     const isSupported = isSupportedControl(ctrl.id);
+
     return (
       <Pressable
         style={[
           styles.ctrlBtn,
-          { backgroundColor: isOn ? colors.primary : colors.card, borderColor: isOn ? colors.primary : colors.border },
+          {
+            backgroundColor: isOn ? colors.primary : colors.card,
+            borderColor: isOn ? colors.primary : colors.border,
+            opacity: isBusy ? 0.6 : 1,
+          },
         ]}
         disabled={!!busyControlId}
         onPress={() => handleControl(ctrl)}
@@ -237,7 +227,7 @@ export default function ControlsScreen() {
         )}
         {!isSupported && (
           <View style={[styles.togglePill, { backgroundColor: colors.muted }]}>
-            <Text style={[styles.toggleText, { color: colors.mutedForeground }]}>Unsupported</Text>
+            <Text style={[styles.toggleText, { color: colors.mutedForeground }]}>N/A</Text>
           </View>
         )}
       </Pressable>
@@ -258,18 +248,16 @@ export default function ControlsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 80 }]} showsVerticalScrollIndicator={false}>
-        {/* Notice */}
         <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border, borderLeftColor: colors.primary }]}>
           <Ionicons name="phone-portrait-outline" size={18} color={colors.primary} />
           <View style={{ flex: 1 }}>
-            <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Real actions + Android limits</Text>
+            <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Device controls</Text>
             <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
-              Flashlight, media volume, app brightness, and lock are functional. WiFi and Bluetooth toggles are restricted by Android for regular apps.
+              Flashlight, volume, brightness, and lock work on Android. Brightness requires &quot;Modify system settings&quot; to persist when you leave the app. WiFi and Bluetooth cannot be toggled by regular apps on Android 10+.
             </Text>
           </View>
         </View>
 
-        {/* Status */}
         {lastAction && (
           <View style={[styles.actionFeedback, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
             <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
@@ -277,11 +265,10 @@ export default function ControlsScreen() {
           </View>
         )}
 
-        {/* Voice commands tip */}
         <View style={[styles.voiceTip, { backgroundColor: colors.primary + "10", borderColor: colors.primary + "30" }]}>
           <Ionicons name="mic" size={14} color={colors.primary} />
           <Text style={[styles.voiceTipText, { color: colors.primary }]}>
-            Say: &quot;Turn on flashlight&quot;, &quot;Set volume to 50%&quot;, &quot;Lock phone&quot;
+            Say: &quot;Turn on flashlight&quot;, &quot;Volume up&quot;, &quot;Make it brighter&quot;, &quot;Lock phone&quot;
           </Text>
         </View>
 
@@ -299,17 +286,14 @@ export default function ControlsScreen() {
           );
         })}
 
-        {/* Voice commands reference */}
         <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Voice Commands</Text>
         <View style={[styles.cmdCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {[
             { voice: "Turn on/off flashlight", action: "Toggle torch" },
-            { voice: "Set volume to 50%", action: "Set media volume" },
-            { voice: "Turn up/down volume", action: "Adjust by 10%" },
-            { voice: "Make it brighter/dimmer", action: "Adjust brightness" },
+            { voice: "Volume up / volume down", action: "Adjust media volume" },
+            { voice: "Mute / unmute", action: "Mute media audio" },
+            { voice: "Make it brighter / dimmer", action: "System brightness" },
             { voice: "Lock the phone", action: "Lock screen" },
-            { voice: "Turn on/off WiFi", action: "Toggle WiFi" },
-            { voice: "Turn on/off Bluetooth", action: "Toggle Bluetooth" },
           ].map(({ voice, action }) => (
             <View key={voice} style={[styles.cmdRow, { borderBottomColor: colors.border }]}>
               <Ionicons name="mic-outline" size={13} color={colors.primary} />
@@ -334,8 +318,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: { fontSize: 22, fontFamily: "Inter_700Bold" },
-  badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 },
-  badgeText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
   scroll: { padding: 16 },
   notice: { flexDirection: "row", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderLeftWidth: 3, marginBottom: 14 },
   noticeTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginBottom: 4 },

@@ -2,18 +2,14 @@ import { Linking, NativeModules, Platform } from "react-native";
 
 const { SystemPermissionsModule } = NativeModules;
 
-// Package name must match app.json android.package
 const PACKAGE = "com.boss.assistant";
 
 async function openSystemIntent(action: string): Promise<void> {
   if (Platform.OS !== "android") return;
   try {
-    // sendIntent is Android-only and not typed in the community typings
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (Linking as any).sendIntent(action, [{ key: "package", value: PACKAGE }]);
   } catch {
-    // sendIntent may not accept extras for these system intents on some ROMs;
-    // fall back to the no-extras form, then to generic app settings.
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (Linking as any).sendIntent(action);
@@ -23,11 +19,16 @@ async function openSystemIntent(action: string): Promise<void> {
   }
 }
 
+export interface VolumeState {
+  current: number;
+  max: number;
+  muted: boolean;
+}
+
 export const NativeSystemPermissions = {
-  /** True only when the optional native SystemPermissionsModule is linked. */
   isAvailable: Platform.OS === "android" && !!SystemPermissionsModule,
 
-  // ── Overlay (display over other apps) ─────────────────────────────────────
+  // ── Overlay ────────────────────────────────────────────────────────────────
 
   async hasOverlayPermission(): Promise<boolean> {
     if (SystemPermissionsModule?.hasOverlayPermission) {
@@ -36,11 +37,6 @@ export const NativeSystemPermissions = {
     return false;
   },
 
-  /**
-   * Opens "Display over other apps" in Android system settings.
-   * Uses the optional native module when available, otherwise falls back to
-   * Linking.sendIntent / Linking.openSettings.
-   */
   async requestOverlayPermission(): Promise<void> {
     if (SystemPermissionsModule?.requestOverlayPermission) {
       return SystemPermissionsModule.requestOverlayPermission();
@@ -48,7 +44,7 @@ export const NativeSystemPermissions = {
     await openSystemIntent("android.settings.action.MANAGE_OVERLAY_PERMISSION");
   },
 
-  // ── Write Settings (modify system settings) ────────────────────────────────
+  // ── Write Settings ─────────────────────────────────────────────────────────
 
   async hasWriteSettingsPermission(): Promise<boolean> {
     if (SystemPermissionsModule?.hasWriteSettingsPermission) {
@@ -57,15 +53,34 @@ export const NativeSystemPermissions = {
     return false;
   },
 
-  /**
-   * Opens "Modify system settings" in Android system settings.
-   * Uses the optional native module when available, otherwise falls back to
-   * Linking.sendIntent / Linking.openSettings.
-   */
   async requestWriteSettingsPermission(): Promise<void> {
     if (SystemPermissionsModule?.requestWriteSettingsPermission) {
       return SystemPermissionsModule.requestWriteSettingsPermission();
     }
     await openSystemIntent("android.settings.action.MANAGE_WRITE_SETTINGS");
+  },
+
+  // ── Volume (AudioManager — no special permission needed) ───────────────────
+
+  async adjustVolume(direction: "up" | "down" | "mute" | "unmute"): Promise<VolumeState | null> {
+    if (!SystemPermissionsModule?.adjustVolume) return null;
+    return SystemPermissionsModule.adjustVolume(direction);
+  },
+
+  async getVolume(): Promise<VolumeState | null> {
+    if (!SystemPermissionsModule?.getVolume) return null;
+    return SystemPermissionsModule.getVolume();
+  },
+
+  // ── System Brightness (requires WRITE_SETTINGS — persists after leaving app) ─
+
+  async getSystemBrightness(): Promise<number | null> {
+    if (!SystemPermissionsModule?.getSystemBrightness) return null;
+    return SystemPermissionsModule.getSystemBrightness();
+  },
+
+  async setSystemBrightness(value: number): Promise<number | null> {
+    if (!SystemPermissionsModule?.setSystemBrightness) return null;
+    return SystemPermissionsModule.setSystemBrightness(value);
   },
 };

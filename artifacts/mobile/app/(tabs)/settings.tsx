@@ -14,6 +14,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -97,6 +98,7 @@ export default function SettingsScreen() {
     ttsProvider, setTtsProvider,
     themeOverride, setThemeOverride,
     customApiUrl, setCustomApiUrl,
+    readIncomingEnabled, setReadIncomingEnabled,
   } = useAssistant();
 
   const [editingName, setEditingName] = useState(false);
@@ -599,6 +601,28 @@ export default function SettingsScreen() {
               )}
             </>
           )}
+        </Section>
+
+        {/* ── Notifications ── */}
+        <Section title="Notifications">
+          <View style={[styles.row, { borderBottomColor: colors.border }]}>
+            <Ionicons name="volume-medium-outline" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Read Incoming Messages</Text>
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+                Speak incoming notifications aloud using the assistant's voice. Requires notification access.
+              </Text>
+            </View>
+            <Switch
+              value={readIncomingEnabled}
+              onValueChange={async (v) => {
+                await setReadIncomingEnabled(v);
+                Haptics.selectionAsync();
+              }}
+              trackColor={{ false: colors.muted, true: colors.primary + "80" }}
+              thumbColor={readIncomingEnabled ? colors.primary : colors.mutedForeground}
+            />
+          </View>
         </Section>
 
         {/* ── Permissions ── */}

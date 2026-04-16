@@ -212,7 +212,7 @@ const orbStyles = StyleSheet.create({
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled } = useAssistant();
+  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -243,6 +243,7 @@ export default function ChatScreen() {
   // Wake word refs
   const wakeWordLoopRef = useRef(false);
   const wakeWordEnabledRef = useRef(wakeWordEnabled);
+  const readIncomingEnabledRef = useRef(readIncomingEnabled);
   const assistantNameRef = useRef(assistantName);
   const pendingCallModeAfterTtsRef = useRef(false);
   const wakeWordRegexRef = useRef<RegExp | null>(null);
@@ -261,6 +262,7 @@ export default function ChatScreen() {
   useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
   useEffect(() => { lastNotifRef.current = lastNotification; }, [lastNotification]);
   useEffect(() => { wakeWordEnabledRef.current = wakeWordEnabled; }, [wakeWordEnabled]);
+  useEffect(() => { readIncomingEnabledRef.current = readIncomingEnabled; }, [readIncomingEnabled]);
   useEffect(() => {
     assistantNameRef.current = assistantName;
     const escaped = assistantName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -291,13 +293,15 @@ export default function ChatScreen() {
       setLastNotification(n);
       lastNotifRef.current = n;
       setNotifPermGranted(true);
-      const announcement = `New message from ${n.sender} on ${n.app}.`;
+      const messageText = n.text?.trim() ? `${n.sender} says: ${n.text}` : `New message from ${n.sender} on ${n.app}.`;
       if (isCallModeRef.current && !isStreamingRef.current) {
         stopSpeaking().then(() => {
           stopRecordingCleanup();
           setIsRecording(false);
-          speakText(announcement);
+          speakText(messageText);
         });
+      } else if (readIncomingEnabledRef.current && !isStreamingRef.current) {
+        speakText(messageText);
       }
     });
     return unsub;

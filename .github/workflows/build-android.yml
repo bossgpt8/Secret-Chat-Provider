@@ -94,48 +94,9 @@ jobs:
         working-directory: artifacts/mobile/android
         run: chmod +x ./gradlew
 
-      - name: Decode keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r' | base64 --decode > artifacts/mobile/android/app/release.keystore
-          if [ ! -s artifacts/mobile/android/app/release.keystore ]; then
-            echo "Error: release.keystore is empty after decoding." >&2
-            echo "Ensure the KEYSTORE_BASE64 repository secret is set and contains a valid base64-encoded keystore." >&2
-            exit 1
-          fi
-          echo "Keystore decoded successfully ($(wc -c < artifacts/mobile/android/app/release.keystore) bytes)"
-
-      - name: Convert keystore to PKCS12 for Java 17 compatibility
-        run: |
-          keytool -importkeystore \
-            -srckeystore artifacts/mobile/android/app/release.keystore \
-            -srcstorepass "${{ secrets.STORE_PASSWORD }}" \
-            -srcalias "${{ secrets.KEY_ALIAS }}" \
-            -destkeystore artifacts/mobile/android/app/release.keystore.pkcs12 \
-            -deststoretype PKCS12 \
-            -deststorepass "${{ secrets.STORE_PASSWORD }}" \
-            -destalias "${{ secrets.KEY_ALIAS }}" \
-            -destkeypass "${{ secrets.KEY_PASSWORD }}" \
-            -noprompt
-          if [ ! -f artifacts/mobile/android/app/release.keystore.pkcs12 ]; then
-            echo "Error: PKCS12 keystore was not created by keytool" >&2
-            exit 1
-          fi
-          mv artifacts/mobile/android/app/release.keystore.pkcs12 artifacts/mobile/android/app/release.keystore
-
       - name: Build release APK
         working-directory: artifacts/mobile/android
-        run: |
-          ./gradlew assembleRelease --no-daemon \
-            -Pandroid.injected.signing.store.file="$GITHUB_WORKSPACE/artifacts/mobile/android/app/release.keystore" \
-            -Pandroid.injected.signing.store.password="${{ secrets.STORE_PASSWORD }}" \
-            -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}" \
-            -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}"
-
-      - name: Remove sensitive files
-        if: always()
-        run: |
-          rm -f artifacts/mobile/android/app/release.keystore
-          rm -f artifacts/mobile/android/app/release.keystore.pkcs12
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

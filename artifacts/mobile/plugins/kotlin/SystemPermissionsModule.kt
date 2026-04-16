@@ -136,10 +136,11 @@ class SystemPermissionsModule(reactContext: ReactApplicationContext) :
             )
             val intVal = (value.coerceIn(0f, 1f) * 255).toInt().coerceAtLeast(5)
             Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, intVal)
-            currentActivity?.runOnUiThread {
-                val lp = currentActivity!!.window.attributes
+            val activity = reactApplicationContext.currentActivity
+            activity?.runOnUiThread {
+                val lp = activity.window.attributes
                 lp.screenBrightness = value.coerceIn(0.02f, 1f)
-                currentActivity!!.window.attributes = lp
+                activity.window.attributes = lp
             }
             promise.resolve(intVal.toDouble() / 255.0)
         } catch (e: Exception) {

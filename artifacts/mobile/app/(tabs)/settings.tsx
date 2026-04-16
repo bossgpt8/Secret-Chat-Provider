@@ -8,6 +8,7 @@ import { fetch } from "expo/fetch";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -119,6 +120,16 @@ export default function SettingsScreen() {
     loadPhoneVoices();
     loadElVoices();
     refreshPermissions();
+  }, []);
+
+  // Re-check permissions whenever the app returns to the foreground (e.g. after
+  // the user grants write-settings / overlay in system settings and comes back).
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshPermissions();
+    });
+    return () => sub.remove();
   }, []);
 
   // Sync camera permission state from the hook whenever it changes

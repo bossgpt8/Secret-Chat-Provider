@@ -63,7 +63,8 @@
         {
           "contactsPermission": "Contacts access is used to look up names when making calls or sending messages."
         }
-      ]
+      ],
+      "./plugins/withNativeModules"
     ],
     "experiments": {
       "typedRoutes": true,

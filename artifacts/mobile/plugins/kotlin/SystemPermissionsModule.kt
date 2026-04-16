@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -138,6 +139,9 @@ class SystemPermissionsModule(reactContext: ReactApplicationContext) :
             Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, intVal)
             val activity = reactApplicationContext.currentActivity
             activity?.runOnUiThread {
+                if (activity.isFinishing || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && activity.isDestroyed)) {
+                    return@runOnUiThread
+                }
                 val lp = activity.window.attributes
                 lp.screenBrightness = value.coerceIn(0.02f, 1f)
                 activity.window.attributes = lp

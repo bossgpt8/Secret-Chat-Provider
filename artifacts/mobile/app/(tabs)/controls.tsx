@@ -32,6 +32,7 @@ const CONTROLS: Control[] = [
 
 const CATEGORIES = ["Quick", "Audio", "Display"];
 // Delay unmount slightly so camera/torch state settles cleanly across devices.
+// 500ms avoids intermittent torch-off race issues seen when tearing down CameraView immediately.
 const CAMERA_CLEANUP_DELAY_MS = 500;
 const BRIGHTNESS_STEP = 0.25;
 const MIN_BRIGHTNESS = 0.05;
@@ -63,7 +64,7 @@ export default function ControlsScreen() {
     };
   }, []);
 
-  function scheduleCameraCleanup() {
+  function scheduleDelayedCameraUnmount() {
     if (cameraCleanupTimeoutRef.current) {
       clearTimeout(cameraCleanupTimeoutRef.current);
     }
@@ -78,7 +79,10 @@ export default function ControlsScreen() {
   }
 
   async function handleControl(ctrl: Control) {
-    if (busyControlId) return;
+    if (busyControlId) {
+      setLastAction("Please wait for the current action to finish.");
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setBusyControlId(ctrl.id);
     try {
@@ -94,7 +98,7 @@ export default function ControlsScreen() {
           const next = !torchOn;
           setTorchOn(next);
           if (next) setCameraReady(true);
-          else scheduleCameraCleanup();
+          else scheduleDelayedCameraUnmount();
           setLastAction(`Flashlight turned ${next ? "ON" : "OFF"}.`);
           return;
         }
@@ -119,14 +123,15 @@ export default function ControlsScreen() {
             setLastAction("Please grant Device Administrator permission, then try again.");
             return;
           }
-          const locked = await NativeScreenLock.lock().catch(() => false);
+          const locked = await NativeScreenLock.lock();
           setLastAction(locked ? "Locking your phone now." : "Could not lock phone. Check Device Administrator permission.");
           return;
         }
         default:
           setLastAction(`${ctrl.label} is not supported on standard Android app permissions.`);
       }
-    } catch {
+    } catch (error) {
+      console.warn("Control action failed", error);
       setLastAction(`Failed to run ${ctrl.label.toLowerCase()}.`);
     } finally {
       setBusyControlId(null);
@@ -143,7 +148,7 @@ export default function ControlsScreen() {
           styles.ctrlBtn,
           { backgroundColor: isOn ? colors.primary : colors.card, borderColor: isOn ? colors.primary : colors.border },
         ]}
-        disabled={isBusy}
+        disabled={!!busyControlId}
         onPress={() => handleControl(ctrl)}
       >
         <View style={[styles.ctrlIconWrap, { backgroundColor: isOn ? "rgba(255,255,255,0.2)" : colors.secondary }]}>

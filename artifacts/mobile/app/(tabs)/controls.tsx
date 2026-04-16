@@ -1,9 +1,12 @@
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Brightness from "expo-brightness";
 import * as Haptics from "expo-haptics";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { NativeScreenLock } from "@/modules/NativeScreenLock";
 
 interface Control {
   id: string;
@@ -28,6 +31,11 @@ const CONTROLS: Control[] = [
 ];
 
 const CATEGORIES = ["Quick", "Audio", "Display"];
+// Delay unmount slightly so camera/torch state settles cleanly across devices.
+// 500ms avoids intermittent torch-off race issues seen when tearing down CameraView immediately.
+const CAMERA_CLEANUP_DELAY_MS = 500;
+const BRIGHTNESS_STEP = 0.25;
+const MIN_BRIGHTNESS = 0.05;
 
 function ControlIcon({ control, color, size }: { control: Control; color: string; size: number }) {
   if (control.iconSet === "ionicons") return <Ionicons name={control.icon as "mic"} size={size} color={color} />;
@@ -38,42 +46,125 @@ function ControlIcon({ control, color, size }: { control: Control; color: string
 export default function ControlsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [toggleStates, setToggleStates] = useState<Record<string, boolean>>({});
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [torchOn, setTorchOn] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
+  const [busyControlId, setBusyControlId] = useState<string | null>(null);
+  const cameraCleanupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  function handleControl(ctrl: Control) {
+  useEffect(() => {
+    return () => {
+      if (cameraCleanupTimeoutRef.current) {
+        clearTimeout(cameraCleanupTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  function scheduleDelayedCameraUnmount() {
+    if (cameraCleanupTimeoutRef.current) {
+      clearTimeout(cameraCleanupTimeoutRef.current);
+    }
+    cameraCleanupTimeoutRef.current = setTimeout(() => {
+      setCameraReady(false);
+      cameraCleanupTimeoutRef.current = null;
+    }, CAMERA_CLEANUP_DELAY_MS);
+  }
+
+  function isSupportedControl(controlId: string): boolean {
+    return controlId === "flashlight" || controlId === "bright_up" || controlId === "bright_down" || controlId === "lock";
+  }
+
+  async function handleControl(ctrl: Control) {
+    if (busyControlId) {
+      setLastAction("Please wait for the current action to finish.");
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (ctrl.toggle) {
-      setToggleStates((prev) => ({ ...prev, [ctrl.id]: !prev[ctrl.id] }));
-      const newState = !toggleStates[ctrl.id];
-      setLastAction(`${ctrl.label}: ${newState ? "ON" : "OFF"} (enable Accessibility Service to activate)`);
-    } else {
-      setLastAction(`${ctrl.label} triggered (enable Accessibility Service to activate)`);
+    setBusyControlId(ctrl.id);
+    try {
+      switch (ctrl.id) {
+        case "flashlight": {
+          if (!cameraPermission?.granted) {
+            const { granted } = await requestCameraPermission();
+            if (!granted) {
+              setLastAction("Camera permission is required to control the flashlight.");
+              return;
+            }
+          }
+          const next = !torchOn;
+          setTorchOn(next);
+          if (next) setCameraReady(true);
+          else scheduleDelayedCameraUnmount();
+          setLastAction(`Flashlight turned ${next ? "ON" : "OFF"}.`);
+          return;
+        }
+        case "bright_up":
+        case "bright_down": {
+          const current = await Brightness.getBrightnessAsync();
+          const next = ctrl.id === "bright_up"
+            ? Math.min(1, current + BRIGHTNESS_STEP)
+            : Math.max(MIN_BRIGHTNESS, current - BRIGHTNESS_STEP);
+          await Brightness.setBrightnessAsync(next);
+          setLastAction(`Screen brightness set to ${Math.round(next * 100)}%.`);
+          return;
+        }
+        case "lock": {
+          if (!NativeScreenLock.isAvailable) {
+            setLastAction("Screen lock control is only available on Android.");
+            return;
+          }
+          const isAdmin = await NativeScreenLock.isAdminEnabled();
+          if (!isAdmin) {
+            await NativeScreenLock.requestAdmin();
+            setLastAction("Please grant Device Administrator permission, then try again.");
+            return;
+          }
+          const locked = await NativeScreenLock.lock();
+          setLastAction(locked ? "Locking your phone now." : "Could not lock phone. Check Device Administrator permission.");
+          return;
+        }
+        default:
+          setLastAction(`${ctrl.label} is not supported on standard Android app permissions.`);
+      }
+    } catch (error) {
+      console.warn("Control action failed", error);
+      setLastAction(`Failed to run ${ctrl.label.toLowerCase()}.`);
+    } finally {
+      setBusyControlId(null);
     }
   }
 
   function ControlButton({ ctrl }: { ctrl: Control }) {
-    const isOn = !!toggleStates[ctrl.id];
+    const isOn = ctrl.id === "flashlight" && torchOn;
+    const isBusy = busyControlId === ctrl.id;
+    const isSupported = isSupportedControl(ctrl.id);
     return (
       <Pressable
         style={[
           styles.ctrlBtn,
           { backgroundColor: isOn ? colors.primary : colors.card, borderColor: isOn ? colors.primary : colors.border },
         ]}
+        disabled={!!busyControlId}
         onPress={() => handleControl(ctrl)}
       >
         <View style={[styles.ctrlIconWrap, { backgroundColor: isOn ? "rgba(255,255,255,0.2)" : colors.secondary }]}>
           <ControlIcon control={ctrl} color={isOn ? "#fff" : colors.primary} size={22} />
         </View>
         <Text style={[styles.ctrlLabel, { color: isOn ? "#fff" : colors.foreground }]}>{ctrl.label}</Text>
-        {ctrl.toggle && (
+        {ctrl.toggle && isSupported && (
           <View style={[styles.togglePill, { backgroundColor: isOn ? "rgba(255,255,255,0.25)" : colors.muted }]}>
             <Text style={[styles.toggleText, { color: isOn ? "#fff" : colors.mutedForeground }]}>
               {isOn ? "ON" : "OFF"}
             </Text>
+          </View>
+        )}
+        {!isSupported && (
+          <View style={[styles.togglePill, { backgroundColor: colors.muted }]}>
+            <Text style={[styles.toggleText, { color: colors.mutedForeground }]}>Unsupported</Text>
           </View>
         )}
       </Pressable>
@@ -82,6 +173,13 @@ export default function ControlsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {cameraReady && Platform.OS !== "web" && (
+        <CameraView
+          style={{ position: "absolute", width: 0, height: 0, opacity: 0 }}
+          facing="back"
+          enableTorch={torchOn}
+        />
+      )}
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Controls</Text>
       </View>
@@ -91,9 +189,9 @@ export default function ControlsScreen() {
         <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border, borderLeftColor: colors.primary }]}>
           <Ionicons name="phone-portrait-outline" size={18} color={colors.primary} />
           <View style={{ flex: 1 }}>
-            <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Native Android Module Required</Text>
+            <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Real actions + Android limits</Text>
             <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
-              Phone controls require Android system permissions to be granted. Enable the Accessibility Service in the Settings tab to activate these controls.
+              Flashlight, brightness, and lock are functional. WiFi, Bluetooth, and hardware volume toggles are restricted by Android for regular apps.
             </Text>
           </View>
         </View>

@@ -46,7 +46,8 @@ const PERMISSIONS: Permission[] = [
   { id: "internet", label: "Internet", description: "API calls to Groq / Tavily / ElevenLabs", icon: "globe-outline" },
   { id: "camera", label: "Camera / Flashlight", description: "Flashlight control", icon: "flashlight-outline" },
   { id: "contacts", label: "Contacts", description: "Look up contacts by name for calls & SMS", icon: "people-outline" },
-  { id: "accessibility", label: "Accessibility Service", description: "Read WhatsApp & SMS messages", icon: "eye-outline" },
+  { id: "notification_listener", label: "Notification Access", description: "Read incoming messages from app notifications", icon: "notifications-outline" },
+  { id: "accessibility", label: "Accessibility Service", description: "Read app screen text for assistant automation", icon: "eye-outline" },
   { id: "device_admin", label: "Device Administrator", description: "Lock phone via voice", icon: "shield-outline" },
   { id: "write_settings", label: "Modify System Settings", description: "Control screen brightness & audio", icon: "settings-outline" },
   { id: "overlay", label: "Display Over Other Apps", description: "Show assistant overlay on top of apps", icon: "layers-outline" },
@@ -57,6 +58,7 @@ const DEFAULT_PERM_STATUSES: Record<string, PermStatus> = {
   internet: "granted",
   camera: "unavailable",
   contacts: "unavailable",
+  notification_listener: "unavailable",
   accessibility: "unavailable",
   device_admin: "unavailable",
   write_settings: "unavailable",
@@ -177,6 +179,14 @@ export default function SettingsScreen() {
       }
     } catch { /* leave default */ }
 
+    // Notification listener access
+    try {
+      if (NativeNotifications.isAvailable) {
+        const enabled = await NativeNotifications.hasPermission();
+        updates.notification_listener = enabled ? "granted" : "unavailable";
+      }
+    } catch { /* leave default */ }
+
     // Device admin
     try {
       if (NativeScreenLock.isAvailable) {
@@ -294,6 +304,8 @@ export default function SettingsScreen() {
         await Contacts.requestPermissionsAsync();
       } else if (permId === "accessibility") {
         await NativeAccessibility.requestEnable();
+      } else if (permId === "notification_listener") {
+        await NativeNotifications.requestPermission();
       } else if (permId === "device_admin") {
         await NativeScreenLock.requestAdmin();
       } else if (permId === "write_settings") {

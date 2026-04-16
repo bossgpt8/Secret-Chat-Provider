@@ -3,9 +3,10 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Brightness from "expo-brightness";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { NativeAudioControl } from "@/modules/NativeAudioControl";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 
 interface Control {
@@ -51,18 +52,52 @@ export default function ControlsScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [busyControlId, setBusyControlId] = useState<string | null>(null);
+  const [volumeMuted, setVolumeMuted] = useState(false);
   const cameraCleanupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialAppBrightnessRef = useRef<number | null>(null);
+  const brightnessWasAdjustedRef = useRef(false);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   useEffect(() => {
+    Brightness.getBrightnessAsync()
+      .then((value) => {
+        initialAppBrightnessRef.current = value;
+      })
+      .catch(() => {});
+    if (NativeAudioControl.isAvailable) {
+      NativeAudioControl.getStatus().then((status) => {
+        if (status) setVolumeMuted(status.muted);
+      }).catch(() => {});
+    }
+
+    const appStateSub = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") {
+        void restoreAppBrightness();
+      }
+    });
+
     return () => {
       if (cameraCleanupTimeoutRef.current) {
         clearTimeout(cameraCleanupTimeoutRef.current);
       }
+      appStateSub.remove();
+      void restoreAppBrightness();
     };
   }, []);
+
+  async function restoreAppBrightness() {
+    if (!brightnessWasAdjustedRef.current) return;
+    const initial = initialAppBrightnessRef.current;
+    if (typeof initial !== "number") return;
+    try {
+      await Brightness.setBrightnessAsync(initial);
+      brightnessWasAdjustedRef.current = false;
+    } catch {
+      // ignore
+    }
+  }
 
   function scheduleDelayedCameraUnmount() {
     if (cameraCleanupTimeoutRef.current) {
@@ -75,7 +110,15 @@ export default function ControlsScreen() {
   }
 
   function isSupportedControl(controlId: string): boolean {
-    return controlId === "flashlight" || controlId === "bright_up" || controlId === "bright_down" || controlId === "lock";
+    return (
+      controlId === "flashlight" ||
+      controlId === "bright_up" ||
+      controlId === "bright_down" ||
+      controlId === "lock" ||
+      controlId === "vol_up" ||
+      controlId === "vol_down" ||
+      controlId === "vol_mute"
+    );
   }
 
   async function handleControl(ctrl: Control) {
@@ -104,12 +147,46 @@ export default function ControlsScreen() {
         }
         case "bright_up":
         case "bright_down": {
+          if (typeof initialAppBrightnessRef.current !== "number") {
+            initialAppBrightnessRef.current = await Brightness.getBrightnessAsync();
+          }
           const current = await Brightness.getBrightnessAsync();
           const next = ctrl.id === "bright_up"
             ? Math.min(1, current + BRIGHTNESS_STEP)
             : Math.max(MIN_BRIGHTNESS, current - BRIGHTNESS_STEP);
           await Brightness.setBrightnessAsync(next);
+          brightnessWasAdjustedRef.current = true;
           setLastAction(`Screen brightness set to ${Math.round(next * 100)}%.`);
+          return;
+        }
+        case "vol_up":
+        case "vol_down": {
+          if (!NativeAudioControl.isAvailable) {
+            setLastAction("Volume control is only available on Android.");
+            return;
+          }
+          const status = await NativeAudioControl.adjust(ctrl.id === "vol_up" ? "up" : "down");
+          if (!status) {
+            setLastAction("Could not adjust media volume.");
+            return;
+          }
+          setVolumeMuted(status.muted);
+          setLastAction(`Media volume set to ${Math.round(status.percent)}%.`);
+          return;
+        }
+        case "vol_mute": {
+          if (!NativeAudioControl.isAvailable) {
+            setLastAction("Volume control is only available on Android.");
+            return;
+          }
+          const current = await NativeAudioControl.getStatus();
+          const status = await NativeAudioControl.setMuted(!(current?.muted ?? false));
+          if (!status) {
+            setLastAction("Could not change mute state.");
+            return;
+          }
+          setVolumeMuted(status.muted);
+          setLastAction(status.muted ? "Media volume muted." : `Media volume restored to ${Math.round(status.percent)}%.`);
           return;
         }
         case "lock": {
@@ -139,7 +216,7 @@ export default function ControlsScreen() {
   }
 
   function ControlButton({ ctrl }: { ctrl: Control }) {
-    const isOn = ctrl.id === "flashlight" && torchOn;
+    const isOn = (ctrl.id === "flashlight" && torchOn) || (ctrl.id === "vol_mute" && volumeMuted);
     const isBusy = busyControlId === ctrl.id;
     const isSupported = isSupportedControl(ctrl.id);
     return (
@@ -191,7 +268,7 @@ export default function ControlsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Real actions + Android limits</Text>
             <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
-              Flashlight, brightness, and lock are functional. WiFi, Bluetooth, and hardware volume toggles are restricted by Android for regular apps.
+              Flashlight, media volume, app brightness, and lock are functional. WiFi and Bluetooth toggles are restricted by Android for regular apps.
             </Text>
           </View>
         </View>

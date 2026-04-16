@@ -224,7 +224,9 @@ export default function SettingsScreen() {
         base = u.endsWith("/") ? u : `${u}/`;
       } else {
         const envUrl = process.env.EXPO_PUBLIC_API_URL;
-        base = envUrl ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`) : "/api/";
+        if (envUrl) base = envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
+        else if (Platform.OS === "web") base = "/api/";
+        else base = "https://secret-chat-provider--adellamarie.replit.app/api/";
       }
       const r = await fetch(`${base}tts/voices`);
       if (r.ok) {
@@ -332,8 +334,14 @@ export default function SettingsScreen() {
     Haptics.selectionAsync();
     try {
       const envUrl = process.env.EXPO_PUBLIC_API_URL;
-      const base = envUrl ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`) : "/api/";
-      const resp = await fetch(`${base}tts`, {
+      const resolvedBase = customApiUrl?.trim()
+        ? (customApiUrl.trim().endsWith("/") ? customApiUrl.trim() : `${customApiUrl.trim()}/`)
+        : envUrl
+          ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`)
+          : Platform.OS === "web"
+            ? "/api/"
+            : "https://secret-chat-provider--adellamarie.replit.app/api/";
+      const resp = await fetch(`${resolvedBase}tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: `Hi, I'm ${assistantName}. This is the ${v.name} voice from ElevenLabs.`, voiceId: v.id }),

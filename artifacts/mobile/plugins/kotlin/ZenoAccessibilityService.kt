@@ -1,6 +1,7 @@
 package com.boss.assistant
 
 import android.accessibilityservice.AccessibilityService
+import android.content.pm.PackageManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -26,11 +27,34 @@ class ZenoAccessibilityService : AccessibilityService() {
         }
     }
 
+    data class AccessibilityNotificationData(
+        val app: String,
+        val packageName: String,
+        val sender: String,
+        val text: String,
+        val timestamp: Long,
+        val hasReply: Boolean = false,
+        val source: String = "accessibility",
+    ) {
+        fun toWritableMap(): WritableMap = Arguments.createMap().also {
+            it.putString("app", app)
+            it.putString("packageName", packageName)
+            it.putString("sender", sender)
+            it.putString("text", text)
+            it.putDouble("timestamp", timestamp.toDouble())
+            it.putBoolean("hasReply", hasReply)
+            it.putString("source", source)
+        }
+    }
+
     companion object {
         @Volatile var instance: ZenoAccessibilityService? = null
         val recentEvents = CopyOnWriteArrayList<AccessibilityEventData>()
+        val recentNotificationEvents = CopyOnWriteArrayList<AccessibilityNotificationData>()
         private const val MAX_EVENTS = 50
+        private const val MAX_NOTIFICATION_EVENTS = 50
         private const val TAG = "ZenoAccessibilityService"
+        @Volatile var onAccessibilityNotificationCallback: ((AccessibilityNotificationData) -> Unit)? = null
     }
 
     override fun onServiceConnected() {
@@ -59,6 +83,15 @@ class ZenoAccessibilityService : AccessibilityService() {
             recentEvents.add(0, data)
             if (recentEvents.size > MAX_EVENTS) {
                 recentEvents.removeAt(recentEvents.size - 1)
+            }
+
+            if (event.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
+                val n = toNotificationData(pkg, event)
+                recentNotificationEvents.add(0, n)
+                if (recentNotificationEvents.size > MAX_NOTIFICATION_EVENTS) {
+                    recentNotificationEvents.removeAt(recentNotificationEvents.size - 1)
+                }
+                onAccessibilityNotificationCallback?.invoke(n)
             }
         } catch (e: Exception) {
             Log.w(TAG, "onAccessibilityEvent error", e)
@@ -92,6 +125,53 @@ class ZenoAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.w(TAG, "collectNodeText error", e)
             ""
+        }
+    }
+
+    private fun toNotificationData(packageName: String, event: AccessibilityEvent): AccessibilityNotificationData {
+        val appName = getAppName(packageName)
+        val parts = mutableListOf<String>()
+        event.text?.forEach { piece ->
+            val value = piece?.toString()?.trim()
+            if (!value.isNullOrBlank()) parts.add(value)
+        }
+        val cd = event.contentDescription?.toString()?.trim()
+        if (!cd.isNullOrBlank() && parts.none { it.equals(cd, ignoreCase = true) }) {
+            parts.add(cd)
+        }
+
+        val normalized = parts.map { it.trim() }.filter { it.isNotBlank() }
+        val senderIndex = if (
+            normalized.isNotEmpty() && (
+                normalized[0].equals(appName, ignoreCase = true) ||
+                    normalized[0].equals(packageName, ignoreCase = true)
+                )
+        ) 1 else 0
+        val sender = normalized.getOrNull(senderIndex)?.takeIf { it.isNotBlank() } ?: appName
+        val msg = normalized.drop(senderIndex + 1).joinToString(" ").trim()
+        if (normalized.size < 2) {
+            Log.d(
+                TAG,
+                "Limited notification text for $packageName. Expected sender+message, got: $normalized"
+            )
+        }
+
+        return AccessibilityNotificationData(
+            app = appName,
+            packageName = packageName,
+            sender = sender,
+            text = msg,
+            timestamp = System.currentTimeMillis(),
+        )
+    }
+
+    private fun getAppName(packageName: String): String {
+        return try {
+            val pm: PackageManager = packageManager
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (_: Exception) {
+            packageName
         }
     }
 }

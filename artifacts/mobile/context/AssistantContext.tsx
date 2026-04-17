@@ -13,6 +13,11 @@ const USER_PROFILE_KEY = "@zeno_user_profile";
 const PERSONALITY_KEY = "@zeno_personality";
 const WAKE_WORD_KEY = "@zeno_wake_word";
 const READ_INCOMING_KEY = "@zeno_read_incoming";
+const NOTES_KEY = "@zeno_notes";
+const TODOS_KEY = "@zeno_todos";
+const FAVORITES_KEY = "@zeno_favorites";
+const QUICK_CHIPS_KEY = "@zeno_quick_chips";
+const SPEECH_LANGUAGE_KEY = "@zeno_speech_language";
 
 export type TtsProvider = "elevenlabs" | "phone";
 export type ThemeOverride = "system" | "dark" | "light";
@@ -41,6 +46,26 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface VoiceNote {
+  id: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface TodoItem {
+  id: string;
+  text: string;
+  done: boolean;
+  timestamp: number;
+}
+
+export interface ContactFavorite {
+  alias: string;   // e.g. "wife", "husband", "mom"
+  contactName: string; // actual name to look up in contacts
+}
+
+export const DEFAULT_QUICK_CHIPS = ["What can you do?", "Tell me a fun fact", "What's today's date?"];
 
 interface AssistantContextType {
   assistantName: string;
@@ -74,6 +99,20 @@ interface AssistantContextType {
   setWakeWordEnabled: (v: boolean) => Promise<void>;
   readIncomingEnabled: boolean;
   setReadIncomingEnabled: (v: boolean) => Promise<void>;
+  notes: VoiceNote[];
+  saveNote: (text: string) => Promise<VoiceNote>;
+  deleteNote: (id: string) => Promise<void>;
+  todos: TodoItem[];
+  addTodo: (text: string) => Promise<TodoItem>;
+  completeTodo: (id: string) => Promise<void>;
+  deleteTodo: (id: string) => Promise<void>;
+  contactFavorites: ContactFavorite[];
+  setContactFavorite: (alias: string, contactName: string) => Promise<void>;
+  getContactFavorite: (alias: string) => ContactFavorite | undefined;
+  customQuickChips: string[];
+  setCustomQuickChips: (chips: string[]) => Promise<void>;
+  speechLanguage: string;
+  setSpeechLanguage: (lang: string) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -100,6 +139,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [assistantPersonality, setAssistantPersonalityState] = useState<AssistantPersonality>("friendly");
   const [wakeWordEnabled, setWakeWordEnabledState] = useState(false);
   const [readIncomingEnabled, setReadIncomingEnabledState] = useState(false);
+  const [notes, setNotes] = useState<VoiceNote[]>([]);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [contactFavorites, setContactFavoritesState] = useState<ContactFavorite[]>([]);
+  const [customQuickChips, setCustomQuickChipsState] = useState<string[]>(DEFAULT_QUICK_CHIPS);
+  const [speechLanguage, setSpeechLanguageState] = useState("en-US");
 
   useEffect(() => {
     loadData();
@@ -109,7 +153,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs
     const timeoutId = setTimeout(() => setIsLoading(false), 5000);
     try {
-      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming] = await Promise.all([
+      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
@@ -122,6 +166,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(PERSONALITY_KEY),
         AsyncStorage.getItem(WAKE_WORD_KEY),
         AsyncStorage.getItem(READ_INCOMING_KEY),
+        AsyncStorage.getItem(NOTES_KEY),
+        AsyncStorage.getItem(TODOS_KEY),
+        AsyncStorage.getItem(FAVORITES_KEY),
+        AsyncStorage.getItem(QUICK_CHIPS_KEY),
+        AsyncStorage.getItem(SPEECH_LANGUAGE_KEY),
       ]);
       if (name) { setAssistantNameState(name); setIsOnboarded(true); }
       if (convsRaw) setConversations(JSON.parse(convsRaw));
@@ -135,6 +184,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (personality === "friendly" || personality === "casual" || personality === "professional" || personality === "witty" || personality === "caring") setAssistantPersonalityState(personality);
       if (wakeWord === "true") setWakeWordEnabledState(true);
       if (readIncoming === "true") setReadIncomingEnabledState(true);
+      if (notesRaw) { try { setNotes(JSON.parse(notesRaw)); } catch { /* ignore */ } }
+      if (todosRaw) { try { setTodos(JSON.parse(todosRaw)); } catch { /* ignore */ } }
+      if (favoritesRaw) { try { setContactFavoritesState(JSON.parse(favoritesRaw)); } catch { /* ignore */ } }
+      if (quickChipsRaw) { try { const chips = JSON.parse(quickChipsRaw); if (Array.isArray(chips) && chips.length > 0) setCustomQuickChipsState(chips); } catch { /* ignore */ } }
+      if (speechLang) setSpeechLanguageState(speechLang);
     } catch {
       // ignore
     } finally {
@@ -206,6 +260,75 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setReadIncomingEnabledState(v);
   }
 
+  async function saveNote(text: string): Promise<VoiceNote> {
+    const note: VoiceNote = { id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, text, timestamp: Date.now() };
+    setNotes((prev) => {
+      const updated = [note, ...prev];
+      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+    return note;
+  }
+
+  async function deleteNote(id: string) {
+    setNotes((prev) => {
+      const updated = prev.filter((n) => n.id !== id);
+      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  async function addTodo(text: string): Promise<TodoItem> {
+    const todo: TodoItem = { id: `todo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, text, done: false, timestamp: Date.now() };
+    setTodos((prev) => {
+      const updated = [todo, ...prev];
+      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+    return todo;
+  }
+
+  async function completeTodo(id: string) {
+    setTodos((prev) => {
+      const updated = prev.map((t) => t.id === id ? { ...t, done: true } : t);
+      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  async function deleteTodo(id: string) {
+    setTodos((prev) => {
+      const updated = prev.filter((t) => t.id !== id);
+      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  async function setContactFavorite(alias: string, contactName: string) {
+    const normalizedAlias = alias.toLowerCase().trim();
+    setContactFavoritesState((prev) => {
+      const filtered = prev.filter((f) => f.alias !== normalizedAlias);
+      const updated = [{ alias: normalizedAlias, contactName: contactName.trim() }, ...filtered];
+      AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  function getContactFavorite(alias: string): ContactFavorite | undefined {
+    return contactFavorites.find((f) => f.alias === alias.toLowerCase().trim());
+  }
+
+  async function setCustomQuickChips(chips: string[]) {
+    const valid = chips.filter((c) => c.trim()).slice(0, 6);
+    await AsyncStorage.setItem(QUICK_CHIPS_KEY, JSON.stringify(valid));
+    setCustomQuickChipsState(valid.length > 0 ? valid : DEFAULT_QUICK_CHIPS);
+  }
+
+  async function setSpeechLanguage(lang: string) {
+    await AsyncStorage.setItem(SPEECH_LANGUAGE_KEY, lang);
+    setSpeechLanguageState(lang);
+  }
+
   function createConversation(): string {
     const id = `conv-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const now = Date.now();
@@ -260,6 +383,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         assistantPersonality, setAssistantPersonality,
         wakeWordEnabled, setWakeWordEnabled,
         readIncomingEnabled, setReadIncomingEnabled,
+        notes, saveNote, deleteNote,
+        todos, addTodo, completeTodo, deleteTodo,
+        contactFavorites, setContactFavorite, getContactFavorite,
+        customQuickChips, setCustomQuickChips,
+        speechLanguage, setSpeechLanguage,
       }}
     >
       {children}

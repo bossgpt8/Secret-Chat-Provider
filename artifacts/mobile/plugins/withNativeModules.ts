@@ -46,6 +46,10 @@ const KOTLIN_FILES = [
   "AccessibilityModule.kt",
   "AccessibilityPackage.kt",
   "ZenoAccessibilityService.kt",
+  "MediaControlModule.kt",
+  "MediaControlPackage.kt",
+  "CallScreeningModule.kt",
+  "CallScreeningPackage.kt",
 ];
 
 /** Resolves the com.boss.assistant java source directory inside the android project. */
@@ -215,6 +219,8 @@ const PACKAGES = [
   "ScreenLockPackage()",
   "NotificationListenerPackage()",
   "AccessibilityPackage()",
+  "MediaControlPackage()",
+  "CallScreeningPackage()",
 ];
 
 /** Marker inserted to detect that our packages have already been added (idempotency). */

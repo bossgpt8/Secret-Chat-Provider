@@ -20,7 +20,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAssistant, type TtsProvider, type ThemeOverride } from "@/context/AssistantContext";
+import { useAssistant, type TtsProvider, type ThemeOverride, DEFAULT_QUICK_CHIPS } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
 import { NativeAccessibility } from "@/modules/NativeAccessibility";
 import { NativeNotifications } from "@/modules/NativeNotifications";
@@ -101,6 +101,8 @@ export default function SettingsScreen() {
     themeOverride, setThemeOverride,
     customApiUrl, setCustomApiUrl,
     readIncomingEnabled, setReadIncomingEnabled,
+    customQuickChips, setCustomQuickChips,
+    speechLanguage, setSpeechLanguage,
   } = useAssistant();
 
   const [editingName, setEditingName] = useState(false);
@@ -119,6 +121,10 @@ export default function SettingsScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [loadingElVoices, setLoadingElVoices] = useState(true);
   const [previewingElId, setPreviewingElId] = useState<string | null>(null);
+
+  // Quick chips editing state
+  const [editingChips, setEditingChips] = useState(false);
+  const [chipsInput, setChipsInput] = useState(customQuickChips.join("\n"));
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -637,6 +643,90 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        {/* ── Home Screen ── */}
+        <Section title="Home Screen">
+          {/* Language selector */}
+          <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="language-outline" size={18} color={colors.primary} />
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Speech Language</Text>
+            </View>
+            <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+              Current: {speechLanguage}. Say &quot;switch to Spanish&quot; (or any language) to change.
+            </Text>
+            <View style={styles.provRow}>
+              {[
+                { label: "English", code: "en-US" },
+                { label: "Spanish", code: "es-ES" },
+                { label: "French", code: "fr-FR" },
+                { label: "German", code: "de-DE" },
+                { label: "Portuguese", code: "pt-BR" },
+                { label: "Arabic", code: "ar-SA" },
+              ].map(({ label, code }) => {
+                const active = speechLanguage === code;
+                return (
+                  <Pressable key={code}
+                    style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+                    onPress={async () => { await setSpeechLanguage(code); Haptics.selectionAsync(); }}>
+                    <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Quick chips editor */}
+          <View style={[styles.row, { borderBottomColor: "transparent", flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
+                <Text style={[styles.rowLabel, { color: colors.foreground }]}>Quick Chips</Text>
+              </View>
+              {!editingChips ? (
+                <Pressable onPress={() => { setEditingChips(true); setChipsInput(customQuickChips.join("\n")); }}>
+                  <Text style={[styles.rowValue, { color: colors.primary }]}>Edit</Text>
+                </Pressable>
+              ) : (
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable onPress={async () => {
+                    const chips = chipsInput.split("\n").map((c) => c.trim()).filter(Boolean).slice(0, 6);
+                    await setCustomQuickChips(chips.length > 0 ? chips : DEFAULT_QUICK_CHIPS);
+                    setEditingChips(false);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }}>
+                    <Text style={[styles.rowValue, { color: colors.primary }]}>Save</Text>
+                  </Pressable>
+                  <Pressable onPress={() => { setEditingChips(false); setChipsInput(customQuickChips.join("\n")); }}>
+                    <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Cancel</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+            {editingChips ? (
+              <>
+                <TextInput
+                  style={[styles.nameInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background, height: 120, textAlignVertical: "top", paddingTop: 8 }]}
+                  value={chipsInput}
+                  onChangeText={setChipsInput}
+                  multiline
+                  placeholder={"One chip per line (max 6)\nWhat can you do?\nTell me a fun fact"}
+                  placeholderTextColor={colors.mutedForeground}
+                  autoFocus
+                />
+                <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Enter one suggestion per line. Up to 6 chips.</Text>
+              </>
+            ) : (
+              <View style={{ gap: 6 }}>
+                {customQuickChips.map((chip, i) => (
+                  <View key={i} style={[styles.chipPreview, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+                    <Text style={[styles.rowValue, { color: colors.foreground, marginLeft: 0 }]}>{chip}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </Section>
+
         {/* ── Permissions ── */}
         <Section title="Permissions">
           {PERMISSIONS.map((perm) => {
@@ -757,7 +847,7 @@ const styles = StyleSheet.create({
   nameInput: { flex: 1, height: 38, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, fontSize: 15, fontFamily: "Inter_500Medium" },
   saveBtn: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   cancelBtn: { width: 36, height: 36, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  provRow: { flexDirection: "row", gap: 10, paddingLeft: 26 },
+  provRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingLeft: 26 },
   provTab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, borderWidth: 1 },
   provTabText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   speedRow: { flexDirection: "row", gap: 10, paddingLeft: 26 },
@@ -770,4 +860,5 @@ const styles = StyleSheet.create({
   qualityText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   previewBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
   previewText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  chipPreview: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, borderWidth: 1 },
 });

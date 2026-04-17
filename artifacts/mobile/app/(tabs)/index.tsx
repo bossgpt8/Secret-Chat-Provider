@@ -240,7 +240,7 @@ Notifications.setNotificationHandler({
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote } = useAssistant();
+  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -633,7 +633,7 @@ export default function ChatScreen() {
   async function speakWithPhone(text: string) {
     if (Platform.OS === "web") { onTtsDone(); return; }
     const opts: Speech.SpeechOptions = {
-      language: "en-US",
+      language: speechLanguage || "en-US",
       pitch: 1.05,
       rate: speechRate,
       onDone: onTtsDone,
@@ -866,7 +866,17 @@ export default function ChatScreen() {
       | "weather_check"
       | "voice_note" | "list_notes"
       | "media_play" | "media_pause" | "media_next" | "media_previous" | "media_stop"
-      | "call_answer" | "call_decline";
+      | "call_answer" | "call_decline"
+      | "email_send"
+      | "share_location"
+      | "nearby_search"
+      | "eta_navigate"
+      | "daily_briefing"
+      | "news_briefing"
+      | "language_switch"
+      | "photo_capture"
+      | "todo_add" | "todo_list" | "todo_complete"
+      | "contact_favorite_set" | "contact_favorite_call";
     value?: number;
     phone?: string;
     name?: string;
@@ -876,6 +886,15 @@ export default function ChatScreen() {
     durationSeconds?: number;
     targetTime?: Date;
     label?: string;
+    // For email
+    emailSubject?: string;
+    emailBody?: string;
+    // For nearby search
+    searchQuery?: string;
+    // For language switch
+    language?: string;
+    // For contact favorite
+    alias?: string;
   }
 
   function extractPhoneNumber(text: string): string | undefined {
@@ -1153,6 +1172,100 @@ export default function ChatScreen() {
     // Setup notification permission
     if (/\b(set(up)? (notification|message) (access|permission|listener)|allow (reading|access to) notifications)\b/.test(t)) {
       return { type: "setup_notifications" };
+    }
+
+    // ── Email by voice ──────────────────────────────────────────────────────────
+    // "send an email to John subject meeting body I'll be late"
+    // "email John about meeting saying I'll be late"
+    if (/\b(email|send an email|send email)\b/.test(t)) {
+      const nameM = t.match(new RegExp(`\\b(?:email|send\\s+(?:an?\\s+)?email)\\s+(?:to\\s+)?(${NAME_PAT})`, "i"));
+      const subjectM = t.match(/\b(?:about|subject|re:?)\s+([^,]+)/i);
+      const bodyM = t.match(/\b(?:saying|body|message)\s+(.+)/i);
+      return {
+        type: "email_send",
+        name: nameM?.[1]?.trim(),
+        emailSubject: subjectM?.[1]?.trim(),
+        emailBody: bodyM?.[1]?.trim(),
+      };
+    }
+
+    // ── Share location ──────────────────────────────────────────────────────────
+    // "send my location to Mom" / "share my location with John"
+    if (/\b(send|share)\s+(my\s+)?location\b/.test(t)) {
+      const nameM = t.match(new RegExp(`\\b(?:to|with)\\s+(${NAME_PAT})`, "i"));
+      const appM = t.match(/\b(whatsapp|telegram|sms|text)\b/i);
+      return { type: "share_location", name: nameM?.[1]?.trim(), app: appM?.[1] };
+    }
+
+    // ── Nearby search ───────────────────────────────────────────────────────────
+    // "find a coffee shop near me" / "what's near me" / "restaurants nearby"
+    if (/\b(find|search|look for|where('?s| is)|what('?s| is) near)\b.*(near(by| me)|around here|close by)\b/.test(t) ||
+        /\b(near(by| me)|around here)\b/.test(t) && /\b(find|show|get)\b/.test(t)) {
+      const queryM = t.match(/\b(?:find|search\s+for|look\s+for)\s+(?:a\s+|an?\s+|some\s+)?(.+?)\s+(?:near|around|close)/i);
+      return { type: "nearby_search", searchQuery: queryM?.[1]?.trim() ?? "place" };
+    }
+
+    // ── ETA / navigate ─────────────────────────────────────────────────────────
+    // "how long to get home" / "navigate to Walmart" / "directions to the airport"
+    if (/\b(navigate|directions?|how long to|take me to|get me to|drive to)\b/.test(t)) {
+      const destM = t.match(/\b(?:navigate\s+to|directions?\s+to|how\s+long\s+to\s+(?:get\s+to)?|take\s+me\s+to|get\s+me\s+to|drive\s+to)\s+(.+)/i);
+      return { type: "eta_navigate", label: destM?.[1]?.trim() ?? "home" };
+    }
+
+    // ── Daily briefing ──────────────────────────────────────────────────────────
+    // "good morning" / "morning briefing" / "start my day"
+    if (/\b(good morning|morning briefing|start my day|daily briefing|what('?s| is) on today|today('?s| is) summary)\b/.test(t)) {
+      return { type: "daily_briefing" };
+    }
+
+    // ── News briefing ───────────────────────────────────────────────────────────
+    // "read me the news" / "what's in the news" / "top headlines"
+    if (/\b(read(ing)? (the |me the |me )?news|what('?s| is) (in |happening in )?the news|top (headlines?|stories|news)|latest news|news briefing)\b/.test(t)) {
+      return { type: "news_briefing" };
+    }
+
+    // ── Language switch ─────────────────────────────────────────────────────────
+    // "switch to Spanish" / "speak in French" / "change language to German"
+    const langMatch = t.match(/\b(?:switch\s+to|speak\s+in|change\s+(?:language\s+)?to|use)\s+(spanish|french|german|portuguese|arabic|hindi|italian|dutch|japanese|korean|chinese|russian|turkish|polish|swedish|norwegian|danish|finnish|greek|hebrew|thai|vietnamese|malay|indonesian|english)\b/i);
+    if (langMatch) {
+      return { type: "language_switch", language: langMatch[1].toLowerCase() };
+    }
+
+    // ── Photo capture ───────────────────────────────────────────────────────────
+    // "take a photo" / "take a picture" / "capture a photo"
+    if (/\b(take\s+(?:a\s+)?(?:photo|picture|selfie|screenshot?|snap)|capture\s+(?:a\s+)?(?:photo|image|picture))\b/.test(t)) {
+      if (/\bscreenshot?\b/.test(t)) return { type: "open_app", app: "Screenshot" };
+      return { type: "photo_capture" };
+    }
+
+    // ── To-do list ──────────────────────────────────────────────────────────────
+    // "add 'call dentist' to my to-do list" / "add task buy groceries"
+    const todoAddMatch = t.match(/\b(?:add\s+(?:(?:a\s+)?task|to(?:\-|\s)?do|(?:to\s+)?my\s+(?:task|to(?:\-|\s)?do)\s+list)[:\s]+|add\s+['""]?(.+?)['""]?\s+to\s+(?:my\s+)?(?:task|to(?:\-|\s)?do)\s+list|(?:to(?:\-|\s)?do|task)[:\s]+)(.+)/i);
+    if (todoAddMatch) {
+      const taskText = (todoAddMatch[1] ?? todoAddMatch[2] ?? "").trim();
+      if (taskText) return { type: "todo_add", message: taskText };
+    }
+    // Simpler pattern: "add to my list: buy milk"
+    if (/\badd\s+(?:to\s+(?:my\s+)?(?:list|tasks?|to.?dos?)|(?:to.?do|task)[:\s])/.test(t)) {
+      const taskM = t.match(/\b(?:add\s+to\s+(?:my\s+)?(?:list|tasks?|to.?dos?)|add\s+(?:to.?do|task)[:\s])\s*[:\-–]?\s*(.+)/i);
+      if (taskM?.[1]) return { type: "todo_add", message: taskM[1].trim() };
+    }
+    if (/\b(what('?s| is|are)(\s+on)?\s+(my\s+)?(to.?do|task)\s*(list)?|list\s+(my\s+)?(to.?do|tasks?)|show\s+(my\s+)?tasks?|read\s+(my\s+)?(to.?do|tasks?))\b/.test(t)) {
+      return { type: "todo_list" };
+    }
+    const todoCompleteMatch = t.match(/\b(?:mark|complete|finish|done|check\s+off)\s+(?:task\s+)?(\d+|.+?)\s+(?:as\s+)?(?:done|complete|finished)\b/i);
+    if (todoCompleteMatch) return { type: "todo_complete", label: todoCompleteMatch[1].trim() };
+
+    // ── Contact favorites ───────────────────────────────────────────────────────
+    // "my wife is Sarah" / "set my wife as Sarah" / "call my wife"
+    const ALIASES = "wife|husband|mom|dad|mother|father|brother|sister|girlfriend|boyfriend|best friend|boss|partner|son|daughter";
+    const favSetMatch = t.match(new RegExp(`\\b(?:(?:set\\s+)?my\\s+(${ALIASES})\\s+(?:is|as|to)\\s+(${NAME_PAT}))`, "i"));
+    if (favSetMatch) {
+      return { type: "contact_favorite_set", alias: favSetMatch[1].trim(), name: favSetMatch[2].trim() };
+    }
+    const favCallMatch = t.match(new RegExp(`\\b(?:call|dial|phone|ring)\\s+my\\s+(${ALIASES})\\b`, "i"));
+    if (favCallMatch) {
+      return { type: "contact_favorite_call", alias: favCallMatch[1].trim() };
     }
 
     return null;
@@ -1666,6 +1779,301 @@ export default function ChatScreen() {
         await respond(declined ? "Call declined." : "I couldn't decline the call.");
         break;
       }
+
+      // ── Email by voice ─────────────────────────────────────────────────────
+
+      case "email_send": {
+        try {
+          let email = "";
+          if (intent.name) {
+            const { status } = await Contacts.requestPermissionsAsync();
+            if (status === "granted") {
+              const { data } = await Contacts.getContactsAsync({
+                fields: [Contacts.Fields.Emails, Contacts.Fields.Name],
+                name: intent.name,
+              });
+              const emailAddr = data[0]?.emails?.[0]?.email;
+              if (emailAddr) email = emailAddr;
+            }
+          }
+          const subject = intent.emailSubject ? encodeURIComponent(intent.emailSubject) : "";
+          const body = intent.emailBody ? encodeURIComponent(intent.emailBody) : "";
+          const to = email ? encodeURIComponent(email) : "";
+          const url = `mailto:${to}?subject=${subject}&body=${body}`;
+          await Linking.openURL(url);
+          const target = intent.name ? ` to ${intent.name}` : "";
+          await respond(`Opening email app${target} with your message pre-filled — tap Send to deliver it.`);
+        } catch {
+          await respond("I couldn't open the email app. Please check your email client is installed.");
+        }
+        break;
+      }
+
+      // ── Share location ──────────────────────────────────────────────────────
+
+      case "share_location": {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== "granted") {
+            await respond("I need location permission to share your location. Please grant it in Settings.");
+            break;
+          }
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const { latitude, longitude } = loc.coords;
+          const mapsUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
+          const shareMsg = `My current location: ${mapsUrl}`;
+          const targetName = intent.name;
+          const appTarget = intent.app?.toLowerCase();
+          if (targetName || appTarget) {
+            let phone: string | undefined;
+            if (targetName) phone = await lookupContactPhone(targetName);
+            const encoded = encodeURIComponent(shareMsg);
+            let deepUrl = "";
+            if (appTarget === "whatsapp" || (!appTarget && phone)) {
+              deepUrl = phone ? `whatsapp://send?phone=${phone}&text=${encoded}` : `whatsapp://send?text=${encoded}`;
+            } else if (appTarget === "telegram") {
+              deepUrl = phone ? `tg://msg?to=${phone}&text=${encoded}` : `tg://msg?text=${encoded}`;
+            } else if (appTarget === "sms" || appTarget === "text") {
+              const sep = Platform.OS === "ios" ? "&" : "?";
+              deepUrl = phone ? `sms:${phone}${sep}body=${encoded}` : `sms:${sep}body=${encoded}`;
+            } else {
+              deepUrl = phone ? `whatsapp://send?phone=${phone}&text=${encoded}` : `whatsapp://send?text=${encoded}`;
+            }
+            await Linking.openURL(deepUrl).catch(() => {});
+            await respond(targetName ? `Opening to send your location to ${targetName}.` : "Opening app to send your location.");
+          } else {
+            await Share.share({ message: shareMsg });
+            await respond("Sharing your location.");
+          }
+        } catch {
+          await respond("I couldn't get your location right now. Please check location permissions.");
+        }
+        break;
+      }
+
+      // ── Nearby search ───────────────────────────────────────────────────────
+
+      case "nearby_search": {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== "granted") {
+            await respond("I need location permission to search nearby places. Please grant it in Settings.");
+            break;
+          }
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const { latitude, longitude } = loc.coords;
+          const query = intent.searchQuery ?? "place";
+          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&lat=${latitude}&lon=${longitude}&limit=3&addressdetails=1`;
+          const resp = await globalThis.fetch(url, { headers: { "Accept-Language": "en" } });
+          if (!resp.ok) throw new Error("Nominatim error");
+          const places = await resp.json() as Array<{ display_name: string; addresstype?: string }>;
+          if (!places || places.length === 0) {
+            await respond(`I couldn't find any ${query} nearby. Try a different search.`);
+            break;
+          }
+          const names = places.slice(0, 3).map((p, i) => {
+            const parts = p.display_name.split(",");
+            return `${i + 1}. ${parts[0].trim()}${parts[1] ? `, ${parts[1].trim()}` : ""}`;
+          });
+          await respond(`I found ${names.length} ${query} nearby: ${names.join(". ")}.`);
+        } catch {
+          await respond("I couldn't search for nearby places right now. Please check your internet connection.");
+        }
+        break;
+      }
+
+      // ── ETA / navigate ──────────────────────────────────────────────────────
+
+      case "eta_navigate": {
+        const destination = intent.label ?? "home";
+        const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+        try {
+          const nativeUrl = `geo:0,0?q=${encodeURIComponent(destination)}`;
+          const canNative = await Linking.canOpenURL(nativeUrl).catch(() => false);
+          await Linking.openURL(canNative ? nativeUrl : mapsUrl).catch(() => {});
+          await respond(`Opening navigation to ${destination}.`);
+        } catch {
+          await respond(`I couldn't open maps for navigation to ${destination}.`);
+        }
+        break;
+      }
+
+      // ── Daily briefing ──────────────────────────────────────────────────────
+
+      case "daily_briefing": {
+        const parts: string[] = [];
+        const hour = new Date().getHours();
+        const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+        parts.push(greeting + (userProfile.userName ? `, ${userProfile.userName}` : "") + ".");
+        try {
+          const Battery2 = await import("expo-battery");
+          const level = await Battery2.getBatteryLevelAsync();
+          const pct = Math.round(level * 100);
+          const state = await Battery2.getBatteryStateAsync();
+          const charging = state === Battery2.BatteryState.CHARGING ? " and charging" : "";
+          parts.push(`Battery is at ${pct}%${charging}.`);
+        } catch { /* ignore */ }
+        try {
+          const { status: locStatus } = await Location.requestForegroundPermissionsAsync();
+          if (locStatus === "granted") {
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            const { latitude, longitude } = loc.coords;
+            const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&timezone=auto`;
+            const wResp = await globalThis.fetch(wUrl);
+            if (wResp.ok) {
+              const wData = await wResp.json() as { current_weather?: { temperature: number; weathercode: number } };
+              const cw = wData.current_weather;
+              if (cw) {
+                const tempC = Math.round(cw.temperature);
+                const tempF = Math.round(tempC * 9 / 5 + 32);
+                const wcode = cw.weathercode;
+                const desc = wcode === 0 ? "clear skies" : wcode <= 3 ? "partly cloudy" : wcode <= 49 ? "foggy" : wcode <= 69 ? "rainy" : wcode <= 79 ? "snowy" : "stormy";
+                parts.push(`Outside it is ${tempC}°C (${tempF}°F) with ${desc}.`);
+              }
+            }
+          }
+        } catch { /* ignore */ }
+        if (notes.length > 0) {
+          parts.push(`You have ${notes.length} saved note${notes.length > 1 ? "s" : ""}.`);
+        }
+        const activeTodos = todos.filter((t) => !t.done);
+        if (activeTodos.length > 0) {
+          parts.push(`You have ${activeTodos.length} pending task${activeTodos.length > 1 ? "s" : ""} on your to-do list.`);
+        }
+        parts.push("Have a great day!");
+        await respond(parts.join(" "));
+        break;
+      }
+
+      // ── News briefing ───────────────────────────────────────────────────────
+
+      case "news_briefing": {
+        try {
+          const base = await getApiBase();
+          const resp = await fetch(`${base}search`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: "top news headlines today", assistantName }),
+          });
+          const data = await resp.json() as { result?: string; error?: string };
+          const reply = data.result ?? data.error ?? "I couldn't fetch the news right now.";
+          const newsMsg: Message = { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now(), isSearch: true };
+          const finalMsgs = [...withUser, newsMsg];
+          setMessages(finalMsgs);
+          await saveMessages(convId, finalMsgs);
+          speakText(reply);
+          return;
+        } catch {
+          await respond("I couldn't fetch the news right now. Please check your internet connection.");
+        }
+        break;
+      }
+
+      // ── Language switch ─────────────────────────────────────────────────────
+
+      case "language_switch": {
+        const langMap: Record<string, string> = {
+          spanish: "es-ES", french: "fr-FR", german: "de-DE", portuguese: "pt-BR",
+          arabic: "ar-SA", hindi: "hi-IN", italian: "it-IT", dutch: "nl-NL",
+          japanese: "ja-JP", korean: "ko-KR", chinese: "zh-CN", russian: "ru-RU",
+          turkish: "tr-TR", polish: "pl-PL", swedish: "sv-SE", norwegian: "nb-NO",
+          danish: "da-DK", finnish: "fi-FI", greek: "el-GR", hebrew: "he-IL",
+          thai: "th-TH", vietnamese: "vi-VN", malay: "ms-MY", indonesian: "id-ID",
+          english: "en-US",
+        };
+        const requested = (intent.language ?? "english").toLowerCase();
+        const langCode = langMap[requested] ?? "en-US";
+        await setSpeechLanguage(langCode);
+        const langName = requested.charAt(0).toUpperCase() + requested.slice(1);
+        await respond(`Switched to ${langName}. I'll speak in ${langName} from now on.`);
+        break;
+      }
+
+      // ── Photo capture ───────────────────────────────────────────────────────
+
+      case "photo_capture": {
+        try {
+          const cameraUri = "android.media.action.IMAGE_CAPTURE";
+          const canOpen = await Linking.canOpenURL(cameraUri).catch(() => false);
+          if (canOpen) {
+            await Linking.openURL(cameraUri);
+            await respond("Opening the camera. Take your photo!");
+          } else {
+            await Linking.openURL("https://camera").catch(() => {});
+            await respond("Opening the camera app.");
+          }
+        } catch {
+          await respond("I couldn't open the camera. Please open it manually.");
+        }
+        break;
+      }
+
+      // ── To-do list ──────────────────────────────────────────────────────────
+
+      case "todo_add": {
+        const taskText = intent.message ?? "";
+        if (!taskText) { await respond("What would you like to add to your to-do list?"); break; }
+        await addTodo(taskText);
+        await respond(`Added to your to-do list: "${taskText}".`);
+        break;
+      }
+
+      case "todo_list": {
+        const activeTodos = todos.filter((t) => !t.done);
+        if (activeTodos.length === 0) {
+          await respond("Your to-do list is empty. Say 'add task' followed by what you need to do.");
+          break;
+        }
+        const items = activeTodos.slice(0, 6).map((t, i) => `${i + 1}. ${t.text}`).join(". ");
+        await respond(`You have ${activeTodos.length} task${activeTodos.length > 1 ? "s" : ""}: ${items}.`);
+        break;
+      }
+
+      case "todo_complete": {
+        const label = intent.label ?? "";
+        const activeTodos = todos.filter((t) => !t.done);
+        let matched = activeTodos.find((t) => t.text.toLowerCase().includes(label.toLowerCase()));
+        if (!matched && /^\d+$/.test(label)) {
+          const idx = parseInt(label) - 1;
+          matched = activeTodos[idx];
+        }
+        if (!matched) {
+          await respond(label ? `I couldn't find a task matching "${label}" on your list.` : "Which task would you like to mark as done? Say the task number or name.");
+          break;
+        }
+        await completeTodo(matched.id);
+        await respond(`Marked "${matched.text}" as done. Great work!`);
+        break;
+      }
+
+      // ── Contact favorites ───────────────────────────────────────────────────
+
+      case "contact_favorite_set": {
+        const alias = intent.alias ?? "";
+        const name = intent.name ?? "";
+        if (!alias || !name) { await respond("Please say for example: 'My wife is Sarah'."); break; }
+        await setContactFavorite(alias, name);
+        await respond(`Got it! I'll remember that your ${alias} is ${name}.`);
+        break;
+      }
+
+      case "contact_favorite_call": {
+        const alias = intent.alias ?? "";
+        const fav = getContactFavorite(alias);
+        if (!fav) {
+          await respond(`I don't know who your ${alias} is yet. Say 'my ${alias} is [name]' to set it.`);
+          break;
+        }
+        const phone = await lookupContactPhone(fav.contactName);
+        if (!phone) {
+          await respond(`I couldn't find a phone number for ${fav.contactName} in your contacts.`);
+          break;
+        }
+        const url = `tel:${phone}`;
+        await Linking.openURL(url).catch(() => {});
+        await respond(`Calling your ${alias}, ${fav.contactName}.`);
+        break;
+      }
     }
   }
 
@@ -1868,13 +2276,6 @@ export default function ChatScreen() {
             onPress={() => { setIsTtsEnabled((v) => { if (v) { stopSpeaking(); } return !v; }); Haptics.selectionAsync(); }}>
             <Ionicons name={isTtsEnabled ? "volume-high" : "volume-mute"} size={20} color={isTtsEnabled ? colors.primary : colors.mutedForeground} />
           </Pressable>
-          <Pressable
-            style={[styles.iconBtn, isCallMode && { backgroundColor: colors.destructive + "18", borderRadius: 8 }]}
-            onPress={isCallMode ? endCallMode : startCallMode}
-            disabled={isStreaming}
-          >
-            <Ionicons name={isCallMode ? "call" : "call-outline"} size={20} color={isCallMode ? colors.destructive : colors.mutedForeground} />
-          </Pressable>
           <Pressable style={styles.iconBtn} onPress={handleNewChat}>
             <Ionicons name="create-outline" size={20} color={colors.mutedForeground} />
           </Pressable>
@@ -1950,10 +2351,19 @@ export default function ChatScreen() {
               <>
                 <Text style={[styles.voiceTitle, { color: colors.foreground }]}>Hi, I&apos;m {assistantName}</Text>
                 <Text style={[styles.voiceSubtitle, { color: colors.mutedForeground }]}>
-                  Tap the mic to speak, or tap the phone icon for hands-free call mode
+                  Tap the mic to speak, or start a hands-free voice call
                 </Text>
+                {/* Voice Call button */}
+                <Pressable
+                  style={[styles.voiceCallBtn, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
+                  onPress={startCallMode}
+                  disabled={isStreaming}
+                >
+                  <Ionicons name="call" size={20} color="#fff" />
+                  <Text style={styles.voiceCallBtnText}>Start Voice Call</Text>
+                </Pressable>
                 <View style={styles.quickChips}>
-                  {["What can you do?", "Tell me a fun fact", "What's today's date?"].map((q) => (
+                  {customQuickChips.map((q) => (
                     <Pressable key={q} style={[styles.chip, { backgroundColor: colors.card, borderColor: colors.border }]}
                       onPress={() => handleSend(q)}>
                       <Text style={[styles.chipText, { color: colors.foreground }]}>{q}</Text>
@@ -2066,7 +2476,14 @@ const styles = StyleSheet.create({
   voiceTitle: { fontSize: 22, fontFamily: "Inter_700Bold", marginTop: 8 },
   voiceSubtitle: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center" },
   voiceHint: { fontSize: 14, fontFamily: "Inter_600SemiBold", letterSpacing: 0.3 },
-  quickChips: { width: "100%", gap: 8, marginTop: 8 },
+  voiceCallBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8, paddingHorizontal: 28, paddingVertical: 14,
+    borderRadius: 28, width: "100%",
+    shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 8,
+  },
+  voiceCallBtnText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#fff" },
+  quickChips: { width: "100%", gap: 8, marginTop: 4 },
   chip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, alignItems: "center" },
   chipText: { fontSize: 14, fontFamily: "Inter_400Regular" },
   endCallChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 14, borderWidth: 1 },

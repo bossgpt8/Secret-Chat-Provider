@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.view.accessibility.AccessibilityManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -17,6 +18,9 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 
 class AccessibilityModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
+    companion object {
+        private const val TAG = "AccessibilityModule"
+    }
 
     init {
         ZenoAccessibilityService.onAccessibilityNotificationCallback = { data ->
@@ -31,7 +35,9 @@ class AccessibilityModule(reactContext: ReactApplicationContext) :
             reactApplicationContext
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                 .emit(eventName, params)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to emit event: $eventName", e)
+        }
     }
 
     /**

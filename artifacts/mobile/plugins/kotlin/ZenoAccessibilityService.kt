@@ -140,9 +140,21 @@ class ZenoAccessibilityService : AccessibilityService() {
             parts.add(cd)
         }
 
-        val senderIndex = if (parts.size >= 3 && parts[0].equals(appName, ignoreCase = true)) 1 else 0
-        val sender = parts.getOrNull(senderIndex)?.takeIf { it.isNotBlank() } ?: appName
-        val msg = parts.drop(senderIndex + 1).joinToString(" ").trim()
+        val normalized = parts.map { it.trim() }.filter { it.isNotBlank() }
+        val senderIndex = if (
+            normalized.isNotEmpty() && (
+                normalized[0].equals(appName, ignoreCase = true) ||
+                    normalized[0].equals(packageName, ignoreCase = true)
+                )
+        ) 1 else 0
+        val sender = normalized.getOrNull(senderIndex)?.takeIf { it.isNotBlank() } ?: appName
+        val msg = normalized.drop(senderIndex + 1).joinToString(" ").trim()
+        if (normalized.size < 2) {
+            Log.d(
+                TAG,
+                "Limited notification text for $packageName. Expected sender+message, got: $normalized"
+            )
+        }
 
         return AccessibilityNotificationData(
             app = appName,

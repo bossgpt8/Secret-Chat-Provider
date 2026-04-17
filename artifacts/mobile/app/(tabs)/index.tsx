@@ -743,14 +743,22 @@ export default function ChatScreen() {
     }
   }
 
-  async function openMessagingReplyDraft(appHint: string, sender: string, message: string): Promise<boolean> {
-    const appKey = appHint.toLowerCase();
-    const isTelegram = appKey.includes("telegram");
-    const isWhatsApp = appKey.includes("whatsapp");
-    if (!isTelegram && !isWhatsApp) return false;
+  function resolveMessagingApp(appName: string, packageName: string): "telegram" | "whatsapp" | null {
+    const pkg = packageName.toLowerCase();
+    if (pkg.startsWith("org.telegram")) return "telegram";
+    if (pkg.startsWith("com.whatsapp")) return "whatsapp";
+    const app = appName.toLowerCase().trim();
+    if (app === "telegram" || app === "telegram messenger") return "telegram";
+    if (app === "whatsapp" || app === "whatsapp messenger") return "whatsapp";
+    return null;
+  }
+
+  async function openMessagingReplyDraft(appName: string, packageName: string, sender: string, message: string): Promise<boolean> {
+    const appTarget = resolveMessagingApp(appName, packageName);
+    if (!appTarget) return false;
     const phone = await lookupContactPhone(sender);
     const encoded = encodeURIComponent(message);
-    const deepUrl = isTelegram
+    const deepUrl = appTarget === "telegram"
       ? (phone ? `tg://msg?to=${phone}&text=${encoded}` : `tg://msg?text=${encoded}`)
       : (phone ? `whatsapp://send?phone=${phone}&text=${encoded}` : `whatsapp://send?text=${encoded}`);
     try {
@@ -1138,9 +1146,6 @@ export default function ChatScreen() {
             await respond(`I don't have a recent notification from ${intent.name} to reply to.`);
             break;
           }
-        } else if (intent.name && target && !matchesSenderName(target.sender, intent.name)) {
-          await respond(`I don't have a recent notification from ${intent.name} to reply to.`);
-          break;
         }
         if (!target) {
           await respond("There's no recent message to reply to.");
@@ -1148,12 +1153,16 @@ export default function ChatScreen() {
         }
         if (!target.hasReply || !hasPermR) {
           const opened = await openMessagingReplyDraft(
-            `${target.app} ${target.packageName}`,
+            target.app,
+            target.packageName,
             target.sender,
             replyText
           );
           if (opened) {
-            await respond(`I prepared your reply to ${target.sender} in ${target.app}. Tap Send to deliver it.`);
+            const permissionNote = target.hasReply && !hasPermR
+              ? " I still need Notification Access for direct inline replies."
+              : "";
+            await respond(`I prepared your reply to ${target.sender} in ${target.app}. Tap Send to deliver it.${permissionNote}`);
           } else {
             await respond(`I can't send an inline reply to ${target.sender} from ${target.app}.`);
           }

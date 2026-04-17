@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { NativeNotifications, ZenoNotification } from "@/modules/NativeNotifications";
@@ -23,6 +23,19 @@ const APP_META: Record<string, { name: string; color: string; icon: string }> = 
 
 function getAppMeta(pkg: string, defaultName: string) {
   return APP_META[pkg] ?? { name: defaultName || pkg, color: "#6366f1", icon: "notifications-outline" };
+}
+
+function resolveReplyDeepUrl(packageName: string, appName: string, sender: string, text: string): string | null {
+  const pkg = packageName.toLowerCase();
+  const app = appName.toLowerCase().trim();
+  const encoded = encodeURIComponent(text);
+  if (pkg.startsWith("org.telegram") || app === "telegram") {
+    return `tg://msg?text=${encoded}`;
+  }
+  if (pkg.startsWith("com.whatsapp") || app === "whatsapp") {
+    return `whatsapp://send?text=${encoded}`;
+  }
+  return null;
 }
 
 function timeAgo(ts: number): string {
@@ -54,6 +67,12 @@ export default function MessagesScreen() {
   const [loading, setLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Smart-reply state: key → { text, status }
+  const [replyExpanded, setReplyExpanded] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [replyStatus, setReplyStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [replyError, setReplyError] = useState<string | null>(null);
+
   async function checkPermissionAndLoad() {
     if (!NativeNotifications.isAvailable) {
       setHasPermission(false);
@@ -76,6 +95,43 @@ export default function MessagesScreen() {
       console.warn("getRecent error", e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSmartReply(n: ZenoNotification) {
+    if (!replyText.trim()) return;
+    setReplyStatus("sending");
+    setReplyError(null);
+    try {
+      if (n.hasReply && NativeNotifications.isAvailable) {
+        const sent = await NativeNotifications.replyTo(n.key, replyText.trim()).catch(() => false);
+        if (sent) {
+          setReplyStatus("sent");
+          setReplyText("");
+          setTimeout(() => {
+            setReplyExpanded(null);
+            setReplyStatus("idle");
+          }, 1200);
+          return;
+        }
+      }
+      // Fall back to deep link
+      const deepUrl = resolveReplyDeepUrl(n.packageName, n.app, n.sender, replyText.trim());
+      if (deepUrl) {
+        const canOpen = await Linking.canOpenURL(deepUrl).catch(() => false);
+        if (canOpen) {
+          await Linking.openURL(deepUrl);
+          setReplyStatus("idle");
+          setReplyExpanded(null);
+          setReplyText("");
+          return;
+        }
+      }
+      setReplyStatus("error");
+      setReplyError("Could not send reply. Open the app directly.");
+    } catch {
+      setReplyStatus("error");
+      setReplyError("Send failed. Please try again.");
     }
   }
 
@@ -200,27 +256,76 @@ export default function MessagesScreen() {
             </View>
             {notifications.map((n) => {
               const meta = getAppMeta(n.packageName, n.app);
+              const isExpanded = replyExpanded === n.key;
+              const canReply = n.hasReply || !!resolveReplyDeepUrl(n.packageName, n.app, n.sender, "");
               return (
-                <View key={n.key} style={[styles.msgCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <AppIcon pkg={n.packageName} appName={n.app} colors={colors} />
-                  <View style={{ flex: 1 }}>
-                    <View style={styles.msgTop}>
-                      <Text style={[styles.sender, { color: colors.foreground }]} numberOfLines={1}>
-                        {n.sender || meta.name}
+                <Pressable
+                  key={n.key}
+                  onPress={() => {
+                    if (!canReply) return;
+                    if (isExpanded) {
+                      setReplyExpanded(null);
+                      setReplyText("");
+                      setReplyStatus("idle");
+                      setReplyError(null);
+                    } else {
+                      setReplyExpanded(n.key);
+                      setReplyText("");
+                      setReplyStatus("idle");
+                      setReplyError(null);
+                    }
+                  }}
+                >
+                  <View style={[styles.msgCard, { backgroundColor: colors.card, borderColor: isExpanded ? colors.primary : colors.border }]}>
+                    <AppIcon pkg={n.packageName} appName={n.app} colors={colors} />
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.msgTop}>
+                        <Text style={[styles.sender, { color: colors.foreground }]} numberOfLines={1}>
+                          {n.sender || meta.name}
+                        </Text>
+                        <Text style={[styles.time, { color: colors.mutedForeground }]}>{timeAgo(n.timestamp)}</Text>
+                      </View>
+                      <Text style={[styles.appLabel, { color: colors.mutedForeground }]}>{meta.name}</Text>
+                      <Text style={[styles.preview, { color: colors.mutedForeground }]} numberOfLines={2}>
+                        {n.text || "(no text)"}
                       </Text>
-                      <Text style={[styles.time, { color: colors.mutedForeground }]}>{timeAgo(n.timestamp)}</Text>
                     </View>
-                    <Text style={[styles.appLabel, { color: colors.mutedForeground }]}>{meta.name}</Text>
-                    <Text style={[styles.preview, { color: colors.mutedForeground }]} numberOfLines={2}>
-                      {n.text || "(no text)"}
-                    </Text>
+                    {canReply && (
+                      <View style={[styles.replyDot, { backgroundColor: isExpanded ? colors.primary : colors.primary + "50" }]}>
+                        <Ionicons name="return-down-back" size={10} color={colors.primaryForeground} />
+                      </View>
+                    )}
                   </View>
-                  {n.hasReply && (
-                    <View style={[styles.replyDot, { backgroundColor: colors.primary }]}>
-                      <Ionicons name="return-down-back" size={10} color={colors.primaryForeground} />
+                  {/* ── Inline reply row ── */}
+                  {isExpanded && (
+                    <View style={[styles.replyRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                      <TextInput
+                        style={[styles.replyInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
+                        placeholder={`Reply to ${n.sender || meta.name}…`}
+                        placeholderTextColor={colors.mutedForeground}
+                        value={replyText}
+                        onChangeText={setReplyText}
+                        returnKeyType="send"
+                        onSubmitEditing={() => handleSmartReply(n)}
+                        autoFocus
+                        editable={replyStatus !== "sending"}
+                      />
+                      <Pressable
+                        style={[styles.replyBtn, { backgroundColor: replyStatus === "sent" ? colors.success : colors.primary, opacity: replyStatus === "sending" ? 0.6 : 1 }]}
+                        onPress={() => handleSmartReply(n)}
+                        disabled={replyStatus === "sending" || !replyText.trim()}
+                      >
+                        <Ionicons name={replyStatus === "sent" ? "checkmark" : "send"} size={16} color="#fff" />
+                      </Pressable>
                     </View>
                   )}
-                </View>
+                  {isExpanded && replyStatus === "error" && replyError && (
+                    <View style={[styles.replyErrorRow, { backgroundColor: colors.destructive + "15" }]}>
+                      <Ionicons name="alert-circle-outline" size={13} color={colors.destructive} />
+                      <Text style={[styles.replyErrorText, { color: colors.destructive }]}>{replyError}</Text>
+                    </View>
+                  )}
+                </Pressable>
               );
             })}
           </>
@@ -269,4 +374,9 @@ const styles = StyleSheet.create({
   time: { fontSize: 12, fontFamily: "Inter_400Regular", flexShrink: 0 },
   preview: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
   replyDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  replyRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingBottom: 10, paddingTop: 4, borderWidth: 1, borderTopWidth: 0, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, marginBottom: 8 },
+  replyInput: { flex: 1, height: 36, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, fontSize: 14, fontFamily: "Inter_400Regular" },
+  replyBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  replyErrorRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 7, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, marginBottom: 8 },
+  replyErrorText: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
 });

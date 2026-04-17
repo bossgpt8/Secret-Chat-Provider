@@ -57,6 +57,8 @@
     "expo-brightness": "~14.0.8",
     "expo-camera": "^17.0.10",
     "expo-contacts": "~14.2.6",
+    "expo-location": "~18.1.5",
+    "expo-notifications": "~0.30.10",
     "expo-speech": "^14.0.8",
     "expo": "~54.0.33",
     "react": "19.1.0",

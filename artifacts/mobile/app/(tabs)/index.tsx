@@ -3,6 +3,8 @@ import { Audio } from "expo-av";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Contacts from "expo-contacts";
 import * as Haptics from "expo-haptics";
+import * as Location from "expo-location";
+import * as Notifications from "expo-notifications";
 import * as Speech from "expo-speech";
 import { fetch } from "expo/fetch";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -26,6 +28,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
 import { NativeAccessibility, type ZenoAccessibilityNotification } from "@/modules/NativeAccessibility";
+import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallScreening";
+import { NativeMediaControl } from "@/modules/NativeMediaControl";
 import { NativeNotifications, type ZenoNotification } from "@/modules/NativeNotifications";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 
@@ -212,10 +216,31 @@ const orbStyles = StyleSheet.create({
 
 const CALL_MODE_RETRY_DELAY_MS = 400;
 
+// ─── In-app timer types ───────────────────────────────────────────────────────
+
+interface ActiveTimer {
+  id: string;
+  label: string;
+  totalSeconds: number;
+  remainingSeconds: number;
+  done: boolean;
+}
+
+// ─── Notification helper ──────────────────────────────────────────────────────
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    priority: Notifications.AndroidNotificationPriority.HIGH,
+  }),
+});
+
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled } = useAssistant();
+  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -234,6 +259,17 @@ export default function ChatScreen() {
   const [notifPermGranted, setNotifPermGranted] = useState(false);
   const [lastNotification, setLastNotification] = useState<ZenoNotification | null>(null);
   const lastNotifRef = useRef<ZenoNotification | null>(null);
+
+  // Timers
+  const [activeTimers, setActiveTimers] = useState<ActiveTimer[]>([]);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Battery monitoring
+  const batteryAlertedLowRef = useRef(false);
+  const batteryAlertedFullRef = useRef(false);
+
+  // Call screening
+  const [incomingCallNumber, setIncomingCallNumber] = useState<string | null>(null);
 
   const inputRef = useRef<TextInput>(null);
   const activeConvId = useRef<string | null>(null);
@@ -366,6 +402,114 @@ export default function ChatScreen() {
       unsubAccessibility();
     };
   }, []);
+
+  // ── Battery monitor ────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    let unsubLevel: (() => void) | undefined;
+    let unsubState: (() => void) | undefined;
+    (async () => {
+      try {
+        const Battery = await import("expo-battery");
+        unsubLevel = Battery.addBatteryLevelListener(async ({ batteryLevel }) => {
+          const pct = Math.round(batteryLevel * 100);
+          if (pct <= 20 && !batteryAlertedLowRef.current) {
+            batteryAlertedLowRef.current = true;
+            const msg = `Warning: your battery is at ${pct}%. Please charge your device soon.`;
+            speakText(msg);
+            await schedulePushNotification("Low battery", msg);
+          }
+          if (pct > 25) batteryAlertedLowRef.current = false;
+        });
+        unsubState = Battery.addBatteryStateListener(async ({ batteryState }) => {
+          if (batteryState === Battery.BatteryState.FULL && !batteryAlertedFullRef.current) {
+            batteryAlertedFullRef.current = true;
+            const msg = "Your battery is fully charged. You can unplug your charger.";
+            speakText(msg);
+            await schedulePushNotification("Battery full", msg);
+          }
+          if (batteryState !== Battery.BatteryState.FULL) batteryAlertedFullRef.current = false;
+        });
+      } catch { /* battery API unavailable */ }
+    })();
+    return () => {
+      unsubLevel?.remove?.();
+      unsubState?.remove?.();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Call screening listener ────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!NativeCallScreening.isAvailable) return;
+    let started = false;
+    NativeCallScreening.startListening().then((ok) => { started = !!ok; }).catch(() => {});
+    const unsub = NativeCallScreening.onCallState((event: CallStateEvent) => {
+      if (event.state === "ringing") {
+        const num = event.number || "unknown number";
+        setIncomingCallNumber(num);
+        // Stop ongoing recording; speak announcement then listen for answer/decline
+        stopRecordingCleanup();
+        setIsRecording(false);
+        const announcement = `Incoming call from ${num}. Say answer to accept or decline to reject.`;
+        speakText(announcement);
+      } else {
+        setIncomingCallNumber(null);
+      }
+    });
+    return () => {
+      unsub();
+      if (started) NativeCallScreening.stopListening().catch(() => {});
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── In-app timer tick ──────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (activeTimers.length === 0) {
+      if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; }
+      return;
+    }
+    if (timerIntervalRef.current) return; // already running
+    timerIntervalRef.current = setInterval(() => {
+      setActiveTimers((prev) => {
+        const updated = prev.map((t) => {
+          if (t.done) return t;
+          const next = t.remainingSeconds - 1;
+          if (next <= 0) {
+            // Fire the timer
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Vibration.vibrate([0, 400, 200, 400]);
+            speakText(`Timer done: ${t.label}`);
+            return { ...t, remainingSeconds: 0, done: true };
+          }
+          return { ...t, remainingSeconds: next };
+        });
+        // Clean up done timers after a short delay (keep them for 8 s so user sees them)
+        return updated;
+      });
+    }, 1000);
+    return () => {
+      if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTimers.length > 0]);
+
+  // ── Push notification helper ───────────────────────────────────────────────
+
+  async function schedulePushNotification(title: string, body: string, triggerMs?: number) {
+    try {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== "granted") return;
+      await Notifications.scheduleNotificationAsync({
+        content: { title, body, sound: true },
+        trigger: triggerMs ? { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: Math.max(1, Math.round(triggerMs / 1000)) } : null,
+      });
+    } catch { /* ignore */ }
+  }
 
   function getOrCreateConvId(): string {
     if (activeConvId.current) return activeConvId.current;
@@ -716,12 +860,22 @@ export default function ChatScreen() {
       | "lock_screen"
       | "read_last_message"
       | "reply_message"
-      | "setup_notifications";
+      | "setup_notifications"
+      | "set_timer" | "cancel_timer"
+      | "set_alarm" | "set_reminder"
+      | "weather_check"
+      | "voice_note" | "list_notes"
+      | "media_play" | "media_pause" | "media_next" | "media_previous" | "media_stop"
+      | "call_answer" | "call_decline";
     value?: number;
     phone?: string;
     name?: string;
     message?: string;
     app?: string;
+    // For timer/alarm/reminder
+    durationSeconds?: number;
+    targetTime?: Date;
+    label?: string;
   }
 
   function extractPhoneNumber(text: string): string | undefined {
@@ -895,6 +1049,80 @@ export default function ChatScreen() {
 
     // Vibrate
     if (/\bvibrat(e|ion|ing)\b/.test(t)) return { type: "vibrate" };
+
+    // ── Timer ──────────────────────────────────────────────────────────────────
+    // "set a 10 minute timer", "5 minute timer", "timer for 30 seconds", "1 hour timer"
+    const timerMatch = t.match(/\b(?:set\s+(?:a\s+)?)?(\d+(?:\.\d+)?)\s*(second|sec|minute|min|hour|hr)s?\s+timer\b|\btimer\s+for\s+(\d+(?:\.\d+)?)\s*(second|sec|minute|min|hour|hr)s?\b/i);
+    if (timerMatch) {
+      const num = parseFloat(timerMatch[1] ?? timerMatch[3]);
+      const unit = (timerMatch[2] ?? timerMatch[4] ?? "minute").toLowerCase();
+      const secs = unit.startsWith("h") ? num * 3600 : unit.startsWith("s") ? num : num * 60;
+      const lbl = `${num} ${unit}${num !== 1 ? "s" : ""}`;
+      return { type: "set_timer", durationSeconds: Math.round(secs), label: lbl };
+    }
+    if (/\bcancel\s+timer\b/.test(t)) return { type: "cancel_timer" };
+
+    // ── Alarm ──────────────────────────────────────────────────────────────────
+    // "set an alarm for 7am", "wake me up at 6:30", "alarm at 14:00"
+    const alarmMatch = t.match(/\b(?:set\s+(?:a(?:n)?\s+)?alarm|wake\s+(?:me\s+)?up)\s+(?:at\s+|for\s+)?(\d{1,2}(?::\d{2})?)\s*(am|pm)?\b/i);
+    if (alarmMatch && !/remind/.test(t)) {
+      let hour = parseInt(alarmMatch[1]);
+      const minutes = alarmMatch[1].includes(":") ? parseInt(alarmMatch[1].split(":")[1]) : 0;
+      const meridiem = (alarmMatch[2] ?? "").toLowerCase();
+      if (meridiem === "pm" && hour < 12) hour += 12;
+      if (meridiem === "am" && hour === 12) hour = 0;
+      const target = new Date();
+      target.setHours(hour, minutes, 0, 0);
+      if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+      return { type: "set_alarm", targetTime: target, label: alarmMatch[0].trim() };
+    }
+
+    // ── Reminder ───────────────────────────────────────────────────────────────
+    // "remind me at 3pm to call mom", "remind me in 30 minutes to take pills"
+    const remindAtMatch = t.match(/\bremind\s+me\s+at\s+(\d{1,2}(?::\d{2})?)\s*(am|pm)?\s+to\s+(.+)/i);
+    if (remindAtMatch) {
+      let hour = parseInt(remindAtMatch[1]);
+      const minutes = remindAtMatch[1].includes(":") ? parseInt(remindAtMatch[1].split(":")[1]) : 0;
+      const meridiem = (remindAtMatch[2] ?? "").toLowerCase();
+      if (meridiem === "pm" && hour < 12) hour += 12;
+      if (meridiem === "am" && hour === 12) hour = 0;
+      const target = new Date();
+      target.setHours(hour, minutes, 0, 0);
+      if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+      return { type: "set_reminder", targetTime: target, label: remindAtMatch[3].trim() };
+    }
+    const remindInMatch = t.match(/\bremind\s+me\s+in\s+(\d+)\s*(second|sec|minute|min|hour|hr)s?\s+to\s+(.+)/i);
+    if (remindInMatch) {
+      const num = parseInt(remindInMatch[1]);
+      const unit = remindInMatch[2].toLowerCase();
+      const ms = unit.startsWith("h") ? num * 3600000 : unit.startsWith("s") ? num * 1000 : num * 60000;
+      const target = new Date(Date.now() + ms);
+      return { type: "set_reminder", targetTime: target, label: remindInMatch[3].trim() };
+    }
+
+    // ── Weather ────────────────────────────────────────────────────────────────
+    if (/\b(weather|temperature|forecast|how (hot|cold|warm)|what('?s| is) it like outside)\b/.test(t)) {
+      return { type: "weather_check" };
+    }
+
+    // ── Voice note ─────────────────────────────────────────────────────────────
+    const noteMatch = t.match(/\b(?:save\s+(?:this\s+)?note|note\s+(?:that|this)|remember(?:\s+that)?|add\s+(?:a\s+)?note)\s*[:\-–]?\s*(.+)/i);
+    if (noteMatch && noteMatch[1]) {
+      return { type: "voice_note", message: noteMatch[1].trim() };
+    }
+    if (/\b(what('?s| are) my notes|list (my )?notes|show (my )?notes|read (my )?notes)\b/.test(t)) {
+      return { type: "list_notes" };
+    }
+
+    // ── Media controls ─────────────────────────────────────────────────────────
+    if (/\b(next\s*(track|song)|skip\s*(track|song|ahead)?)\b/.test(t)) return { type: "media_next" };
+    if (/\b(previous\s*(track|song)|go\s+back\s*(track|song)?|last\s+song)\b/.test(t)) return { type: "media_previous" };
+    if (/\b(pause\s*(music|song|track|playback|spotify|youtube)?|stop\s*(music|song|track|playing))\b/.test(t) && !/\bstop\s+timer\b/.test(t)) return { type: "media_pause" };
+    if (/\b(play\s*(music|song|track|spotify|youtube|something)?|resume\s*(music|playback)?|unpause)\b/.test(t)) return { type: "media_play" };
+
+    // ── Call answer / decline ──────────────────────────────────────────────────
+    if (/\b(answer\s*(the\s*)?(call|phone)|pick\s+up)\b/.test(t)) return { type: "call_answer" };
+    if (/\b(decline\s*(the\s*)?(call|phone)?|reject\s*(the\s*)?call|hang\s*up|ignore\s*(the\s*)?call)\b/.test(t)) return { type: "call_decline" };
 
     // Timer / alarm shorthand (without "open" keyword)
     if (/\b(set (an? )?(alarm|timer)|timer for|alarm (at|for))\b/.test(t)) {
@@ -1267,6 +1495,177 @@ export default function ChatScreen() {
         }
         break;
       }
+
+      // ── Timer ──────────────────────────────────────────────────────────────
+
+      case "set_timer": {
+        const secs = intent.durationSeconds ?? 60;
+        const lbl = intent.label ?? `${secs}s`;
+        const timerId = `timer-${Date.now()}`;
+        setActiveTimers((prev) => [
+          { id: timerId, label: lbl, totalSeconds: secs, remainingSeconds: secs, done: false },
+          ...prev,
+        ]);
+        await respond(`Timer set for ${lbl}. I'll let you know when it's done.`);
+        break;
+      }
+
+      case "cancel_timer": {
+        setActiveTimers((prev) => {
+          const active = prev.filter((t) => !t.done);
+          if (active.length === 0) return prev;
+          // Cancel the most-recently added active timer
+          const toCancel = active[0];
+          return prev.filter((t) => t.id !== toCancel.id);
+        });
+        await respond("Timer cancelled.");
+        break;
+      }
+
+      // ── Alarm ──────────────────────────────────────────────────────────────
+
+      case "set_alarm": {
+        const target = intent.targetTime;
+        if (!target) { await respond("I couldn't understand the alarm time. Try: 'Set an alarm for 7am'."); break; }
+        const msFromNow = target.getTime() - Date.now();
+        const timeStr = target.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        try {
+          await schedulePushNotification("⏰ Alarm", `Wake up! Your alarm for ${timeStr} is going off.`, msFromNow);
+          await respond(`Alarm set for ${timeStr}.`);
+        } catch {
+          await respond(`I couldn't schedule the alarm. Please check notification permissions.`);
+        }
+        break;
+      }
+
+      // ── Reminder ───────────────────────────────────────────────────────────
+
+      case "set_reminder": {
+        const target = intent.targetTime;
+        const lbl = intent.label ?? "your reminder";
+        if (!target) { await respond("I couldn't understand the reminder time. Try: 'Remind me in 30 minutes to take pills'."); break; }
+        const msFromNow = target.getTime() - Date.now();
+        const timeStr = target.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        try {
+          await schedulePushNotification("🔔 Reminder", lbl, msFromNow);
+          await respond(`Reminder set for ${timeStr}: ${lbl}.`);
+        } catch {
+          await respond("I couldn't schedule the reminder. Please check notification permissions.");
+        }
+        break;
+      }
+
+      // ── Weather ────────────────────────────────────────────────────────────
+
+      case "weather_check": {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== "granted") {
+            await respond("I need location permission to get the weather. Please grant it in Settings, then try again.");
+            break;
+          }
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const { latitude, longitude } = loc.coords;
+          const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&hourly=relativehumidity_2m&timezone=auto`;
+          const resp = await globalThis.fetch(url);
+          if (!resp.ok) throw new Error("Weather API error");
+          const data = await resp.json() as {
+            current_weather?: { temperature: number; windspeed: number; weathercode: number };
+          };
+          const cw = data.current_weather;
+          if (!cw) throw new Error("No weather data");
+          const tempC = Math.round(cw.temperature);
+          const tempF = Math.round(tempC * 9 / 5 + 32);
+          const wind = Math.round(cw.windspeed);
+          const wcode = cw.weathercode;
+          // Simple WMO weather code mapping
+          const weatherDesc =
+            wcode === 0 ? "clear sky" :
+            wcode <= 3 ? "partly cloudy" :
+            wcode <= 49 ? "foggy" :
+            wcode <= 69 ? "rainy" :
+            wcode <= 79 ? "snowy" :
+            wcode <= 99 ? "thunderstorm" : "mixed conditions";
+          await respond(`Currently ${tempC}°C (${tempF}°F) with ${weatherDesc} and wind at ${wind} km/h.`);
+        } catch {
+          await respond("I couldn't fetch the weather right now. Please check your internet connection.");
+        }
+        break;
+      }
+
+      // ── Voice note ─────────────────────────────────────────────────────────
+
+      case "voice_note": {
+        const noteText = intent.message ?? "";
+        if (!noteText) { await respond("What would you like to note down?"); break; }
+        await saveNote(noteText);
+        await respond(`Got it, I saved your note: "${noteText}".`);
+        break;
+      }
+
+      case "list_notes": {
+        if (notes.length === 0) {
+          await respond("You don't have any saved notes yet. Say 'Save this note' to add one.");
+          break;
+        }
+        const recent = notes.slice(0, 5);
+        const summary = recent.map((n, i) => `${i + 1}. ${n.text}`).join(". ");
+        await respond(`Your ${notes.length === 1 ? "note" : `${notes.length} notes`}: ${summary}.`);
+        break;
+      }
+
+      // ── Media controls ─────────────────────────────────────────────────────
+
+      case "media_play": {
+        if (!NativeMediaControl.isAvailable) { await respond("Media controls are only available on Android."); break; }
+        await NativeMediaControl.play().catch(() => {});
+        await respond("Playing.");
+        break;
+      }
+
+      case "media_pause": {
+        if (!NativeMediaControl.isAvailable) { await respond("Media controls are only available on Android."); break; }
+        await NativeMediaControl.pause().catch(() => {});
+        await respond("Paused.");
+        break;
+      }
+
+      case "media_next": {
+        if (!NativeMediaControl.isAvailable) { await respond("Media controls are only available on Android."); break; }
+        await NativeMediaControl.next().catch(() => {});
+        await respond("Skipping to next track.");
+        break;
+      }
+
+      case "media_previous": {
+        if (!NativeMediaControl.isAvailable) { await respond("Media controls are only available on Android."); break; }
+        await NativeMediaControl.previous().catch(() => {});
+        await respond("Going back to previous track.");
+        break;
+      }
+
+      case "media_stop": {
+        if (!NativeMediaControl.isAvailable) { await respond("Media controls are only available on Android."); break; }
+        await NativeMediaControl.stop().catch(() => {});
+        await respond("Music stopped.");
+        break;
+      }
+
+      // ── Call answer / decline ──────────────────────────────────────────────
+
+      case "call_answer": {
+        if (!NativeCallScreening.isAvailable) { await respond("Call answering is only available on Android."); break; }
+        const answered = await NativeCallScreening.answerCall().catch(() => false);
+        await respond(answered ? "Answering the call." : "I couldn't answer the call — please grant ANSWER_PHONE_CALLS permission.");
+        break;
+      }
+
+      case "call_decline": {
+        if (!NativeCallScreening.isAvailable) { await respond("Call declining is only available on Android."); break; }
+        const declined = await NativeCallScreening.declineCall().catch(() => false);
+        await respond(declined ? "Call declined." : "I couldn't decline the call.");
+        break;
+      }
     }
   }
 
@@ -1497,6 +1896,37 @@ export default function ChatScreen() {
           </View>
         )}
 
+        {/* ── Incoming call banner ── */}
+        {incomingCallNumber && (
+          <View style={[styles.callBanner, { backgroundColor: "#16a34a20", borderBottomColor: "#16a34a40" }]}>
+            <Ionicons name="call" size={14} color="#16a34a" />
+            <Text style={[styles.callBannerText, { color: "#16a34a" }]}>
+              Incoming call from {incomingCallNumber} — say &quot;answer&quot; or &quot;decline&quot;
+            </Text>
+          </View>
+        )}
+
+        {/* ── Active timers strip ── */}
+        {activeTimers.filter((t) => !t.done).length > 0 && (
+          <View style={[styles.timerStrip, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+            {activeTimers.filter((t) => !t.done).map((t) => {
+              const m = Math.floor(t.remainingSeconds / 60);
+              const s = t.remainingSeconds % 60;
+              return (
+                <View key={t.id} style={[styles.timerChip, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "30" }]}>
+                  <Ionicons name="timer-outline" size={12} color={colors.primary} />
+                  <Text style={[styles.timerText, { color: colors.primary }]}>
+                    {t.label} — {m}:{String(s).padStart(2, "0")}
+                  </Text>
+                  <Pressable onPress={() => setActiveTimers((prev) => prev.filter((x) => x.id !== t.id))}>
+                    <Ionicons name="close-circle" size={14} color={colors.mutedForeground} />
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
         {messages.length === 0 && !isTranscribing ? (
           /* ── Empty / Voice-first state ── */
           <View style={styles.voiceHome}>
@@ -1646,6 +2076,10 @@ const styles = StyleSheet.create({
   callBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
   callEndBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   callEndText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+
+  timerStrip: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
+  timerChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
+  timerText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
   transcribingBanner: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, marginHorizontal: 12, marginBottom: 4 },
   transcribingText: { fontSize: 13, fontFamily: "Inter_500Medium" },

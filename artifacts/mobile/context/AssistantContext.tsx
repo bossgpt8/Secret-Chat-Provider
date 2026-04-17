@@ -13,6 +13,7 @@ const USER_PROFILE_KEY = "@zeno_user_profile";
 const PERSONALITY_KEY = "@zeno_personality";
 const WAKE_WORD_KEY = "@zeno_wake_word";
 const READ_INCOMING_KEY = "@zeno_read_incoming";
+const NOTES_KEY = "@zeno_notes";
 
 export type TtsProvider = "elevenlabs" | "phone";
 export type ThemeOverride = "system" | "dark" | "light";
@@ -40,6 +41,12 @@ export interface Conversation {
   messages: Message[];
   createdAt: number;
   updatedAt: number;
+}
+
+export interface VoiceNote {
+  id: string;
+  text: string;
+  timestamp: number;
 }
 
 interface AssistantContextType {
@@ -74,6 +81,9 @@ interface AssistantContextType {
   setWakeWordEnabled: (v: boolean) => Promise<void>;
   readIncomingEnabled: boolean;
   setReadIncomingEnabled: (v: boolean) => Promise<void>;
+  notes: VoiceNote[];
+  saveNote: (text: string) => Promise<VoiceNote>;
+  deleteNote: (id: string) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -100,6 +110,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [assistantPersonality, setAssistantPersonalityState] = useState<AssistantPersonality>("friendly");
   const [wakeWordEnabled, setWakeWordEnabledState] = useState(false);
   const [readIncomingEnabled, setReadIncomingEnabledState] = useState(false);
+  const [notes, setNotes] = useState<VoiceNote[]>([]);
 
   useEffect(() => {
     loadData();
@@ -109,7 +120,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs
     const timeoutId = setTimeout(() => setIsLoading(false), 5000);
     try {
-      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming] = await Promise.all([
+      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
@@ -122,6 +133,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(PERSONALITY_KEY),
         AsyncStorage.getItem(WAKE_WORD_KEY),
         AsyncStorage.getItem(READ_INCOMING_KEY),
+        AsyncStorage.getItem(NOTES_KEY),
       ]);
       if (name) { setAssistantNameState(name); setIsOnboarded(true); }
       if (convsRaw) setConversations(JSON.parse(convsRaw));
@@ -135,6 +147,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (personality === "friendly" || personality === "casual" || personality === "professional" || personality === "witty" || personality === "caring") setAssistantPersonalityState(personality);
       if (wakeWord === "true") setWakeWordEnabledState(true);
       if (readIncoming === "true") setReadIncomingEnabledState(true);
+      if (notesRaw) { try { setNotes(JSON.parse(notesRaw)); } catch { /* ignore */ } }
     } catch {
       // ignore
     } finally {
@@ -206,6 +219,24 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setReadIncomingEnabledState(v);
   }
 
+  async function saveNote(text: string): Promise<VoiceNote> {
+    const note: VoiceNote = { id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, text, timestamp: Date.now() };
+    setNotes((prev) => {
+      const updated = [note, ...prev];
+      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+    return note;
+  }
+
+  async function deleteNote(id: string) {
+    setNotes((prev) => {
+      const updated = prev.filter((n) => n.id !== id);
+      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
   function createConversation(): string {
     const id = `conv-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const now = Date.now();
@@ -260,6 +291,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         assistantPersonality, setAssistantPersonality,
         wakeWordEnabled, setWakeWordEnabled,
         readIncomingEnabled, setReadIncomingEnabled,
+        notes, saveNote, deleteNote,
       }}
     >
       {children}

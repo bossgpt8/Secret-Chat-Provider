@@ -240,6 +240,7 @@ export default function ChatScreen() {
   const elSoundRef = useRef<Audio.Sound | null>(null);
   const isCallModeRef = useRef(false);
   const isStreamingRef = useRef(false);
+  const isTranscribingRef = useRef(false);
 
   // Wake word refs
   const wakeWordLoopRef = useRef(false);
@@ -260,6 +261,7 @@ export default function ChatScreen() {
   }, []);
 
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
+  useEffect(() => { isTranscribingRef.current = isTranscribing; }, [isTranscribing]);
   useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
   useEffect(() => { lastNotifRef.current = lastNotification; }, [lastNotification]);
   useEffect(() => { wakeWordEnabledRef.current = wakeWordEnabled; }, [wakeWordEnabled]);
@@ -497,7 +499,10 @@ export default function ChatScreen() {
   }
 
   async function speakText(text: string) {
-    if (!isTtsEnabled || !text.trim()) return;
+    if (!isTtsEnabled || !text.trim()) {
+      if (isCallModeRef.current) onTtsDone();
+      return;
+    }
     await stopSpeaking();
     setIsSpeaking(true);
 
@@ -547,7 +552,7 @@ export default function ChatScreen() {
     try {
       await speakWithPhone(text);
     } catch {
-      setIsSpeaking(false);
+      onTtsDone();
     }
   }
 
@@ -582,7 +587,7 @@ export default function ChatScreen() {
   // ── Voice recording ────────────────────────────────────────────────────────
 
   async function startRecording() {
-    if (isStreaming || isTranscribing) return;
+    if (isStreamingRef.current || isTranscribingRef.current) return;
     // If wake word loop is mid-recording, stop it first
     if (isWakeListeningRef.current) {
       wakeWordLoopRef.current = false;
@@ -641,10 +646,14 @@ export default function ChatScreen() {
       await rec.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
       const uri = rec.getURI();
-      if (!uri) return;
+      if (!uri) {
+        if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
+        return;
+      }
       await transcribeAndSend(uri);
     } catch {
       setIsTranscribing(false);
+      if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
     }
   }
 
@@ -674,9 +683,20 @@ export default function ChatScreen() {
         await handleSend(transcript);
       } else {
         setIsTranscribing(false);
+        if (isCallModeRef.current) {
+          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
+        }
       }
     } catch {
       setIsTranscribing(false);
+      if (isCallModeRef.current) {
+        setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { id: generateMsgId(), role: "assistant", content: "Sorry, I couldn't transcribe that. Please try again.", timestamp: Date.now() },
+        ]);
+      }
     }
   }
 
@@ -1380,8 +1400,10 @@ export default function ChatScreen() {
       speakText(fullContent);
     } catch (error) {
       console.warn("Chat send failed", error);
+      const errMsg = "Sorry, something went wrong. Please try again.";
       setShowTyping(false);
-      setMessages((prev) => [...prev, { id: generateMsgId(), role: "assistant", content: "Sorry, something went wrong. Please try again.", timestamp: Date.now() }]);
+      setMessages((prev) => [...prev, { id: generateMsgId(), role: "assistant", content: errMsg, timestamp: Date.now() }]);
+      speakText(errMsg);
     } finally {
       setIsStreaming(false);
       setShowTyping(false);

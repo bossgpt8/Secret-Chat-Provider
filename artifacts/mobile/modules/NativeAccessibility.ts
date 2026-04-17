@@ -1,6 +1,20 @@
-import { NativeModules, Platform } from "react-native";
+import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 
 const { AccessibilityModule } = NativeModules;
+const emitter =
+  Platform.OS === "android" && AccessibilityModule
+    ? new NativeEventEmitter(AccessibilityModule)
+    : null;
+
+export interface ZenoAccessibilityNotification {
+  app: string;
+  packageName: string;
+  sender: string;
+  text: string;
+  timestamp: number;
+  hasReply: boolean;
+  source: "accessibility";
+}
 
 export const NativeAccessibility = {
   /** True only when the optional native AccessibilityModule is linked (Android only). */
@@ -35,5 +49,26 @@ export const NativeAccessibility = {
   }>> {
     if (!AccessibilityModule) return [];
     return AccessibilityModule.getRecentEvents(limit);
+  },
+
+  async getRecentNotifications(limit = 20): Promise<ZenoAccessibilityNotification[]> {
+    if (!AccessibilityModule?.getRecentNotificationEvents) return [];
+    return AccessibilityModule.getRecentNotificationEvents(limit);
+  },
+
+  onNotification(callback: (n: ZenoAccessibilityNotification) => void): () => void {
+    if (!emitter) return () => {};
+    const sub = emitter.addListener("onZenoAccessibilityNotification", callback);
+    return () => sub.remove();
+  },
+
+  async isBatteryOptimizationIgnored(): Promise<boolean> {
+    if (!AccessibilityModule?.isBatteryOptimizationIgnored) return false;
+    return AccessibilityModule.isBatteryOptimizationIgnored();
+  },
+
+  async requestIgnoreBatteryOptimization(): Promise<void> {
+    if (!AccessibilityModule?.requestIgnoreBatteryOptimization) return;
+    return AccessibilityModule.requestIgnoreBatteryOptimization();
   },
 };

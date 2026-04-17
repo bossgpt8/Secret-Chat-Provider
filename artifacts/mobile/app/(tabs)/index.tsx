@@ -25,6 +25,7 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
+import { NativeAccessibility, type ZenoAccessibilityNotification } from "@/modules/NativeAccessibility";
 import { NativeNotifications, type ZenoNotification } from "@/modules/NativeNotifications";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 
@@ -286,25 +287,80 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wakeWordEnabled, isCallMode]);
 
+  function toNotificationFromAccessibility(n: ZenoAccessibilityNotification): ZenoNotification {
+    const sender = n.sender?.trim() || n.app || "Unknown sender";
+    const text = n.text?.trim() || "New notification";
+    return {
+      key: `acc-${n.timestamp}-${n.packageName}`,
+      app: n.app || n.packageName,
+      packageName: n.packageName,
+      sender,
+      text,
+      timestamp: n.timestamp,
+      hasReply: false,
+    };
+  }
+
+  function buildIncomingSpeechText(n: Pick<ZenoNotification, "sender" | "text">): string {
+    const sender = n.sender?.trim() || "Unknown sender";
+    const msg = n.text?.trim();
+    return msg
+      ? `Boss, you have a new message from ${sender}: ${msg}`
+      : `Boss, you have a new message from ${sender}`;
+  }
+
+  function handleIncomingNotification(n: ZenoNotification) {
+    setLastNotification(n);
+    lastNotifRef.current = n;
+    setNotifPermGranted(true);
+    const spoken = buildIncomingSpeechText(n);
+    if (isCallModeRef.current && !isStreamingRef.current) {
+      stopSpeaking().then(() => {
+        stopRecordingCleanup();
+        setIsRecording(false);
+        speakText(spoken);
+      });
+    } else if (readIncomingEnabledRef.current && !isStreamingRef.current) {
+      speakText(spoken);
+    }
+  }
+
   useEffect(() => {
-    if (!NativeNotifications.isAvailable) return;
-    NativeNotifications.hasPermission().then(setNotifPermGranted);
-    const unsub = NativeNotifications.onNotification((n) => {
-      setLastNotification(n);
-      lastNotifRef.current = n;
-      setNotifPermGranted(true);
-      const messageText = n.text?.trim() ? `${n.sender} says: ${n.text}` : `New message from ${n.sender} on ${n.app}.`;
-      if (isCallModeRef.current && !isStreamingRef.current) {
-        stopSpeaking().then(() => {
-          stopRecordingCleanup();
-          setIsRecording(false);
-          speakText(messageText);
+    if (Platform.OS === "web") return;
+
+    let disposed = false;
+    let unsubNotification: () => void = () => {};
+    let unsubAccessibility: () => void = () => {};
+
+    const setupListeners = async () => {
+      const hasNotificationAccess = NativeNotifications.isAvailable
+        ? await NativeNotifications.hasPermission().catch(() => false)
+        : false;
+      if (disposed) return;
+      setNotifPermGranted(hasNotificationAccess);
+
+      if (hasNotificationAccess && NativeNotifications.isAvailable) {
+        unsubNotification = NativeNotifications.onNotification((n) => {
+          handleIncomingNotification(n);
         });
-      } else if (readIncomingEnabledRef.current && !isStreamingRef.current) {
-        speakText(messageText);
+        return;
       }
-    });
-    return unsub;
+
+      if (!NativeAccessibility.isAvailable) return;
+      const isAccessibilityEnabled = await NativeAccessibility.isEnabled().catch(() => false);
+      if (!isAccessibilityEnabled || disposed) return;
+
+      unsubAccessibility = NativeAccessibility.onNotification((event) => {
+        handleIncomingNotification(toNotificationFromAccessibility(event));
+      });
+    };
+
+    setupListeners().catch(() => {});
+    return () => {
+      disposed = true;
+      unsubNotification();
+      unsubAccessibility();
+    };
   }, []);
 
   function getOrCreateConvId(): string {
@@ -687,6 +743,24 @@ export default function ChatScreen() {
     }
   }
 
+  async function openMessagingReplyDraft(appHint: string, sender: string, message: string): Promise<boolean> {
+    const appKey = appHint.toLowerCase();
+    const isTelegram = appKey.includes("telegram");
+    const isWhatsApp = appKey.includes("whatsapp");
+    if (!isTelegram && !isWhatsApp) return false;
+    const phone = await lookupContactPhone(sender);
+    const encoded = encodeURIComponent(message);
+    const deepUrl = isTelegram
+      ? (phone ? `tg://msg?to=${phone}&text=${encoded}` : `tg://msg?text=${encoded}`)
+      : (phone ? `whatsapp://send?phone=${phone}&text=${encoded}` : `whatsapp://send?text=${encoded}`);
+    try {
+      await Linking.openURL(deepUrl);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function detectDeviceIntent(text: string): DeviceIntent | null {
     const t = text.toLowerCase().trim();
 
@@ -1015,20 +1089,18 @@ export default function ChatScreen() {
       }
 
       case "read_last_message": {
-        if (!NativeNotifications.isAvailable) {
+        if (!NativeNotifications.isAvailable && !NativeAccessibility.isAvailable) {
           await respond("Notification reading is only available on Android devices.");
           break;
         }
-        const hasPermN = await NativeNotifications.hasPermission().catch(() => false);
-        if (!hasPermN) {
-          await respond("I don't have notification access yet. Say 'set up notifications' to enable it.");
-          break;
-        }
+        const hasPermN = NativeNotifications.isAvailable
+          ? await NativeNotifications.hasPermission().catch(() => false)
+          : false;
         // Prefer the most recently received notification; fall back to fetching from the system
         const cachedNotif = lastNotifRef.current;
         if (cachedNotif) {
           await respond(`${cachedNotif.sender} on ${cachedNotif.app} said: "${cachedNotif.text}"`);
-        } else {
+        } else if (hasPermN) {
           const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
           const latest = recent[0];
           if (latest) {
@@ -1036,23 +1108,28 @@ export default function ChatScreen() {
           } else {
             await respond("You have no recent notifications.");
           }
+        } else {
+          await respond("I don't have a recent message yet. Enable Notification Access or Accessibility Service first.");
         }
         break;
       }
 
       case "reply_message": {
-        if (!NativeNotifications.isAvailable) {
+        if (!NativeNotifications.isAvailable && !NativeAccessibility.isAvailable) {
           await respond("Replying to messages is only available on Android devices.");
           break;
         }
-        const hasPermR = await NativeNotifications.hasPermission().catch(() => false);
-        if (!hasPermR) {
-          await respond("I don't have notification access to reply. Say 'set up notifications' to enable it.");
+        const hasPermR = NativeNotifications.isAvailable
+          ? await NativeNotifications.hasPermission().catch(() => false)
+          : false;
+        const replyText = intent.message ?? "";
+        if (!replyText) {
+          await respond("What would you like to say in your reply?");
           break;
         }
         // When a person name is given, search recent notifications for that sender
         let target = lastNotifRef.current;
-        if (intent.name) {
+        if (intent.name && hasPermR) {
           const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
           const named = recent.find((n) => matchesSenderName(n.sender, intent.name!));
           if (named) {
@@ -1061,18 +1138,25 @@ export default function ChatScreen() {
             await respond(`I don't have a recent notification from ${intent.name} to reply to.`);
             break;
           }
+        } else if (intent.name && target && !matchesSenderName(target.sender, intent.name)) {
+          await respond(`I don't have a recent notification from ${intent.name} to reply to.`);
+          break;
         }
         if (!target) {
           await respond("There's no recent message to reply to.");
           break;
         }
-        if (!target.hasReply) {
-          await respond(`I can't reply directly to ${target.sender}'s message — it doesn't support inline replies.`);
-          break;
-        }
-        const replyText = intent.message ?? "";
-        if (!replyText) {
-          await respond("What would you like to say in your reply?");
+        if (!target.hasReply || !hasPermR) {
+          const opened = await openMessagingReplyDraft(
+            `${target.app} ${target.packageName}`,
+            target.sender,
+            replyText
+          );
+          if (opened) {
+            await respond(`I prepared your reply to ${target.sender} in ${target.app}. Tap Send to deliver it.`);
+          } else {
+            await respond(`I can't send an inline reply to ${target.sender} from ${target.app}.`);
+          }
           break;
         }
         const sent = await NativeNotifications.replyTo(target.key, replyText).catch(() => false);
@@ -1110,10 +1194,6 @@ export default function ChatScreen() {
           }
         }
         // 2. Fall back to deep link — pre-fills message but user must tap Send
-        if (Platform.OS === "web") {
-          await respond("Messaging apps can only be opened on a real device.");
-          break;
-        }
         const encodedMsg = encodeURIComponent(intent.message);
         let phone: string | undefined;
         if (intent.name) {

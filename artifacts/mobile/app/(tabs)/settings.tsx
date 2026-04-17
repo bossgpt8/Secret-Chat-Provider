@@ -52,6 +52,7 @@ const PERMISSIONS: Permission[] = [
   { id: "device_admin", label: "Device Administrator", description: "Lock phone via voice", icon: "shield-outline" },
   { id: "write_settings", label: "Modify System Settings", description: "Control screen brightness & audio", icon: "settings-outline" },
   { id: "overlay", label: "Display Over Other Apps", description: "Show assistant overlay on top of apps", icon: "layers-outline" },
+  { id: "battery_optimization", label: "Battery Optimization", description: "Keep assistant services alive in background", icon: "battery-charging-outline" },
 ];
 
 const DEFAULT_PERM_STATUSES: Record<string, PermStatus> = {
@@ -64,6 +65,7 @@ const DEFAULT_PERM_STATUSES: Record<string, PermStatus> = {
   device_admin: "unavailable",
   write_settings: "unavailable",
   overlay: "unavailable",
+  battery_optimization: "unavailable",
 };
 
 const SPEED_OPTIONS = [
@@ -209,6 +211,14 @@ export default function SettingsScreen() {
       updates.overlay = hasOverlay ? "granted" : "unavailable";
     } catch { /* leave default */ }
 
+    // Battery optimization exemption (helps keep accessibility service active)
+    try {
+      if (NativeAccessibility.isAvailable) {
+        const ignored = await NativeAccessibility.isBatteryOptimizationIgnored();
+        updates.battery_optimization = ignored ? "granted" : "unavailable";
+      }
+    } catch { /* leave default */ }
+
     setPermStatuses((prev) => ({ ...prev, ...updates }));
   }
 
@@ -314,6 +324,8 @@ export default function SettingsScreen() {
         await NativeSystemPermissions.requestWriteSettingsPermission();
       } else if (permId === "overlay") {
         await NativeSystemPermissions.requestOverlayPermission();
+      } else if (permId === "battery_optimization") {
+        await NativeAccessibility.requestIgnoreBatteryOptimization();
       }
     } catch { /* ignore */ }
     // Re-check status after returning from system settings
@@ -610,7 +622,7 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: colors.foreground }]}>Read Incoming Messages</Text>
               <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
-                Speak incoming notifications aloud using the assistant's voice. Requires notification access.
+                Speak incoming messages aloud using notification access, or Accessibility Service fallback on devices where Notification Access is unavailable.
               </Text>
             </View>
             <Switch

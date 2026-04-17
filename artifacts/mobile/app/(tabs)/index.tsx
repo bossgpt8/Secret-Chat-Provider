@@ -210,6 +210,8 @@ const orbStyles = StyleSheet.create({
 
 // ─── Main chat screen ─────────────────────────────────────────────────────────
 
+const CALL_MODE_RETRY_DELAY_MS = 400;
+
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -480,7 +482,7 @@ export default function ChatScreen() {
       pendingCallModeAfterTtsRef.current = false;
       startCallMode();
     } else if (isCallModeRef.current && !isStreamingRef.current) {
-      setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
+      setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
     }
   }
 
@@ -647,13 +649,13 @@ export default function ChatScreen() {
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
       const uri = rec.getURI();
       if (!uri) {
-        if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
+        if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
         return;
       }
       await transcribeAndSend(uri);
     } catch {
       setIsTranscribing(false);
-      if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
+      if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
     }
   }
 
@@ -684,13 +686,13 @@ export default function ChatScreen() {
       } else {
         setIsTranscribing(false);
         if (isCallModeRef.current) {
-          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
+          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
         }
       }
     } catch {
       setIsTranscribing(false);
       if (isCallModeRef.current) {
-        setTimeout(() => { if (isCallModeRef.current) startRecording(); }, 400);
+        setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
       } else {
         setMessages((prev) => [
           ...prev,

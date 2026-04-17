@@ -27,6 +27,10 @@ const KOTLIN_FILES = [
   "AccessibilityModule.kt",
   "AccessibilityPackage.kt",
   "ZenoAccessibilityService.kt",
+  "MediaControlModule.kt",
+  "MediaControlPackage.kt",
+  "CallScreeningModule.kt",
+  "CallScreeningPackage.kt",
 ];
 
 function javaDir(projectRoot) {
@@ -174,6 +178,8 @@ const PACKAGES = [
   "ScreenLockPackage()",
   "NotificationListenerPackage()",
   "AccessibilityPackage()",
+  "MediaControlPackage()",
+  "CallScreeningPackage()",
 ];
 
 const MARKER = "// [ZenoNativePackages]";

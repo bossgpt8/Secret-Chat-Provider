@@ -5,15 +5,27 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  ConversationMessage,
+  CreateConversationBody,
+  CreateConversationResponse,
+  CreateMessageBody,
+  CreateMessageResponse,
+  HealthStatus,
+  ListConversationsResponse,
+  ListMessagesResponse,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
 import type { ErrorType } from "../custom-fetch";
@@ -24,46 +36,26 @@ type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
-/**
- * Returns server health status
- * @summary Health check
- */
-export const getHealthCheckUrl = () => {
-  return `/api/healthz`;
-};
+// ─── Health ───────────────────────────────────────────────────────────────────
 
-export const healthCheck = async (
-  options?: RequestInit,
-): Promise<HealthStatus> => {
-  return customFetch<HealthStatus>(getHealthCheckUrl(), {
-    ...options,
-    method: "GET",
-  });
-};
+export const getHealthCheckUrl = () => `/api/healthz`;
 
-export const getHealthCheckQueryKey = () => {
-  return [`/api/healthz`] as const;
-};
+export const healthCheck = async (options?: RequestInit): Promise<HealthStatus> =>
+  customFetch<HealthStatus>(getHealthCheckUrl(), { ...options, method: "GET" });
+
+export const getHealthCheckQueryKey = () => [`/api/healthz`] as const;
 
 export const getHealthCheckQueryOptions = <
   TData = Awaited<ReturnType<typeof healthCheck>>,
   TError = ErrorType<unknown>,
 >(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof healthCheck>>,
-    TError,
-    TData
-  >;
+  query?: UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData>;
   request?: SecondParameter<typeof customFetch>;
 }) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
-
   const queryKey = queryOptions?.queryKey ?? getHealthCheckQueryKey();
-
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheck>>> = ({
-    signal,
-  }) => healthCheck({ signal, ...requestOptions });
-
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheck>>> = ({ signal }) =>
+    healthCheck({ signal, ...requestOptions });
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof healthCheck>>,
     TError,
@@ -71,31 +63,266 @@ export const getHealthCheckQueryOptions = <
   > & { queryKey: QueryKey };
 };
 
-export type HealthCheckQueryResult = NonNullable<
-  Awaited<ReturnType<typeof healthCheck>>
->;
+export type HealthCheckQueryResult = NonNullable<Awaited<ReturnType<typeof healthCheck>>>;
 export type HealthCheckQueryError = ErrorType<unknown>;
-
-/**
- * @summary Health check
- */
 
 export function useHealthCheck<
   TData = Awaited<ReturnType<typeof healthCheck>>,
   TError = ErrorType<unknown>,
 >(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof healthCheck>>,
-    TError,
-    TData
-  >;
+  query?: UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData>;
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
-    queryKey: QueryKey;
-  };
-
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+// ─── Conversations ────────────────────────────────────────────────────────────
+
+export const listConversations = async (
+  deviceId: string,
+  options?: RequestInit,
+): Promise<ListConversationsResponse> =>
+  customFetch<ListConversationsResponse>(`/api/conversations`, {
+    ...options,
+    method: "GET",
+    headers: { "X-Device-Id": deviceId, ...((options?.headers as Record<string, string>) ?? {}) },
+  });
+
+export const getListConversationsQueryKey = (deviceId: string) =>
+  [`/api/conversations`, deviceId] as const;
+
+export const getListConversationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listConversations>>,
+  TError = ErrorType<unknown>,
+>(
+  deviceId: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof listConversations>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getListConversationsQueryKey(deviceId);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listConversations>>> = ({ signal }) =>
+    listConversations(deviceId, { signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listConversations>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useListConversations<
+  TData = Awaited<ReturnType<typeof listConversations>>,
+  TError = ErrorType<unknown>,
+>(
+  deviceId: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof listConversations>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListConversationsQueryOptions(deviceId, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const createConversation = async (
+  deviceId: string,
+  body: CreateConversationBody,
+  options?: RequestInit,
+): Promise<CreateConversationResponse> =>
+  customFetch<CreateConversationResponse>(`/api/conversations`, {
+    ...options,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Device-Id": deviceId,
+      ...((options?.headers as Record<string, string>) ?? {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+export const useCreateConversation = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createConversation>>,
+    TError,
+    { deviceId: string; data: CreateConversationBody },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createConversation>>,
+  TError,
+  { deviceId: string; data: CreateConversationBody },
+  TContext
+> => {
+  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createConversation>>,
+    { deviceId: string; data: CreateConversationBody }
+  > = ({ deviceId, data }) => createConversation(deviceId, data, requestOptions);
+  return useMutation<
+    Awaited<ReturnType<typeof createConversation>>,
+    TError,
+    { deviceId: string; data: CreateConversationBody },
+    TContext
+  >({ mutationFn, ...mutationOptions });
+};
+
+export const deleteConversation = async (
+  id: string,
+  deviceId: string,
+  options?: RequestInit,
+): Promise<{ success: boolean }> =>
+  customFetch<{ success: boolean }>(`/api/conversations/${id}`, {
+    ...options,
+    method: "DELETE",
+    headers: { "X-Device-Id": deviceId, ...((options?.headers as Record<string, string>) ?? {}) },
+  });
+
+export const useDeleteConversation = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteConversation>>,
+    TError,
+    { id: string; deviceId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteConversation>>,
+  TError,
+  { id: string; deviceId: string },
+  TContext
+> => {
+  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteConversation>>,
+    { id: string; deviceId: string }
+  > = ({ id, deviceId }) => deleteConversation(id, deviceId, requestOptions);
+  return useMutation<
+    Awaited<ReturnType<typeof deleteConversation>>,
+    TError,
+    { id: string; deviceId: string },
+    TContext
+  >({ mutationFn, ...mutationOptions });
+};
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+
+export const listMessages = async (
+  conversationId: string,
+  deviceId: string,
+  options?: RequestInit,
+): Promise<ListMessagesResponse> =>
+  customFetch<ListMessagesResponse>(`/api/conversations/${conversationId}/messages`, {
+    ...options,
+    method: "GET",
+    headers: { "X-Device-Id": deviceId, ...((options?.headers as Record<string, string>) ?? {}) },
+  });
+
+export const getListMessagesQueryKey = (conversationId: string, deviceId: string) =>
+  [`/api/conversations/${conversationId}/messages`, deviceId] as const;
+
+export const getListMessagesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  conversationId: string,
+  deviceId: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof listMessages>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getListMessagesQueryKey(conversationId, deviceId);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listMessages>>> = ({ signal }) =>
+    listMessages(conversationId, deviceId, { signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listMessages>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useListMessages<
+  TData = Awaited<ReturnType<typeof listMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  conversationId: string,
+  deviceId: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof listMessages>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListMessagesQueryOptions(conversationId, deviceId, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const createMessage = async (
+  conversationId: string,
+  deviceId: string,
+  body: CreateMessageBody,
+  options?: RequestInit,
+): Promise<CreateMessageResponse> =>
+  customFetch<CreateMessageResponse>(`/api/conversations/${conversationId}/messages`, {
+    ...options,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Device-Id": deviceId,
+      ...((options?.headers as Record<string, string>) ?? {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+export const useCreateMessage = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMessage>>,
+    TError,
+    { conversationId: string; deviceId: string; data: CreateMessageBody },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createMessage>>,
+  TError,
+  { conversationId: string; deviceId: string; data: CreateMessageBody },
+  TContext
+> => {
+  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createMessage>>,
+    { conversationId: string; deviceId: string; data: CreateMessageBody }
+  > = ({ conversationId, deviceId, data }) =>
+    createMessage(conversationId, deviceId, data, requestOptions);
+  return useMutation<
+    Awaited<ReturnType<typeof createMessage>>,
+    TError,
+    { conversationId: string; deviceId: string; data: CreateMessageBody },
+    TContext
+  >({ mutationFn, ...mutationOptions });
+};
+
+export type ListConversationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listConversations>>
+>;
+export type ListConversationsQueryError = ErrorType<unknown>;
+export type CreateConversationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createConversation>>
+>;
+export type DeleteConversationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteConversation>>
+>;
+export type ListMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof listMessages>>>;
+export type ListMessagesQueryError = ErrorType<unknown>;
+export type CreateMessageMutationResult = NonNullable<Awaited<ReturnType<typeof createMessage>>>;
+
+// Re-export ConversationMessage so consumers can import it from this package
+export type { ConversationMessage };
+

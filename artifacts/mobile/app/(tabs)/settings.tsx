@@ -1,35 +1,84 @@
 import { Feather, Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { Audio } from "expo-av";
+import { useCameraPermissions } from "expo-camera";
+import * as Contacts from "expo-contacts";
 import * as Haptics from "expo-haptics";
-import React, { useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import * as Speech from "expo-speech";
+import { fetch } from "expo/fetch";
+import React, { useEffect, useState } from "react";
+import {
+  Alert,
+  AppState,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAssistant } from "@/context/AssistantContext";
+import { useAssistant, type TtsProvider, type ThemeOverride, DEFAULT_QUICK_CHIPS } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
+import { NativeAccessibility } from "@/modules/NativeAccessibility";
+import { NativeNotifications } from "@/modules/NativeNotifications";
+import { NativeScreenLock } from "@/modules/NativeScreenLock";
+import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
 
 interface Permission {
   id: string;
   label: string;
   description: string;
   icon: string;
-  status: "granted" | "denied" | "unavailable";
-  requiresDevBuild?: boolean;
+}
+
+type PermStatus = "granted" | "denied" | "unavailable";
+
+interface ElVoice {
+  id: string;
+  name: string;
+  description: string;
 }
 
 const PERMISSIONS: Permission[] = [
-  { id: "microphone", label: "Microphone", description: "Voice input and recording", icon: "mic", status: "granted" },
-  { id: "internet", label: "Internet", description: "API calls to LLaMA / OpenRouter", icon: "globe-outline", status: "granted" },
-  { id: "camera", label: "Camera / Flashlight", description: "Flashlight control", icon: "flashlight-outline", status: "unavailable", requiresDevBuild: true },
-  { id: "accessibility", label: "Accessibility Service", description: "Read WhatsApp & SMS messages", icon: "eye-outline", status: "unavailable", requiresDevBuild: true },
-  { id: "device_admin", label: "Device Administrator", description: "Lock phone via voice", icon: "shield-outline", status: "unavailable", requiresDevBuild: true },
-  { id: "write_settings", label: "Write Settings", description: "Control screen brightness", icon: "sunny-outline", status: "unavailable", requiresDevBuild: true },
-  { id: "bluetooth", label: "Bluetooth", description: "Toggle Bluetooth via voice", icon: "bluetooth", status: "unavailable", requiresDevBuild: true },
+  { id: "microphone", label: "Microphone", description: "Voice input and recording", icon: "mic" },
+  { id: "internet", label: "Internet", description: "API calls to Groq / Tavily / ElevenLabs", icon: "globe-outline" },
+  { id: "camera", label: "Camera / Flashlight", description: "Flashlight control", icon: "flashlight-outline" },
+  { id: "contacts", label: "Contacts", description: "Look up contacts by name for calls & SMS", icon: "people-outline" },
+  { id: "notification_listener", label: "Notification Access", description: "Read incoming messages from app notifications", icon: "notifications-outline" },
+  { id: "accessibility", label: "Accessibility Service", description: "Read app screen text for assistant automation", icon: "eye-outline" },
+  { id: "device_admin", label: "Device Administrator", description: "Lock phone via voice", icon: "shield-outline" },
+  { id: "write_settings", label: "Modify System Settings", description: "Control screen brightness & audio", icon: "settings-outline" },
+  { id: "overlay", label: "Display Over Other Apps", description: "Show assistant overlay on top of apps", icon: "layers-outline" },
+  { id: "battery_optimization", label: "Battery Optimization", description: "Keep assistant services alive in background", icon: "battery-charging-outline" },
 ];
 
-function StatusBadge({ status, colors }: { status: Permission["status"]; colors: ReturnType<typeof useColors> }) {
+const DEFAULT_PERM_STATUSES: Record<string, PermStatus> = {
+  microphone: "unavailable",
+  internet: "granted",
+  camera: "unavailable",
+  contacts: "unavailable",
+  notification_listener: "unavailable",
+  accessibility: "unavailable",
+  device_admin: "unavailable",
+  write_settings: "unavailable",
+  overlay: "unavailable",
+  battery_optimization: "unavailable",
+};
+
+const SPEED_OPTIONS = [
+  { label: "Slow", value: 0.7 },
+  { label: "Normal", value: 0.9 },
+  { label: "Fast", value: 1.15 },
+];
+
+function StatusBadge({ status, colors }: { status: PermStatus; colors: ReturnType<typeof useColors> }) {
   const map = {
     granted: { bg: colors.success + "20", text: colors.success, label: "Granted" },
     denied: { bg: colors.destructive + "20", text: colors.destructive, label: "Denied" },
-    unavailable: { bg: colors.warning + "20", text: colors.warning, label: "Dev build" },
+    unavailable: { bg: colors.muted, text: colors.mutedForeground, label: "Needs permission" },
   };
   const s = map[status];
   return (
@@ -42,12 +91,179 @@ function StatusBadge({ status, colors }: { status: Permission["status"]; colors:
 export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { assistantName, setAssistantName, conversations, clearAllConversations } = useAssistant();
+  const {
+    assistantName, setAssistantName,
+    conversations, clearAllConversations,
+    phoneVoiceId, setPhoneVoiceId,
+    elVoiceId, setElVoiceId,
+    speechRate, setSpeechRate,
+    ttsProvider, setTtsProvider,
+    themeOverride, setThemeOverride,
+    customApiUrl, setCustomApiUrl,
+    readIncomingEnabled, setReadIncomingEnabled,
+    customQuickChips, setCustomQuickChips,
+    speechLanguage, setSpeechLanguage,
+  } = useAssistant();
+
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(assistantName);
 
+  const [phoneVoices, setPhoneVoices] = useState<Speech.Voice[]>([]);
+  const [loadingPhoneVoices, setLoadingPhoneVoices] = useState(true);
+
+  const [editingApiUrl, setEditingApiUrl] = useState(false);
+  const [apiUrlInput, setApiUrlInput] = useState(customApiUrl ?? "");
+  const [previewingPhoneId, setPreviewingPhoneId] = useState<string | null>(null);
+
+  const [elVoices, setElVoices] = useState<ElVoice[]>([]);
+
+  const [permStatuses, setPermStatuses] = useState<Record<string, PermStatus>>(DEFAULT_PERM_STATUSES);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [loadingElVoices, setLoadingElVoices] = useState(true);
+  const [previewingElId, setPreviewingElId] = useState<string | null>(null);
+
+  // Quick chips editing state
+  const [editingChips, setEditingChips] = useState(false);
+  const [chipsInput, setChipsInput] = useState(customQuickChips.join("\n"));
+
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+
+  useEffect(() => {
+    loadPhoneVoices();
+    loadElVoices();
+    refreshPermissions();
+  }, []);
+
+  // Re-check permissions whenever the app returns to the foreground (e.g. after
+  // the user grants write-settings / overlay in system settings and comes back).
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshPermissions();
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Sync camera permission state from the hook whenever it changes
+  useEffect(() => {
+    if (!cameraPermission) return;
+    let camStatus: PermStatus;
+    if (cameraPermission.granted) {
+      camStatus = "granted";
+    } else if (cameraPermission.status === "denied") {
+      camStatus = "denied";
+    } else {
+      return;
+    }
+    setPermStatuses((prev) => ({ ...prev, camera: camStatus }));
+  }, [cameraPermission]);
+
+  async function refreshPermissions() {
+    if (Platform.OS === "web") return;
+    const updates: Record<string, PermStatus> = {};
+
+    function toPermStatus(status: string): PermStatus {
+      if (status === "granted") return "granted";
+      if (status === "denied") return "denied";
+      return "unavailable";
+    }
+
+    // Microphone
+    try {
+      const { status } = await Audio.getPermissionsAsync();
+      updates.microphone = toPermStatus(status);
+    } catch { /* leave default */ }
+
+    // Contacts
+    try {
+      const { status } = await Contacts.getPermissionsAsync();
+      updates.contacts = toPermStatus(status);
+    } catch { /* leave default */ }
+
+    // Accessibility Service
+    try {
+      if (NativeAccessibility.isAvailable) {
+        const enabled = await NativeAccessibility.isEnabled();
+        updates.accessibility = enabled ? "granted" : "unavailable";
+      }
+    } catch { /* leave default */ }
+
+    // Notification listener access
+    try {
+      if (NativeNotifications.isAvailable) {
+        const enabled = await NativeNotifications.hasPermission();
+        updates.notification_listener = enabled ? "granted" : "unavailable";
+      }
+    } catch { /* leave default */ }
+
+    // Device admin
+    try {
+      if (NativeScreenLock.isAvailable) {
+        const isAdmin = await NativeScreenLock.isAdminEnabled();
+        updates.device_admin = isAdmin ? "granted" : "unavailable";
+      }
+    } catch { /* leave default */ }
+
+    // Write system settings
+    try {
+      const hasWrite = await NativeSystemPermissions.hasWriteSettingsPermission();
+      updates.write_settings = hasWrite ? "granted" : "unavailable";
+    } catch { /* leave default */ }
+
+    // Overlay (display over other apps)
+    try {
+      const hasOverlay = await NativeSystemPermissions.hasOverlayPermission();
+      updates.overlay = hasOverlay ? "granted" : "unavailable";
+    } catch { /* leave default */ }
+
+    // Battery optimization exemption (helps keep accessibility service active)
+    try {
+      if (NativeAccessibility.isAvailable) {
+        const ignored = await NativeAccessibility.isBatteryOptimizationIgnored();
+        updates.battery_optimization = ignored ? "granted" : "unavailable";
+      }
+    } catch { /* leave default */ }
+
+    setPermStatuses((prev) => ({ ...prev, ...updates }));
+  }
+
+  async function loadPhoneVoices() {
+    try {
+      const all = await Speech.getAvailableVoicesAsync();
+      const english = all
+        .filter((v) => v.language?.startsWith("en"))
+        .sort((a, b) => {
+          const qA = a.quality === Speech.VoiceQuality.Enhanced ? 1 : 0;
+          const qB = b.quality === Speech.VoiceQuality.Enhanced ? 1 : 0;
+          return (qB - qA) || (a.name ?? "").localeCompare(b.name ?? "");
+        });
+      setPhoneVoices(english);
+    } catch { setPhoneVoices([]); }
+    finally { setLoadingPhoneVoices(false); }
+  }
+
+  async function loadElVoices() {
+    try {
+      // Priority: user-configured URL → build-time env var → web relative fallback
+      let base: string;
+      if (customApiUrl && customApiUrl.trim()) {
+        const u = customApiUrl.trim();
+        base = u.endsWith("/") ? u : `${u}/`;
+      } else {
+        const envUrl = process.env.EXPO_PUBLIC_API_URL;
+        if (envUrl) base = envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
+        else if (Platform.OS === "web") base = "/api/";
+        else base = "https://secret-chat-provider--adellamarie.replit.app/api/";
+      }
+      const r = await fetch(`${base}tts/voices`);
+      if (r.ok) {
+        const data = await r.json() as { voices: ElVoice[] };
+        setElVoices(data.voices ?? []);
+      }
+    } catch { setElVoices([]); }
+    finally { setLoadingElVoices(false); }
+  }
 
   async function saveName() {
     const trimmed = nameInput.trim();
@@ -57,16 +273,129 @@ export default function SettingsScreen() {
     setEditingName(false);
   }
 
+  async function saveApiUrl() {
+    const trimmed = apiUrlInput.trim();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await setCustomApiUrl(trimmed || null);
+    setEditingApiUrl(false);
+    // Reload ElevenLabs voices using the new API base
+    loadElVoices();
+  }
+
   function handleClearHistory() {
     const doIt = () => { clearAllConversations(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); };
-    if (Platform.OS === "web") {
-      doIt();
-    } else {
+    if (Platform.OS === "web") { doIt(); }
+    else {
       Alert.alert("Clear all history", `Delete all ${conversations.length} conversation(s)?`, [
         { text: "Cancel", style: "cancel" },
         { text: "Clear", style: "destructive", onPress: doIt },
       ]);
     }
+  }
+
+  function handleExportHistory() {
+    if (conversations.length === 0) {
+      Alert.alert("No history", "You have no saved conversations to export.");
+      return;
+    }
+    const text = conversations
+      .map((conv) => {
+        const header = `=== ${conv.title} ===\n${new Date(conv.createdAt).toLocaleDateString()}\n`;
+        const msgs = conv.messages
+          .map((m) => `${m.role === "user" ? "You" : assistantName}: ${m.content}`)
+          .join("\n");
+        return header + msgs;
+      })
+      .join("\n\n");
+    Share.share({ message: text, title: "Chat history" });
+  }
+
+  async function handlePermissionPress(permId: string) {
+    if (Platform.OS !== "android") return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      if (permId === "microphone") {
+        await Audio.requestPermissionsAsync();
+      } else if (permId === "camera") {
+        if (requestCameraPermission) await requestCameraPermission();
+      } else if (permId === "contacts") {
+        await Contacts.requestPermissionsAsync();
+      } else if (permId === "accessibility") {
+        await NativeAccessibility.requestEnable();
+      } else if (permId === "notification_listener") {
+        await NativeNotifications.requestPermission();
+      } else if (permId === "device_admin") {
+        await NativeScreenLock.requestAdmin();
+      } else if (permId === "write_settings") {
+        await NativeSystemPermissions.requestWriteSettingsPermission();
+      } else if (permId === "overlay") {
+        await NativeSystemPermissions.requestOverlayPermission();
+      } else if (permId === "battery_optimization") {
+        await NativeAccessibility.requestIgnoreBatteryOptimization();
+      }
+    } catch { /* ignore */ }
+    // Re-check status after returning from system settings
+    setTimeout(() => refreshPermissions(), 800);
+  }
+
+  async function previewPhoneVoice(v: Speech.Voice) {
+    if (previewingPhoneId === v.identifier) {
+      Speech.stop(); setPreviewingPhoneId(null); return;
+    }
+    setPreviewingPhoneId(v.identifier);
+    Haptics.selectionAsync();
+    Speech.speak(`Hi, I'm ${assistantName}. This is the phone voice.`, {
+      voice: v.identifier, language: v.language, rate: speechRate, pitch: 1.05,
+      onDone: () => setPreviewingPhoneId(null),
+      onError: () => setPreviewingPhoneId(null),
+      onStopped: () => setPreviewingPhoneId(null),
+    });
+  }
+
+  async function selectPhoneVoice(v: Speech.Voice | null) {
+    Speech.stop(); setPreviewingPhoneId(null);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await setPhoneVoiceId(v?.identifier ?? null);
+  }
+
+  async function previewElVoice(v: ElVoice) {
+    if (previewingElId === v.id) {
+      setPreviewingElId(null); return;
+    }
+    setPreviewingElId(v.id);
+    Haptics.selectionAsync();
+    try {
+      const envUrl = process.env.EXPO_PUBLIC_API_URL;
+      const resolvedBase = customApiUrl?.trim()
+        ? (customApiUrl.trim().endsWith("/") ? customApiUrl.trim() : `${customApiUrl.trim()}/`)
+        : envUrl
+          ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`)
+          : Platform.OS === "web"
+            ? "/api/"
+            : "https://secret-chat-provider--adellamarie.replit.app/api/";
+      const resp = await fetch(`${resolvedBase}tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `Hi, I'm ${assistantName}. This is the ${v.name} voice from ElevenLabs.`, voiceId: v.id }),
+      });
+      if (resp.ok) {
+        const { Audio } = await import("expo-av");
+        const blob = await resp.blob();
+        const reader = new FileReader();
+        const base64 = await new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => { const r = reader.result as string; resolve(r.split(",")[1] ?? ""); };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: `data:audio/mpeg;base64,${base64}` },
+          { shouldPlay: true }
+        );
+        sound.setOnPlaybackStatusUpdate((s) => {
+          if (s.isLoaded && s.didJustFinish) { setPreviewingElId(null); sound.unloadAsync().catch(() => {}); }
+        });
+      } else { setPreviewingElId(null); }
+    } catch { setPreviewingElId(null); }
   }
 
   function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -96,6 +425,32 @@ export default function SettingsScreen() {
     );
   }
 
+  function ProviderTab({ p, label, icon }: { p: TtsProvider; label: string; icon: string }) {
+    const active = ttsProvider === p;
+    return (
+      <Pressable
+        style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+        onPress={async () => { await setTtsProvider(p); Haptics.selectionAsync(); }}
+      >
+        <Ionicons name={icon as "mic"} size={14} color={active ? "#fff" : colors.mutedForeground} />
+        <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
+      </Pressable>
+    );
+  }
+
+  function ThemeTab({ t, label, icon }: { t: ThemeOverride; label: string; icon: string }) {
+    const active = themeOverride === t;
+    return (
+      <Pressable
+        style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+        onPress={async () => { await setThemeOverride(t); Haptics.selectionAsync(); }}
+      >
+        <Ionicons name={icon as "mic"} size={14} color={active ? "#fff" : colors.mutedForeground} />
+        <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
+      </Pressable>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
@@ -103,18 +458,15 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 80 }} showsVerticalScrollIndicator={false}>
-        {/* Assistant */}
+
+        {/* ── Assistant ── */}
         <Section title="Assistant">
           {editingName ? (
             <View style={[styles.row, { borderBottomColor: colors.border }]}>
               <TextInput
                 style={[styles.nameInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
-                value={nameInput}
-                onChangeText={setNameInput}
-                autoFocus
-                maxLength={24}
-                returnKeyType="done"
-                onSubmitEditing={saveName}
+                value={nameInput} onChangeText={setNameInput} autoFocus maxLength={24}
+                returnKeyType="done" onSubmitEditing={saveName}
               />
               <Pressable style={[styles.saveBtn, { backgroundColor: colors.primary }]} onPress={saveName}>
                 <Feather name="check" size={16} color="#fff" />
@@ -125,53 +477,356 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
           ) : (
-            <Row icon="person-circle-outline" label="Name" value={assistantName} onPress={() => { setEditingName(true); setNameInput(assistantName); }} />
+            <Row icon="person-circle-outline" label="Name" value={assistantName}
+              onPress={() => { setEditingName(true); setNameInput(assistantName); }} />
           )}
           <Row icon="chatbubbles-outline" label="Conversations" value={`${conversations.length} saved`} />
-          <Row icon="cube-outline" label="AI Model" value="LLaMA 3.3 70B Versatile" />
-          <Row icon="globe-outline" label="Search Engine" value="LLaMA 3.3 Online" />
+          <Row icon="cube-outline" label="AI Model" value="Groq — LLaMA 3.3 70B Versatile" />
+          <Row icon="globe-outline" label="Search Engine" value="Tavily Web Search" />
         </Section>
 
-        {/* Permissions */}
-        <Section title="Permissions">
-          {PERMISSIONS.map((perm) => (
-            <View key={perm.id} style={[styles.row, { borderBottomColor: colors.border }]}>
-              <Ionicons name={perm.icon as "mic"} size={18} color={colors.primary} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.rowLabel, { color: colors.foreground }]}>{perm.label}</Text>
-                <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{perm.description}</Text>
-              </View>
-              <StatusBadge status={perm.status} colors={colors} />
+        {/* ── Voice ── */}
+        <Section title="Voice">
+          {/* Provider selector */}
+          <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="mic-circle-outline" size={18} color={colors.primary} />
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Voice Engine</Text>
             </View>
-          ))}
+            <View style={styles.provRow}>
+              <ProviderTab p="elevenlabs" label="ElevenLabs" icon="sparkles" />
+              <ProviderTab p="phone" label="Phone TTS" icon="phone-portrait-outline" />
+            </View>
+            <Text style={[styles.rowValue, { color: colors.mutedForeground, paddingLeft: 0 }]}>
+              {ttsProvider === "elevenlabs"
+                ? "High-quality AI voices via ElevenLabs. Phone TTS used as fallback."
+                : "Uses your device's built-in text-to-speech engine."}
+            </Text>
+          </View>
+
+          {/* Speed (phone TTS only) */}
+          {ttsProvider === "phone" && (
+            <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="speedometer-outline" size={18} color={colors.primary} />
+                <Text style={[styles.rowLabel, { color: colors.foreground }]}>Speaking Speed</Text>
+              </View>
+              <View style={styles.speedRow}>
+                {SPEED_OPTIONS.map((opt) => {
+                  const active = Math.abs(speechRate - opt.value) < 0.05;
+                  return (
+                    <Pressable key={opt.label}
+                      style={[styles.speedBtn, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+                      onPress={async () => { await setSpeechRate(opt.value); Haptics.selectionAsync(); }}>
+                      <Text style={[styles.speedBtnText, { color: active ? "#fff" : colors.foreground }]}>{opt.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* ElevenLabs voices */}
+          {ttsProvider === "elevenlabs" && (
+            <>
+              {loadingElVoices ? (
+                <View style={[styles.row, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Loading ElevenLabs voices…</Text>
+                </View>
+              ) : elVoices.length === 0 ? (
+                <View style={[styles.row, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Could not load voices. Check your API key.</Text>
+                </View>
+              ) : (
+                elVoices.map((v) => {
+                  const isSelected = elVoiceId === v.id;
+                  const isPreviewing = previewingElId === v.id;
+                  return (
+                    <Pressable key={v.id}
+                      style={[styles.voiceRow, { borderBottomColor: colors.border, backgroundColor: isSelected ? colors.primary + "08" : "transparent" }]}
+                      onPress={() => { setElVoiceId(v.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}>
+                      <View style={[styles.voiceRadio, { borderColor: isSelected ? colors.primary : colors.border, backgroundColor: isSelected ? colors.primary : "transparent" }]}>
+                        {isSelected && <View style={styles.voiceRadioDot} />}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.rowLabel, { color: colors.foreground }]}>{v.name}</Text>
+                        {v.description ? <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{v.description}</Text> : null}
+                      </View>
+                      <Pressable style={[styles.previewBtn, { backgroundColor: isPreviewing ? colors.accent + "20" : colors.muted }]}
+                        onPress={() => previewElVoice(v)} hitSlop={8}>
+                        <Ionicons name={isPreviewing ? "stop-circle-outline" : "play-outline"} size={16} color={isPreviewing ? colors.accent : colors.mutedForeground} />
+                        <Text style={[styles.previewText, { color: isPreviewing ? colors.accent : colors.mutedForeground }]}>{isPreviewing ? "Stop" : "Try"}</Text>
+                      </Pressable>
+                    </Pressable>
+                  );
+                })
+              )}
+            </>
+          )}
+
+          {/* Phone TTS voices */}
+          {ttsProvider === "phone" && (
+            <>
+              <Pressable style={[styles.voiceRow, { borderBottomColor: colors.border }]} onPress={() => selectPhoneVoice(null)}>
+                <View style={[styles.voiceRadio, { borderColor: !phoneVoiceId ? colors.primary : colors.border, backgroundColor: !phoneVoiceId ? colors.primary : "transparent" }]}>
+                  {!phoneVoiceId && <View style={styles.voiceRadioDot} />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>System Default</Text>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Device default TTS voice</Text>
+                </View>
+              </Pressable>
+
+              {loadingPhoneVoices ? (
+                <View style={[styles.row, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Loading device voices…</Text>
+                </View>
+              ) : phoneVoices.length === 0 ? (
+                <View style={[styles.row, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>No English voices found on this device.</Text>
+                </View>
+              ) : (
+                phoneVoices.map((v) => {
+                  const isSelected = phoneVoiceId === v.identifier;
+                  const isPreviewing = previewingPhoneId === v.identifier;
+                  const qualityLabel = v.quality === Speech.VoiceQuality.Enhanced ? "Enhanced" : "";
+                  return (
+                    <Pressable key={v.identifier}
+                      style={[styles.voiceRow, { borderBottomColor: colors.border, backgroundColor: isSelected ? colors.primary + "08" : "transparent" }]}
+                      onPress={() => selectPhoneVoice(v)}>
+                      <View style={[styles.voiceRadio, { borderColor: isSelected ? colors.primary : colors.border, backgroundColor: isSelected ? colors.primary : "transparent" }]}>
+                        {isSelected && <View style={styles.voiceRadioDot} />}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={[styles.rowLabel, { color: colors.foreground }]}>{v.name ?? v.identifier}</Text>
+                          {qualityLabel ? (
+                            <View style={[styles.qualityBadge, { backgroundColor: colors.accent + "20" }]}>
+                              <Text style={[styles.qualityText, { color: colors.accent }]}>{qualityLabel}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{v.language}</Text>
+                      </View>
+                      <Pressable style={[styles.previewBtn, { backgroundColor: isPreviewing ? colors.accent + "20" : colors.muted }]}
+                        onPress={() => previewPhoneVoice(v)} hitSlop={8}>
+                        <Ionicons name={isPreviewing ? "stop-circle-outline" : "play-outline"} size={16} color={isPreviewing ? colors.accent : colors.mutedForeground} />
+                        <Text style={[styles.previewText, { color: isPreviewing ? colors.accent : colors.mutedForeground }]}>{isPreviewing ? "Stop" : "Try"}</Text>
+                      </Pressable>
+                    </Pressable>
+                  );
+                })
+              )}
+            </>
+          )}
         </Section>
 
-        {/* Build info */}
+        {/* ── Notifications ── */}
+        <Section title="Notifications">
+          <View style={[styles.row, { borderBottomColor: colors.border }]}>
+            <Ionicons name="volume-medium-outline" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Read Incoming Messages</Text>
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+                Speak incoming messages aloud using notification access, or Accessibility Service fallback on devices where Notification Access is unavailable.
+              </Text>
+            </View>
+            <Switch
+              value={readIncomingEnabled}
+              onValueChange={async (v) => {
+                await setReadIncomingEnabled(v);
+                Haptics.selectionAsync();
+              }}
+              trackColor={{ false: colors.muted, true: colors.primary + "80" }}
+              thumbColor={readIncomingEnabled ? colors.primary : colors.mutedForeground}
+            />
+          </View>
+        </Section>
+
+        {/* ── Home Screen ── */}
+        <Section title="Home Screen">
+          {/* Language selector */}
+          <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="language-outline" size={18} color={colors.primary} />
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Speech Language</Text>
+            </View>
+            <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+              Current: {speechLanguage}. Say &quot;switch to Spanish&quot; (or any language) to change.
+            </Text>
+            <View style={styles.provRow}>
+              {[
+                { label: "English", code: "en-US" },
+                { label: "Spanish", code: "es-ES" },
+                { label: "French", code: "fr-FR" },
+                { label: "German", code: "de-DE" },
+                { label: "Portuguese", code: "pt-BR" },
+                { label: "Arabic", code: "ar-SA" },
+              ].map(({ label, code }) => {
+                const active = speechLanguage === code;
+                return (
+                  <Pressable key={code}
+                    style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+                    onPress={async () => { await setSpeechLanguage(code); Haptics.selectionAsync(); }}>
+                    <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Quick chips editor */}
+          <View style={[styles.row, { borderBottomColor: "transparent", flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
+                <Text style={[styles.rowLabel, { color: colors.foreground }]}>Quick Chips</Text>
+              </View>
+              {!editingChips ? (
+                <Pressable onPress={() => { setEditingChips(true); setChipsInput(customQuickChips.join("\n")); }}>
+                  <Text style={[styles.rowValue, { color: colors.primary }]}>Edit</Text>
+                </Pressable>
+              ) : (
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable onPress={async () => {
+                    const chips = chipsInput.split("\n").map((c) => c.trim()).filter(Boolean).slice(0, 6);
+                    await setCustomQuickChips(chips.length > 0 ? chips : DEFAULT_QUICK_CHIPS);
+                    setEditingChips(false);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }}>
+                    <Text style={[styles.rowValue, { color: colors.primary }]}>Save</Text>
+                  </Pressable>
+                  <Pressable onPress={() => { setEditingChips(false); setChipsInput(customQuickChips.join("\n")); }}>
+                    <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Cancel</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+            {editingChips ? (
+              <>
+                <TextInput
+                  style={[styles.nameInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background, height: 120, textAlignVertical: "top", paddingTop: 8 }]}
+                  value={chipsInput}
+                  onChangeText={setChipsInput}
+                  multiline
+                  placeholder={"One chip per line (max 6)\nWhat can you do?\nTell me a fun fact"}
+                  placeholderTextColor={colors.mutedForeground}
+                  autoFocus
+                />
+                <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Enter one suggestion per line. Up to 6 chips.</Text>
+              </>
+            ) : (
+              <View style={{ gap: 6 }}>
+                {customQuickChips.map((chip, i) => (
+                  <View key={i} style={[styles.chipPreview, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+                    <Text style={[styles.rowValue, { color: colors.foreground, marginLeft: 0 }]}>{chip}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </Section>
+
+        {/* ── Permissions ── */}
+        <Section title="Permissions">
+          {PERMISSIONS.map((perm) => {
+            const status = permStatuses[perm.id] ?? "unavailable";
+            const canRequest = Platform.OS === "android" && perm.id !== "internet";
+            return (
+              <Pressable
+                key={perm.id}
+                style={[styles.row, { borderBottomColor: colors.border }]}
+                onPress={canRequest ? () => handlePermissionPress(perm.id) : undefined}
+                disabled={!canRequest || status === "granted"}
+              >
+                <Ionicons name={perm.icon as "mic"} size={18} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>{perm.label}</Text>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{perm.description}</Text>
+                </View>
+                <StatusBadge status={status} colors={colors} />
+                {canRequest && status !== "granted" && (
+                  <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
+                )}
+              </Pressable>
+            );
+          })}
+        </Section>
+
+        {/* ── Build info ── */}
         <Section title="Build">
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
             <MaterialIcons name="build" size={18} color={colors.primary} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: colors.foreground }]}>Current Build</Text>
-              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Expo Go (limited features)</Text>
-            </View>
-          </View>
-          <View style={[styles.row, { borderBottomColor: colors.border }]}>
-            <Ionicons name="construct-outline" size={18} color={colors.accent} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Development Build Command</Text>
-              <View style={[styles.codeBlock, { backgroundColor: colors.muted }]}>
-                <Text style={[styles.codeText, { color: colors.foreground }]}>
-                  eas build --platform android --profile preview
-                </Text>
-              </View>
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Preview APK — Groq + Tavily + ElevenLabs</Text>
             </View>
           </View>
         </Section>
 
-        {/* Danger */}
+        {/* ── Appearance ── */}
+        <Section title="Appearance">
+          <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="color-palette-outline" size={18} color={colors.primary} />
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Theme</Text>
+            </View>
+            <View style={styles.provRow}>
+              <ThemeTab t="system" label="System" icon="phone-portrait-outline" />
+              <ThemeTab t="light" label="Light" icon="sunny-outline" />
+              <ThemeTab t="dark" label="Dark" icon="moon-outline" />
+            </View>
+            <Text style={[styles.rowValue, { color: colors.mutedForeground, paddingLeft: 0 }]}>
+              {themeOverride === "system" ? "Follows your device's appearance setting." : themeOverride === "dark" ? "Always use dark mode." : "Always use light mode."}
+            </Text>
+          </View>
+        </Section>
+
+        {/* ── Advanced ── */}
+        <Section title="Advanced">
+          {editingApiUrl ? (
+            <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>API Server URL</Text>
+              <TextInput
+                style={[styles.nameInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
+                value={apiUrlInput}
+                onChangeText={setApiUrlInput}
+                autoFocus
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                placeholder="https://your-server.example.com/api"
+                placeholderTextColor={colors.mutedForeground}
+                returnKeyType="done"
+                onSubmitEditing={saveApiUrl}
+              />
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Leave blank to use the default server.</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable style={[styles.saveBtn, { backgroundColor: colors.primary, flex: 1, borderRadius: 10, alignItems: "center", height: 38, justifyContent: "center" }]} onPress={saveApiUrl}>
+                  <Text style={{ color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 14 }}>Save</Text>
+                </Pressable>
+                <Pressable style={[styles.cancelBtn, { borderColor: colors.border, width: 38 }]}
+                  onPress={() => { setEditingApiUrl(false); setApiUrlInput(customApiUrl ?? ""); }}>
+                  <Feather name="x" size={16} color={colors.foreground} />
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Row
+              icon="globe-outline"
+              label="API Server URL"
+              value={customApiUrl ? customApiUrl : "Default (built-in)"}
+              onPress={() => { setEditingApiUrl(true); setApiUrlInput(customApiUrl ?? ""); }}
+            />
+          )}
+        </Section>
+
+        {/* ── Data ── */}
         <Section title="Data">
+          <Row icon="share-outline" label="Export chat history" onPress={handleExportHistory} />
           <Row icon="trash-outline" label="Clear all chat history" destructive onPress={handleClearHistory} />
         </Section>
+
       </ScrollView>
     </View>
   );
@@ -192,6 +847,18 @@ const styles = StyleSheet.create({
   nameInput: { flex: 1, height: 38, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, fontSize: 15, fontFamily: "Inter_500Medium" },
   saveBtn: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   cancelBtn: { width: 36, height: 36, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  codeBlock: { marginTop: 6, padding: 8, borderRadius: 8 },
-  codeText: { fontSize: 12, fontFamily: Platform.OS === "ios" ? "Courier" : "monospace" },
+  provRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingLeft: 26 },
+  provTab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, borderWidth: 1 },
+  provTabText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  speedRow: { flexDirection: "row", gap: 10, paddingLeft: 26 },
+  speedBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1, alignItems: "center" },
+  speedBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  voiceRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 11, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  voiceRadio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  voiceRadioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#fff" },
+  qualityBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 },
+  qualityText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  previewBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  previewText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  chipPreview: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, borderWidth: 1 },
 });

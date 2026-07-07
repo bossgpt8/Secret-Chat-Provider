@@ -14,9 +14,34 @@
       "backgroundColor": "#7c3aed"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.boss.assistant",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Camera access is used to control the flashlight.",
+        "NSMicrophoneUsageDescription": "Microphone access is used for voice input.",
+        "NSContactsUsageDescription": "Contacts access is used to look up names when making calls or sending messages."
+      }
     },
-    "android": {},
+    "android": {
+      "package": "com.boss.assistant",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.FLASHLIGHT",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CONTACTS",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WRITE_SETTINGS",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.ANSWER_PHONE_CALLS"
+      ]
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
@@ -28,11 +53,50 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Camera access is used to control the flashlight."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Microphone access is used for voice input."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Contacts access is used to look up names when making calls or sending messages."
+        }
+      ],
+      "./plugins/withNativeModules",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Location is used to provide weather for your current area.",
+          "locationWhenInUsePermission": "Location is used to provide weather for your current area."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#7c3aed",
+          "sounds": []
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8eaf7ab7-7b70-4994-8781-016123ea23be"
+      }
     }
   }
 }

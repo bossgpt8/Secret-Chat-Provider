@@ -3,6 +3,33 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 
 const ASSISTANT_NAME_KEY = "@zeno_assistant_name";
 const CONVERSATIONS_KEY = "@zeno_conversations";
+const PHONE_VOICE_ID_KEY = "@zeno_phone_voice_id";
+const EL_VOICE_ID_KEY = "@zeno_el_voice_id";
+const SPEECH_RATE_KEY = "@zeno_speech_rate";
+const TTS_PROVIDER_KEY = "@zeno_tts_provider";
+const THEME_KEY = "@zeno_theme";
+const CUSTOM_API_URL_KEY = "@zeno_custom_api_url";
+const USER_PROFILE_KEY = "@zeno_user_profile";
+const PERSONALITY_KEY = "@zeno_personality";
+const WAKE_WORD_KEY = "@zeno_wake_word";
+const READ_INCOMING_KEY = "@zeno_read_incoming";
+const NOTES_KEY = "@zeno_notes";
+const TODOS_KEY = "@zeno_todos";
+const FAVORITES_KEY = "@zeno_favorites";
+const QUICK_CHIPS_KEY = "@zeno_quick_chips";
+const SPEECH_LANGUAGE_KEY = "@zeno_speech_language";
+
+export type TtsProvider = "elevenlabs" | "phone";
+export type ThemeOverride = "system" | "dark" | "light";
+export type AssistantPersonality = "friendly" | "casual" | "professional" | "witty" | "caring";
+
+export interface UserProfile {
+  userName: string;
+  gender: "" | "male" | "female" | "nonbinary" | "other";
+  age: string;
+}
+
+const DEFAULT_USER_PROFILE: UserProfile = { userName: "", gender: "", age: "" };
 
 export interface Message {
   id: string;
@@ -20,6 +47,26 @@ export interface Conversation {
   updatedAt: number;
 }
 
+export interface VoiceNote {
+  id: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface TodoItem {
+  id: string;
+  text: string;
+  done: boolean;
+  timestamp: number;
+}
+
+export interface ContactFavorite {
+  alias: string;   // e.g. "wife", "husband", "mom"
+  contactName: string; // actual name to look up in contacts
+}
+
+export const DEFAULT_QUICK_CHIPS = ["What can you do?", "Tell me a fun fact", "What's today's date?"];
+
 interface AssistantContextType {
   assistantName: string;
   setAssistantName: (name: string) => Promise<void>;
@@ -32,6 +79,40 @@ interface AssistantContextType {
   deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => Promise<void>;
   isLoading: boolean;
+  phoneVoiceId: string | null;
+  setPhoneVoiceId: (id: string | null) => Promise<void>;
+  elVoiceId: string | null;
+  setElVoiceId: (id: string | null) => Promise<void>;
+  speechRate: number;
+  setSpeechRate: (rate: number) => Promise<void>;
+  ttsProvider: TtsProvider;
+  setTtsProvider: (p: TtsProvider) => Promise<void>;
+  themeOverride: ThemeOverride;
+  setThemeOverride: (t: ThemeOverride) => Promise<void>;
+  customApiUrl: string | null;
+  setCustomApiUrl: (url: string | null) => Promise<void>;
+  userProfile: UserProfile;
+  setUserProfile: (p: UserProfile) => Promise<void>;
+  assistantPersonality: AssistantPersonality;
+  setAssistantPersonality: (p: AssistantPersonality) => Promise<void>;
+  wakeWordEnabled: boolean;
+  setWakeWordEnabled: (v: boolean) => Promise<void>;
+  readIncomingEnabled: boolean;
+  setReadIncomingEnabled: (v: boolean) => Promise<void>;
+  notes: VoiceNote[];
+  saveNote: (text: string) => Promise<VoiceNote>;
+  deleteNote: (id: string) => Promise<void>;
+  todos: TodoItem[];
+  addTodo: (text: string) => Promise<TodoItem>;
+  completeTodo: (id: string) => Promise<void>;
+  deleteTodo: (id: string) => Promise<void>;
+  contactFavorites: ContactFavorite[];
+  setContactFavorite: (alias: string, contactName: string) => Promise<void>;
+  getContactFavorite: (alias: string) => ContactFavorite | undefined;
+  customQuickChips: string[];
+  setCustomQuickChips: (chips: string[]) => Promise<void>;
+  speechLanguage: string;
+  setSpeechLanguage: (lang: string) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -48,27 +129,70 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [phoneVoiceId, setPhoneVoiceIdState] = useState<string | null>(null);
+  const [elVoiceId, setElVoiceIdState] = useState<string | null>("21m00Tcm4TlvDq8ikWAM");
+  const [speechRate, setSpeechRateState] = useState(0.9);
+  const [ttsProvider, setTtsProviderState] = useState<TtsProvider>("elevenlabs");
+  const [themeOverride, setThemeOverrideState] = useState<ThemeOverride>("system");
+  const [customApiUrl, setCustomApiUrlState] = useState<string | null>(null);
+  const [userProfile, setUserProfileState] = useState<UserProfile>(DEFAULT_USER_PROFILE);
+  const [assistantPersonality, setAssistantPersonalityState] = useState<AssistantPersonality>("friendly");
+  const [wakeWordEnabled, setWakeWordEnabledState] = useState(false);
+  const [readIncomingEnabled, setReadIncomingEnabledState] = useState(false);
+  const [notes, setNotes] = useState<VoiceNote[]>([]);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [contactFavorites, setContactFavoritesState] = useState<ContactFavorite[]>([]);
+  const [customQuickChips, setCustomQuickChipsState] = useState<string[]>(DEFAULT_QUICK_CHIPS);
+  const [speechLanguage, setSpeechLanguageState] = useState("en-US");
 
   useEffect(() => {
     loadData();
   }, []);
 
   async function loadData() {
+    // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs
+    const timeoutId = setTimeout(() => setIsLoading(false), 5000);
     try {
-      const [name, convsRaw] = await Promise.all([
+      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
+        AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
+        AsyncStorage.getItem(EL_VOICE_ID_KEY),
+        AsyncStorage.getItem(SPEECH_RATE_KEY),
+        AsyncStorage.getItem(TTS_PROVIDER_KEY),
+        AsyncStorage.getItem(THEME_KEY),
+        AsyncStorage.getItem(CUSTOM_API_URL_KEY),
+        AsyncStorage.getItem(USER_PROFILE_KEY),
+        AsyncStorage.getItem(PERSONALITY_KEY),
+        AsyncStorage.getItem(WAKE_WORD_KEY),
+        AsyncStorage.getItem(READ_INCOMING_KEY),
+        AsyncStorage.getItem(NOTES_KEY),
+        AsyncStorage.getItem(TODOS_KEY),
+        AsyncStorage.getItem(FAVORITES_KEY),
+        AsyncStorage.getItem(QUICK_CHIPS_KEY),
+        AsyncStorage.getItem(SPEECH_LANGUAGE_KEY),
       ]);
-      if (name) {
-        setAssistantNameState(name);
-        setIsOnboarded(true);
-      }
-      if (convsRaw) {
-        setConversations(JSON.parse(convsRaw));
-      }
+      if (name) { setAssistantNameState(name); setIsOnboarded(true); }
+      if (convsRaw) setConversations(JSON.parse(convsRaw));
+      if (pvid) setPhoneVoiceIdState(pvid);
+      if (evid) setElVoiceIdState(evid);
+      if (rate) setSpeechRateState(parseFloat(rate));
+      if (prov === "phone" || prov === "elevenlabs") setTtsProviderState(prov);
+      if (theme === "dark" || theme === "light" || theme === "system") setThemeOverrideState(theme);
+      if (apiUrl) setCustomApiUrlState(apiUrl);
+      if (profileRaw) { try { setUserProfileState(JSON.parse(profileRaw)); } catch { /* ignore */ } }
+      if (personality === "friendly" || personality === "casual" || personality === "professional" || personality === "witty" || personality === "caring") setAssistantPersonalityState(personality);
+      if (wakeWord === "true") setWakeWordEnabledState(true);
+      if (readIncoming === "true") setReadIncomingEnabledState(true);
+      if (notesRaw) { try { setNotes(JSON.parse(notesRaw)); } catch { /* ignore */ } }
+      if (todosRaw) { try { setTodos(JSON.parse(todosRaw)); } catch { /* ignore */ } }
+      if (favoritesRaw) { try { setContactFavoritesState(JSON.parse(favoritesRaw)); } catch { /* ignore */ } }
+      if (quickChipsRaw) { try { const chips = JSON.parse(quickChipsRaw); if (Array.isArray(chips) && chips.length > 0) setCustomQuickChipsState(chips); } catch { /* ignore */ } }
+      if (speechLang) setSpeechLanguageState(speechLang);
     } catch {
       // ignore
     } finally {
+      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   }
@@ -79,16 +203,136 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setIsOnboarded(true);
   }
 
+  async function setPhoneVoiceId(id: string | null) {
+    if (id) await AsyncStorage.setItem(PHONE_VOICE_ID_KEY, id);
+    else await AsyncStorage.removeItem(PHONE_VOICE_ID_KEY);
+    setPhoneVoiceIdState(id);
+  }
+
+  async function setElVoiceId(id: string | null) {
+    if (id) await AsyncStorage.setItem(EL_VOICE_ID_KEY, id);
+    else await AsyncStorage.removeItem(EL_VOICE_ID_KEY);
+    setElVoiceIdState(id);
+  }
+
+  async function setSpeechRate(rate: number) {
+    await AsyncStorage.setItem(SPEECH_RATE_KEY, String(rate));
+    setSpeechRateState(rate);
+  }
+
+  async function setTtsProvider(p: TtsProvider) {
+    await AsyncStorage.setItem(TTS_PROVIDER_KEY, p);
+    setTtsProviderState(p);
+  }
+
+  async function setThemeOverride(t: ThemeOverride) {
+    await AsyncStorage.setItem(THEME_KEY, t);
+    setThemeOverrideState(t);
+  }
+
+  async function setCustomApiUrl(url: string | null) {
+    if (url && url.trim()) {
+      await AsyncStorage.setItem(CUSTOM_API_URL_KEY, url.trim());
+      setCustomApiUrlState(url.trim());
+    } else {
+      await AsyncStorage.removeItem(CUSTOM_API_URL_KEY);
+      setCustomApiUrlState(null);
+    }
+  }
+
+  async function setUserProfile(p: UserProfile) {
+    await AsyncStorage.setItem(USER_PROFILE_KEY, JSON.stringify(p));
+    setUserProfileState(p);
+  }
+
+  async function setAssistantPersonality(p: AssistantPersonality) {
+    await AsyncStorage.setItem(PERSONALITY_KEY, p);
+    setAssistantPersonalityState(p);
+  }
+
+  async function setWakeWordEnabled(v: boolean) {
+    await AsyncStorage.setItem(WAKE_WORD_KEY, String(v));
+    setWakeWordEnabledState(v);
+  }
+
+  async function setReadIncomingEnabled(v: boolean) {
+    await AsyncStorage.setItem(READ_INCOMING_KEY, String(v));
+    setReadIncomingEnabledState(v);
+  }
+
+  async function saveNote(text: string): Promise<VoiceNote> {
+    const note: VoiceNote = { id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, text, timestamp: Date.now() };
+    setNotes((prev) => {
+      const updated = [note, ...prev];
+      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+    return note;
+  }
+
+  async function deleteNote(id: string) {
+    setNotes((prev) => {
+      const updated = prev.filter((n) => n.id !== id);
+      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  async function addTodo(text: string): Promise<TodoItem> {
+    const todo: TodoItem = { id: `todo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, text, done: false, timestamp: Date.now() };
+    setTodos((prev) => {
+      const updated = [todo, ...prev];
+      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+    return todo;
+  }
+
+  async function completeTodo(id: string) {
+    setTodos((prev) => {
+      const updated = prev.map((t) => t.id === id ? { ...t, done: true } : t);
+      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  async function deleteTodo(id: string) {
+    setTodos((prev) => {
+      const updated = prev.filter((t) => t.id !== id);
+      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  async function setContactFavorite(alias: string, contactName: string) {
+    const normalizedAlias = alias.toLowerCase().trim();
+    setContactFavoritesState((prev) => {
+      const filtered = prev.filter((f) => f.alias !== normalizedAlias);
+      const updated = [{ alias: normalizedAlias, contactName: contactName.trim() }, ...filtered];
+      AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  function getContactFavorite(alias: string): ContactFavorite | undefined {
+    return contactFavorites.find((f) => f.alias === alias.toLowerCase().trim());
+  }
+
+  async function setCustomQuickChips(chips: string[]) {
+    const valid = chips.filter((c) => c.trim()).slice(0, 6);
+    await AsyncStorage.setItem(QUICK_CHIPS_KEY, JSON.stringify(valid));
+    setCustomQuickChipsState(valid.length > 0 ? valid : DEFAULT_QUICK_CHIPS);
+  }
+
+  async function setSpeechLanguage(lang: string) {
+    await AsyncStorage.setItem(SPEECH_LANGUAGE_KEY, lang);
+    setSpeechLanguageState(lang);
+  }
+
   function createConversation(): string {
     const id = `conv-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const now = Date.now();
-    const conv: Conversation = {
-      id,
-      title: "New Chat",
-      messages: [],
-      createdAt: now,
-      updatedAt: now,
-    };
+    const conv: Conversation = { id, title: "New Chat", messages: [], createdAt: now, updatedAt: now };
     setConversations((prev) => [conv, ...prev]);
     return id;
   }
@@ -97,9 +341,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setConversations((prev) => {
       const updated = prev.map((c) => {
         if (c.id !== convId) return c;
-        const newTitle =
-          title ??
-          (messages.find((m) => m.role === "user")?.content.slice(0, 40) || c.title);
+        const newTitle = title ?? (messages.find((m) => m.role === "user")?.content.slice(0, 40) || c.title);
         return { ...c, messages, title: newTitle, updatedAt: Date.now() };
       });
       AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(updated)).catch(() => {});
@@ -125,17 +367,27 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   return (
     <AssistantContext.Provider
       value={{
-        assistantName,
-        setAssistantName,
+        assistantName, setAssistantName,
         isOnboarded,
         conversations,
-        currentConversationId,
-        setCurrentConversationId,
-        createConversation,
-        saveMessages,
-        deleteConversation,
-        clearAllConversations,
+        currentConversationId, setCurrentConversationId,
+        createConversation, saveMessages, deleteConversation, clearAllConversations,
         isLoading,
+        phoneVoiceId, setPhoneVoiceId,
+        elVoiceId, setElVoiceId,
+        speechRate, setSpeechRate,
+        ttsProvider, setTtsProvider,
+        themeOverride, setThemeOverride,
+        customApiUrl, setCustomApiUrl,
+        userProfile, setUserProfile,
+        assistantPersonality, setAssistantPersonality,
+        wakeWordEnabled, setWakeWordEnabled,
+        readIncomingEnabled, setReadIncomingEnabled,
+        notes, saveNote, deleteNote,
+        todos, addTodo, completeTodo, deleteTodo,
+        contactFavorites, setContactFavorite, getContactFavorite,
+        customQuickChips, setCustomQuickChips,
+        speechLanguage, setSpeechLanguage,
       }}
     >
       {children}
@@ -148,3 +400,4 @@ export function useAssistant() {
   if (!ctx) throw new Error("useAssistant must be used within AssistantProvider");
   return ctx;
 }
+

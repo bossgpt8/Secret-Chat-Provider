@@ -14,3 +14,75 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * @summary List conversations
+ */
+export const ListConversationsResponse = zod.object({
+  conversations: zod.array(
+    zod.object({
+      id: zod.string(),
+      deviceId: zod.string(),
+      title: zod.string(),
+      createdAt: zod.string(),
+      updatedAt: zod.string(),
+    })
+  ),
+});
+
+/**
+ * @summary Create a conversation
+ */
+export const CreateConversationBody = zod.object({
+  id: zod.string(),
+  title: zod.string().optional(),
+});
+
+export const CreateConversationResponse = zod.object({
+  conversation: zod
+    .object({
+      id: zod.string(),
+      deviceId: zod.string(),
+      title: zod.string(),
+      createdAt: zod.string(),
+      updatedAt: zod.string(),
+    })
+    .nullable(),
+});
+
+/**
+ * @summary List messages in a conversation
+ */
+export const ListMessagesResponse = zod.object({
+  messages: zod.array(
+    zod.object({
+      id: zod.string(),
+      conversationId: zod.string(),
+      role: zod.enum(["user", "assistant"]),
+      content: zod.string(),
+      createdAt: zod.string(),
+    })
+  ),
+});
+
+/**
+ * @summary Append a message to a conversation
+ */
+export const CreateMessageBody = zod.object({
+  messageId: zod.string(),
+  role: zod.enum(["user", "assistant"]),
+  content: zod.string(),
+});
+
+export const CreateMessageResponse = zod.object({
+  message: zod
+    .object({
+      id: zod.string(),
+      conversationId: zod.string(),
+      role: zod.enum(["user", "assistant"]),
+      content: zod.string(),
+      createdAt: zod.string(),
+    })
+    .nullable(),
+});
+

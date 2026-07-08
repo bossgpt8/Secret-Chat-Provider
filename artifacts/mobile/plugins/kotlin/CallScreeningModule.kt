@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.telecom.TelecomManager
 import android.telephony.PhoneStateListener
-import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -77,16 +76,34 @@ class CallScreeningModule(private val reactContext: ReactApplicationContext) :
             telephonyManager = tm
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val cb = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
-                    override fun onCallStateChanged(state: Int) {
-                        emitState(state, null)
+                try {
+                    // Use reflection to avoid ClassNotFoundException on older devices
+                    val callbackClass = Class.forName("android.telephony.TelephonyCallback")
+                    val listenerInterface = Class.forName("android.telephony.TelephonyCallback\$CallStateListener")
+                    
+                    val proxyHandler = java.lang.reflect.Proxy.newProxyInstance(
+                        callbackClass.classLoader,
+                        arrayOf(callbackClass, listenerInterface)
+                    ) { _, method, args ->
+                        if (method.name == "onCallStateChanged" && args != null) {
+                            val state = (args.getOrNull(0) as? Int) ?: -1
+                            emitState(state, null)
+                        }
+                        null
                     }
+                    
+                    telephonyCallback = proxyHandler
+                    val registerMethod = tm.javaClass.getMethod(
+                        "registerTelephonyCallback",
+                        java.util.concurrent.Executor::class.java,
+                        callbackClass
+                    )
+                    registerMethod.invoke(tm, reactContext.mainExecutor, proxyHandler)
+                } catch (e: Exception) {
+                    Log.w(TAG, "API 31+ TelephonyCallback failed, falling back to legacy listener", e)
+                    @Suppress("DEPRECATION")
+                    tm.listen(legacyListener, PhoneStateListener.LISTEN_CALL_STATE)
                 }
-                telephonyCallback = cb
-                tm.registerTelephonyCallback(
-                    reactContext.mainExecutor,
-                    cb
-                )
             } else {
                 @Suppress("DEPRECATION")
                 tm.listen(legacyListener, PhoneStateListener.LISTEN_CALL_STATE)
@@ -104,7 +121,17 @@ class CallScreeningModule(private val reactContext: ReactApplicationContext) :
         try {
             val tm = telephonyManager ?: run { promise.resolve(true); return }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                (telephonyCallback as? TelephonyCallback)?.let { tm.unregisterTelephonyCallback(it) }
+                try {
+                    telephonyCallback?.let { 
+                        val unregisterMethod = tm.javaClass.getMethod(
+                            "unregisterTelephonyCallback",
+                            Class.forName("android.telephony.TelephonyCallback")
+                        )
+                        unregisterMethod.invoke(tm, it)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to unregister TelephonyCallback", e)
+                }
             } else {
                 @Suppress("DEPRECATION")
                 tm.listen(legacyListener, PhoneStateListener.LISTEN_NONE)

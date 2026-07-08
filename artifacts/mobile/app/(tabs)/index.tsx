@@ -530,7 +530,7 @@ export default function ChatScreen() {
     const envUrl = process.env.EXPO_PUBLIC_API_URL;
     if (envUrl) return envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
     if (Platform.OS === "web") return "/api/";
-    return "https://secret-chat-provider--adellamarie.replit.app/api/";
+    return "https://secret-chat-provider--b-oss.replit.app/api/";
   }
 
   // ── Wake word ──────────────────────────────────────────────────────────────

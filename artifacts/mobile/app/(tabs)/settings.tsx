@@ -254,7 +254,7 @@ export default function SettingsScreen() {
         const envUrl = process.env.EXPO_PUBLIC_API_URL;
         if (envUrl) base = envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
         else if (Platform.OS === "web") base = "/api/";
-        else base = "https://secret-chat-provider--adellamarie.replit.app/api/";
+        else base = "https://secret-chat-provider--b-oss.replit.app/api/";
       }
       const r = await fetch(`${base}tts/voices`);
       if (r.ok) {
@@ -372,7 +372,7 @@ export default function SettingsScreen() {
           ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`)
           : Platform.OS === "web"
             ? "/api/"
-            : "https://secret-chat-provider--adellamarie.replit.app/api/";
+            : "https://secret-chat-provider--b-oss.replit.app/api/";
       const resp = await fetch(`${resolvedBase}tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -38,14 +38,16 @@ export default function RootLayout() {
     Inter_700Bold,
   });
   const [fontTimeoutExpired, setFontTimeoutExpired] = useState(false);
+  const [splashHidden, setSplashHidden] = useState(false);
   const fontTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fallback: hide splash after 3 s even if fonts never resolve
+  // Fallback: hide splash after 2s even if fonts never resolve
   useEffect(() => {
     fontTimerRef.current = setTimeout(() => {
       setFontTimeoutExpired(true);
-      SplashScreen.hideAsync();
-    }, 3000);
+      setSplashHidden(true);
+      SplashScreen.hideAsync().catch(() => {});
+    }, 2000);
     return () => {
       if (fontTimerRef.current) clearTimeout(fontTimerRef.current);
     };
@@ -57,11 +59,12 @@ export default function RootLayout() {
         clearTimeout(fontTimerRef.current);
         fontTimerRef.current = null;
       }
-      SplashScreen.hideAsync();
+      setSplashHidden(true);
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError && !fontTimeoutExpired) return null;
+  if (!splashHidden) return null;
 
   return (
     <SafeAreaProvider>

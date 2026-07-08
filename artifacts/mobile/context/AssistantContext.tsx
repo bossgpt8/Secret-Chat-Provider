@@ -150,9 +150,14 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function loadData() {
+    console.log("[AssistantContext] Starting to load data from AsyncStorage");
     // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs
-    const timeoutId = setTimeout(() => setIsLoading(false), 5000);
+    const timeoutId = setTimeout(() => {
+      console.log("[AssistantContext] Loading timeout reached, forcing UI unblock");
+      setIsLoading(false);
+    }, 5000);
     try {
+      const startTime = Date.now();
       const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
@@ -172,6 +177,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(QUICK_CHIPS_KEY),
         AsyncStorage.getItem(SPEECH_LANGUAGE_KEY),
       ]);
+      console.log(`[AssistantContext] Loaded from AsyncStorage in ${Date.now() - startTime}ms, onboarded=${!!name}`);
       if (name) { setAssistantNameState(name); setIsOnboarded(true); }
       if (convsRaw) setConversations(JSON.parse(convsRaw));
       if (pvid) setPhoneVoiceIdState(pvid);
@@ -189,10 +195,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (favoritesRaw) { try { setContactFavoritesState(JSON.parse(favoritesRaw)); } catch { /* ignore */ } }
       if (quickChipsRaw) { try { const chips = JSON.parse(quickChipsRaw); if (Array.isArray(chips) && chips.length > 0) setCustomQuickChipsState(chips); } catch { /* ignore */ } }
       if (speechLang) setSpeechLanguageState(speechLang);
-    } catch {
-      // ignore
+    } catch (e) {
+      console.error("[AssistantContext] Error loading data:", e);
     } finally {
       clearTimeout(timeoutId);
+      console.log("[AssistantContext] Loading complete, setting isLoading=false");
       setIsLoading(false);
     }
   }

@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
 [[artifacts]]
 id = "artifacts/api-server"
@@ -50,3 +50,6 @@ timeoutMs = 20000
 
 [userenv.shared]
 EXPO_PUBLIC_API_URL = "https://secret-chat-provider--b-oss.replit.app/api"
+
+[nix]
+channel = "stable-25_05"

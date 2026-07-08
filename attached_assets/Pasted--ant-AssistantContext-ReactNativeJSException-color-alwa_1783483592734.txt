@@ -1,0 +1,30 @@
+
+ant\|AssistantContext\|ReactNativeJSException" --color=always
+07-08 05:05:07.188 I/ActivityManager(  731): START u0 {act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=com.boss.assistant/.MainActivity bnds=[134,587][250,757]} from uid 10013
+07-08 05:05:07.253 V/WindowManager(  731): Set focused app to: AppWindowToken{b3dcb3f token=Token{a4a91e0 ActivityRecord{aabd3e3 u0 com.boss.assistant/.MainActivity t1656}}} old focus=AppWindowToken{3e1ec17 token=Token{6f1e896 ActivityRecord{2d01bb1 u0 com.android.launcher3/.Launcher t1565}}} moveFocusNow=true
+07-08 05:05:07.260 I/vendor.mediatek.hardware.power@1.1-impl(  254): notifyAppState pack:com.boss.assistant, act:com.boss.assistant.MainActivity, pid:13615, state:1
+07-08 05:05:07.261 I/libPerfService(  254): [perfNotifyAppState] foreground:com.boss.assistant, pid:13615
+07-08 05:05:07.263 D/DuraSpeed/DuraSpeedInternalManager(  731): switchState currentPackage = com.boss.assistant, event =1004
+07-08 05:05:07.289 I/BufferQueueConsumer(  258): [Splash Screen com.boss.assistant#0](this:0xb08ab000,id:2302,api:0,p:-1,c:258) setConsumerName: Splash Screen com.boss.assistant#0
+07-08 05:05:07.289 I/BufferQueueConsumer(  258): [Splash Screen com.boss.assistant#0](this:0xb08ab000,id:2302,api:0,p:-1,c:258) setDefaultBufferSize: width=384 height=854
+07-08 05:05:07.315 I/BufferQueueProducer(  258): [Splash Screen com.boss.assistant#0](this:0xb08ab000,id:2302,api:2,p:731,c:258) connect(P): api=2 producer=(731:system_server) producerControlledByApp=false
+07-08 05:05:07.371 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0
+07-08 05:05:07.389 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0
+07-08 05:05:07.406 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0
+07-08 05:05:07.425 V/PhoneWindow(13615): DecorView setVisiblity: visibility = 0, Parent = ViewRoot{5c86592 com.boss.assistant/com.boss.assistant.MainActivity,ident = 2}, this = DecorView@da179c7[MainActivity]
+07-08 05:05:07.440 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0
+07-08 05:05:07.446 I/WindowManager(  731): Relayout Window{9963310 u0 com.boss.assistant/com.boss.assistant.MainActivity}: oldVis=4 newVis=0 focusMayChange = true
+07-08 05:05:07.452 I/BufferQueueConsumer(  258): [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb1d68000,id:2303,api:0,p:-1,c:258) setConsumerName: com.boss.assistant/com.boss.assistant.MainActivity#0
+07-08 05:05:07.452 I/BufferQueueConsumer(  258): [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb1d68000,id:2303,api:0,p:-1,c:258) setDefaultBufferSize: width=384 height=854
+07-08 05:05:07.455 V/WindowManager(  731): Changing focus from null to Window{9963310 u0 com.boss.assistant/com.boss.assistant.MainActivity} Callers=com.android.server.wm.WindowManagerService.relayoutWindow:2169 com.android.server.wm.Session.relayout:239 android.view.IWindowSession$Stub.onTransact:286 com.android.server.wm.Session.onTransact:163
+07-08 05:05:07.456 D/WindowManager(  731): Input focus has changed to Window{9963310 u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-08 05:05:07.458 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0
+07-08 05:05:07.466 I/BufferQueueProducer(  258): [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb1d68000,id:2303,api:1,p:13615,c:258) connect(P): api=1 producer=(13615:com.boss.assistant) producerControlledByApp=true
+07-08 05:05:07.469 I/WindowManager(  731): Focus moving from null to Window{9963310 u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-08 05:05:07.471 I/BufferQueueProducer(  258): [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb1d68000,id:2303,api:1,p:13615,c:258) setMaxDequeuedBufferCount: maxDequeuedBuffers = 3
+07-08 05:05:07.476 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0
+07-08 05:05:07.490 I/GoogleInputMethodService( 3300): GoogleInputMethodService.onStartInput():1986 onStartInput(EditorInfo{EditorInfo{packageName=com.boss.assistant, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=-1, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+07-08 05:05:25.266 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0
+07-08 05:05:26.287 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0
+07-08 05:05:38.371 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0
+07-08 05:05:39.446 V/SurfaceFlinger(  258): Layer: Splash Screen com.boss.assistant#0

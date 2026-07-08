@@ -49,4 +49,4 @@ timeoutMs = 20000
 [userenv]
 
 [userenv.shared]
-EXPO_PUBLIC_API_URL = "https://secret-chat-provider--adellamarie.replit.app/api"
+EXPO_PUBLIC_API_URL = "https://secret-chat-provider--b-oss.replit.app/api"

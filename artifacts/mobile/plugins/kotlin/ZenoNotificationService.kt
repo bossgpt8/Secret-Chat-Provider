@@ -58,7 +58,10 @@ class ZenoNotificationService : NotificationListenerService() {
         if (recentNotifications.size > MAX_RECENT) {
             recentNotifications.removeAt(recentNotifications.size - 1)
         }
-        onNotificationPostedCallback?.invoke(data)
+        val cb = onNotificationPostedCallback
+        if (cb != null) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { cb.invoke(data) }
+        }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {}

@@ -91,7 +91,10 @@ class ZenoAccessibilityService : AccessibilityService() {
                 if (recentNotificationEvents.size > MAX_NOTIFICATION_EVENTS) {
                     recentNotificationEvents.removeAt(recentNotificationEvents.size - 1)
                 }
-                onAccessibilityNotificationCallback?.invoke(n)
+                val cb = onAccessibilityNotificationCallback
+                if (cb != null) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post { cb.invoke(n) }
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "onAccessibilityEvent error", e)

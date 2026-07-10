@@ -39,13 +39,13 @@ const KOTLIN_FILES = [
   "SystemPermissionsPackage.kt",
   "ScreenLockModule.kt",
   "ScreenLockPackage.kt",
-  "ZenoDeviceAdmin.kt",
+  "VoxDeviceAdmin.kt",
   "NotificationListenerModule.kt",
   "NotificationListenerPackage.kt",
-  "ZenoNotificationService.kt",
+  "VoxNotificationService.kt",
   "AccessibilityModule.kt",
   "AccessibilityPackage.kt",
-  "ZenoAccessibilityService.kt",
+  "VoxAccessibilityService.kt",
   "MediaControlModule.kt",
   "MediaControlPackage.kt",
   "CallScreeningModule.kt",
@@ -110,13 +110,13 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
     // ── NotificationListenerService ───────────────────────────────────────
     if (!app.service) app.service = [];
     const serviceExists = (app.service as Array<{ $?: Record<string, string> }>).some(
-      (s) => s.$?.["android:name"] === ".ZenoNotificationService"
+      (s) => s.$?.["android:name"] === ".VoxNotificationService"
     );
     if (!serviceExists) {
       app.service.push({
         $: {
-          "android:name": ".ZenoNotificationService",
-          "android:label": "Zeno Notification Listener",
+          "android:name": ".VoxNotificationService",
+          "android:label": "Vox Notification Listener",
           "android:permission":
             "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
           "android:exported": "true",
@@ -139,12 +139,12 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
     // ── AccessibilityService ──────────────────────────────────────────────
     const accessibilityServiceExists = (
       app.service as Array<{ $?: Record<string, string> }>
-    ).some((s) => s.$?.["android:name"] === ".ZenoAccessibilityService");
+    ).some((s) => s.$?.["android:name"] === ".VoxAccessibilityService");
     if (!accessibilityServiceExists) {
       app.service.push({
         $: {
-          "android:name": ".ZenoAccessibilityService",
-          "android:label": "Zeno Assistant",
+          "android:name": ".VoxAccessibilityService",
+          "android:label": "Vox Assistant",
           "android:permission": "android.permission.BIND_ACCESSIBILITY_SERVICE",
           "android:exported": "true",
         },
@@ -174,12 +174,12 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
     if (!app.receiver) app.receiver = [];
     const receiverExists = (
       app.receiver as Array<{ $?: Record<string, string> }>
-    ).some((r) => r.$?.["android:name"] === ".ZenoDeviceAdmin");
+    ).some((r) => r.$?.["android:name"] === ".VoxDeviceAdmin");
     if (!receiverExists) {
       app.receiver.push({
         $: {
-          "android:name": ".ZenoDeviceAdmin",
-          "android:label": "Zeno Device Admin",
+          "android:name": ".VoxDeviceAdmin",
+          "android:label": "Vox Device Admin",
           "android:description": "@string/app_name",
           "android:permission": "android.permission.BIND_DEVICE_ADMIN",
           "android:exported": "true",
@@ -224,7 +224,7 @@ const PACKAGES = [
 ];
 
 /** Marker inserted to detect that our packages have already been added (idempotency). */
-const MARKER = "// [ZenoNativePackages]";
+const MARKER = "// [VoxNativePackages]";
 
 const withMainApplicationPackages: ConfigPlugin = (config) =>
   withDangerousMod(config, [

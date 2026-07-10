@@ -6,7 +6,7 @@ const emitter =
     ? new NativeEventEmitter(AccessibilityModule)
     : null;
 
-export interface ZenoAccessibilityNotification {
+export interface VoxAccessibilityNotification {
   app: string;
   packageName: string;
   sender: string;
@@ -21,7 +21,7 @@ export const NativeAccessibility = {
   isAvailable: Platform.OS === "android" && !!AccessibilityModule,
 
   /**
-   * Returns true if ZenoAccessibilityService is currently enabled in system settings.
+   * Returns true if VoxAccessibilityService is currently enabled in system settings.
    */
   async isEnabled(): Promise<boolean> {
     if (!AccessibilityModule) return false;
@@ -37,7 +37,7 @@ export const NativeAccessibility = {
   },
 
   /**
-   * Returns up to [limit] recent accessibility events captured by ZenoAccessibilityService.
+   * Returns up to [limit] recent accessibility events captured by VoxAccessibilityService.
    * Each event has: packageName, className, eventType, text, contentDescription.
    */
   async getRecentEvents(limit = 20): Promise<Array<{
@@ -51,14 +51,14 @@ export const NativeAccessibility = {
     return AccessibilityModule.getRecentEvents(limit);
   },
 
-  async getRecentNotifications(limit = 20): Promise<ZenoAccessibilityNotification[]> {
+  async getRecentNotifications(limit = 20): Promise<VoxAccessibilityNotification[]> {
     if (!AccessibilityModule?.getRecentNotificationEvents) return [];
     return AccessibilityModule.getRecentNotificationEvents(limit);
   },
 
-  onNotification(callback: (n: ZenoAccessibilityNotification) => void): () => void {
+  onNotification(callback: (n: VoxAccessibilityNotification) => void): () => void {
     if (!emitter) return () => {};
-    const sub = emitter.addListener("onZenoAccessibilityNotification", callback);
+    const sub = emitter.addListener("onVoxAccessibilityNotification", callback);
     return () => sub.remove();
   },
 

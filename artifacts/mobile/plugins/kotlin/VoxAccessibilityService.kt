@@ -9,7 +9,7 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import java.util.concurrent.CopyOnWriteArrayList
 
-class ZenoAccessibilityService : AccessibilityService() {
+class VoxAccessibilityService : AccessibilityService() {
 
     data class AccessibilityEventData(
         val packageName: String,
@@ -48,12 +48,12 @@ class ZenoAccessibilityService : AccessibilityService() {
     }
 
     companion object {
-        @Volatile var instance: ZenoAccessibilityService? = null
+        @Volatile var instance: VoxAccessibilityService? = null
         val recentEvents = CopyOnWriteArrayList<AccessibilityEventData>()
         val recentNotificationEvents = CopyOnWriteArrayList<AccessibilityNotificationData>()
         private const val MAX_EVENTS = 50
         private const val MAX_NOTIFICATION_EVENTS = 50
-        private const val TAG = "ZenoAccessibilityService"
+        private const val TAG = "VoxAccessibilityService"
         @Volatile var onAccessibilityNotificationCallback: ((AccessibilityNotificationData) -> Unit)? = null
     }
 

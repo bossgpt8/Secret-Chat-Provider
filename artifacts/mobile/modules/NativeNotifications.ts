@@ -1,6 +1,6 @@
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 
-export interface ZenoNotification {
+export interface VoxNotification {
   key: string;
   app: string;
   packageName: string;
@@ -30,7 +30,7 @@ export const NativeNotifications = {
     return NotificationListenerModule.requestPermission();
   },
 
-  async getRecent(): Promise<ZenoNotification[]> {
+  async getRecent(): Promise<VoxNotification[]> {
     if (!NotificationListenerModule) return [];
     return NotificationListenerModule.getRecentNotifications();
   },
@@ -45,9 +45,9 @@ export const NativeNotifications = {
     return NotificationListenerModule.dismissNotification(key);
   },
 
-  onNotification(callback: (n: ZenoNotification) => void): () => void {
+  onNotification(callback: (n: VoxNotification) => void): () => void {
     if (!emitter) return () => {};
-    const sub = emitter.addListener("onZenoNotification", callback);
+    const sub = emitter.addListener("onVoxNotification", callback);
     return () => sub.remove();
   },
 };

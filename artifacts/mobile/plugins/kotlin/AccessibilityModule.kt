@@ -23,8 +23,8 @@ class AccessibilityModule(reactContext: ReactApplicationContext) :
     }
 
     init {
-        ZenoAccessibilityService.onAccessibilityNotificationCallback = { data ->
-            sendEvent("onZenoAccessibilityNotification", data.toWritableMap())
+        VoxAccessibilityService.onAccessibilityNotificationCallback = { data ->
+            sendEvent("onVoxAccessibilityNotification", data.toWritableMap())
         }
     }
 
@@ -41,7 +41,7 @@ class AccessibilityModule(reactContext: ReactApplicationContext) :
     }
 
     /**
-     * Returns true if ZenoAccessibilityService is currently enabled in system settings.
+     * Returns true if VoxAccessibilityService is currently enabled in system settings.
      */
     @ReactMethod
     fun isEnabled(promise: Promise) {
@@ -64,12 +64,12 @@ class AccessibilityModule(reactContext: ReactApplicationContext) :
     }
 
     /**
-     * Returns up to [limit] recent accessibility events captured by ZenoAccessibilityService.
+     * Returns up to [limit] recent accessibility events captured by VoxAccessibilityService.
      */
     @ReactMethod
     fun getRecentEvents(limit: Int, promise: Promise) {
         val arr = Arguments.createArray()
-        val events = ZenoAccessibilityService.recentEvents.take(limit)
+        val events = VoxAccessibilityService.recentEvents.take(limit)
         for (e in events) {
             arr.pushMap(e.toWritableMap())
         }
@@ -82,7 +82,7 @@ class AccessibilityModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun getRecentNotificationEvents(limit: Int, promise: Promise) {
         val arr = Arguments.createArray()
-        val events = ZenoAccessibilityService.recentNotificationEvents.take(limit)
+        val events = VoxAccessibilityService.recentNotificationEvents.take(limit)
         for (e in events) {
             arr.pushMap(e.toWritableMap())
         }

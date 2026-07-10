@@ -10,7 +10,7 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import java.util.concurrent.CopyOnWriteArrayList
 
-class ZenoNotificationService : NotificationListenerService() {
+class VoxNotificationService : NotificationListenerService() {
 
     data class NotificationData(
         val key: String,
@@ -33,10 +33,10 @@ class ZenoNotificationService : NotificationListenerService() {
     }
 
     companion object {
-        @Volatile var instance: ZenoNotificationService? = null
+        @Volatile var instance: VoxNotificationService? = null
         val recentNotifications = CopyOnWriteArrayList<NotificationData>()
         private const val MAX_RECENT = 50
-        private const val TAG = "ZenoNotificationService"
+        private const val TAG = "VoxNotificationService"
 
         /** Set by NotificationListenerModule to receive live events in React Native. */
         @Volatile var onNotificationPostedCallback: ((NotificationData) -> Unit)? = null

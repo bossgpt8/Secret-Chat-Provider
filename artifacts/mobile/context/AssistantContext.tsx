@@ -1,23 +1,76 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-const ASSISTANT_NAME_KEY = "@zeno_assistant_name";
-const CONVERSATIONS_KEY = "@zeno_conversations";
-const PHONE_VOICE_ID_KEY = "@zeno_phone_voice_id";
-const EL_VOICE_ID_KEY = "@zeno_el_voice_id";
-const SPEECH_RATE_KEY = "@zeno_speech_rate";
-const TTS_PROVIDER_KEY = "@zeno_tts_provider";
-const THEME_KEY = "@zeno_theme";
-const CUSTOM_API_URL_KEY = "@zeno_custom_api_url";
-const USER_PROFILE_KEY = "@zeno_user_profile";
-const PERSONALITY_KEY = "@zeno_personality";
-const WAKE_WORD_KEY = "@zeno_wake_word";
-const READ_INCOMING_KEY = "@zeno_read_incoming";
-const NOTES_KEY = "@zeno_notes";
-const TODOS_KEY = "@zeno_todos";
-const FAVORITES_KEY = "@zeno_favorites";
-const QUICK_CHIPS_KEY = "@zeno_quick_chips";
-const SPEECH_LANGUAGE_KEY = "@zeno_speech_language";
+const ASSISTANT_NAME_KEY = "@vox_assistant_name";
+const CONVERSATIONS_KEY = "@vox_conversations";
+const PHONE_VOICE_ID_KEY = "@vox_phone_voice_id";
+const EL_VOICE_ID_KEY = "@vox_el_voice_id";
+const SPEECH_RATE_KEY = "@vox_speech_rate";
+const TTS_PROVIDER_KEY = "@vox_tts_provider";
+const THEME_KEY = "@vox_theme";
+const CUSTOM_API_URL_KEY = "@vox_custom_api_url";
+const USER_PROFILE_KEY = "@vox_user_profile";
+const PERSONALITY_KEY = "@vox_personality";
+const WAKE_WORD_KEY = "@vox_wake_word";
+const READ_INCOMING_KEY = "@vox_read_incoming";
+const NOTES_KEY = "@vox_notes";
+const TODOS_KEY = "@vox_todos";
+const FAVORITES_KEY = "@vox_favorites";
+const QUICK_CHIPS_KEY = "@vox_quick_chips";
+const SPEECH_LANGUAGE_KEY = "@vox_speech_language";
+
+// Migration map: old @zeno_* key → new @vox_* key
+const LEGACY_KEY_MAP: Record<string, string> = {
+  "@zeno_assistant_name": ASSISTANT_NAME_KEY,
+  "@zeno_conversations": CONVERSATIONS_KEY,
+  "@zeno_phone_voice_id": PHONE_VOICE_ID_KEY,
+  "@zeno_el_voice_id": EL_VOICE_ID_KEY,
+  "@zeno_speech_rate": SPEECH_RATE_KEY,
+  "@zeno_tts_provider": TTS_PROVIDER_KEY,
+  "@zeno_theme": THEME_KEY,
+  "@zeno_custom_api_url": CUSTOM_API_URL_KEY,
+  "@zeno_user_profile": USER_PROFILE_KEY,
+  "@zeno_personality": PERSONALITY_KEY,
+  "@zeno_wake_word": WAKE_WORD_KEY,
+  "@zeno_read_incoming": READ_INCOMING_KEY,
+  "@zeno_notes": NOTES_KEY,
+  "@zeno_todos": TODOS_KEY,
+  "@zeno_favorites": FAVORITES_KEY,
+  "@zeno_quick_chips": QUICK_CHIPS_KEY,
+  "@zeno_speech_language": SPEECH_LANGUAGE_KEY,
+};
+
+/**
+ * One-time migration: copies any @zeno_* values that have no @vox_* counterpart
+ * yet, writes them under the new key, then removes the old key.
+ */
+async function migrateZenoToVox(): Promise<void> {
+  try {
+    const legacyKeys = Object.keys(LEGACY_KEY_MAP);
+    const legacyValues = await AsyncStorage.multiGet(legacyKeys);
+    const writes: [string, string][] = [];
+    const deletes: string[] = [];
+
+    for (const [oldKey, oldValue] of legacyValues) {
+      if (!oldValue) continue;
+      const newKey = LEGACY_KEY_MAP[oldKey];
+      const existing = await AsyncStorage.getItem(newKey);
+      if (!existing) {
+        writes.push([newKey, oldValue]);
+      }
+      deletes.push(oldKey);
+    }
+
+    if (writes.length > 0) await AsyncStorage.multiSet(writes);
+    if (deletes.length > 0) await AsyncStorage.multiRemove(deletes);
+
+    if (writes.length > 0 || deletes.length > 0) {
+      console.log(`[AssistantContext] Migrated ${writes.length} keys from @zeno_* to @vox_*`);
+    }
+  } catch (e) {
+    console.warn("[AssistantContext] Storage migration failed (non-fatal):", e);
+  }
+}
 
 export type TtsProvider = "elevenlabs" | "phone";
 export type ThemeOverride = "system" | "dark" | "light";
@@ -124,7 +177,7 @@ export function generateMsgId(): string {
 }
 
 export function AssistantProvider({ children }: { children: React.ReactNode }) {
-  const [assistantName, setAssistantNameState] = useState("Zeno");
+  const [assistantName, setAssistantNameState] = useState("Vox");
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -151,6 +204,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
   async function loadData() {
     console.log("[AssistantContext] Starting to load data from AsyncStorage");
+    await migrateZenoToVox();
     // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs
     const timeoutId = setTimeout(() => {
       console.log("[AssistantContext] Loading timeout reached, forcing UI unblock");

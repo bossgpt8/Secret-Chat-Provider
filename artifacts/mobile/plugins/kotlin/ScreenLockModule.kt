@@ -18,7 +18,7 @@ class ScreenLockModule(reactContext: ReactApplicationContext) :
         get() = reactApplicationContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
 
     private val adminComponent: ComponentName
-        get() = ComponentName(reactApplicationContext, ZenoDeviceAdmin::class.java)
+        get() = ComponentName(reactApplicationContext, VoxDeviceAdmin::class.java)
 
     @ReactMethod
     fun isAdminEnabled(promise: Promise) {

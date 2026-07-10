@@ -20,13 +20,13 @@ const KOTLIN_FILES = [
   "SystemPermissionsPackage.kt",
   "ScreenLockModule.kt",
   "ScreenLockPackage.kt",
-  "ZenoDeviceAdmin.kt",
+  "VoxDeviceAdmin.kt",
   "NotificationListenerModule.kt",
   "NotificationListenerPackage.kt",
-  "ZenoNotificationService.kt",
+  "VoxNotificationService.kt",
   "AccessibilityModule.kt",
   "AccessibilityPackage.kt",
-  "ZenoAccessibilityService.kt",
+  "VoxAccessibilityService.kt",
   "MediaControlModule.kt",
   "MediaControlPackage.kt",
   "CallScreeningModule.kt",
@@ -75,13 +75,13 @@ const withAndroidManifestEntries = (config) =>
 
     if (!app.service) app.service = [];
     const serviceExists = app.service.some(
-      (s) => s.$ && s.$["android:name"] === ".ZenoNotificationService"
+      (s) => s.$ && s.$["android:name"] === ".VoxNotificationService"
     );
     if (!serviceExists) {
       app.service.push({
         $: {
-          "android:name": ".ZenoNotificationService",
-          "android:label": "Zeno Notification Listener",
+          "android:name": ".VoxNotificationService",
+          "android:label": "Vox Notification Listener",
           "android:permission":
             "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
           "android:exported": "true",
@@ -102,13 +102,13 @@ const withAndroidManifestEntries = (config) =>
     }
 
     const accessibilityServiceExists = app.service.some(
-      (s) => s.$ && s.$["android:name"] === ".ZenoAccessibilityService"
+      (s) => s.$ && s.$["android:name"] === ".VoxAccessibilityService"
     );
     if (!accessibilityServiceExists) {
       app.service.push({
         $: {
-          "android:name": ".ZenoAccessibilityService",
-          "android:label": "Zeno Assistant",
+          "android:name": ".VoxAccessibilityService",
+          "android:label": "Vox Assistant",
           "android:permission": "android.permission.BIND_ACCESSIBILITY_SERVICE",
           "android:exported": "true",
         },
@@ -136,13 +136,13 @@ const withAndroidManifestEntries = (config) =>
 
     if (!app.receiver) app.receiver = [];
     const receiverExists = app.receiver.some(
-      (r) => r.$ && r.$["android:name"] === ".ZenoDeviceAdmin"
+      (r) => r.$ && r.$["android:name"] === ".VoxDeviceAdmin"
     );
     if (!receiverExists) {
       app.receiver.push({
         $: {
-          "android:name": ".ZenoDeviceAdmin",
-          "android:label": "Zeno Device Admin",
+          "android:name": ".VoxDeviceAdmin",
+          "android:label": "Vox Device Admin",
           "android:description": "@string/app_name",
           "android:permission": "android.permission.BIND_DEVICE_ADMIN",
           "android:exported": "true",
@@ -182,7 +182,7 @@ const PACKAGES = [
   "CallScreeningPackage()",
 ];
 
-const MARKER = "// [ZenoNativePackages]";
+const MARKER = "// [VoxNativePackages]";
 
 const withMainApplicationPackages = (config) =>
   withDangerousMod(config, [

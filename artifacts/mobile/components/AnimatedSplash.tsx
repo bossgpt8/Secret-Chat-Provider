@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import VoxIcon from "../assets/images/icon.png";
 import {
   Animated,
   Dimensions,
@@ -133,7 +134,7 @@ export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
         ]}
       >
         <Image
-          source={require("@/assets/images/icon.png")}
+          source={VoxIcon}
           style={styles.icon}
           resizeMode="contain"
         />

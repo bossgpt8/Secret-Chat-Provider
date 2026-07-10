@@ -2,14 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import VoxIcon from "../assets/images/icon.png";
 import {
   Animated,
-  Dimensions,
+
   Easing,
   Image,
   StyleSheet,
   Text,
 } from "react-native";
 
-const { width, height } = Dimensions.get("window");
+
 const APP_NAME = "Vox";
 const TYPING_SPEED = 120; // ms per character
 const CURSOR_BLINK_SPEED = 500;

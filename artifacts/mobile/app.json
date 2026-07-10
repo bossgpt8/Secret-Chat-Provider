@@ -25,6 +25,10 @@
     },
     "android": {
       "package": "com.boss.assistant",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0d0b1a"
+      },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.FLASHLIGHT",

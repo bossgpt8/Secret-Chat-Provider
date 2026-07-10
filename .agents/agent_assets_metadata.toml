@@ -41,3 +41,27 @@ id = "uxjI7XorLARfk0tKtZiUp"
 uri = "file://artifacts/mobile/assets/images/splash-icon.png"
 type = "image"
 title = "Vox — Splash Screen Icon"
+
+[[outputs]]
+id = "t_czWU5d-xfcNHdyN-kcR"
+uri = "file://artifacts/mobile/assets/images/icon_concept_a.png"
+type = "image"
+title = "Concept A — Equalizer V Bars"
+
+[[outputs]]
+id = "yaQGrD23ZBMDg_Y_5IAs9"
+uri = "file://artifacts/mobile/assets/images/icon_concept_b.png"
+type = "image"
+title = "Concept B — Orb Soundwave"
+
+[[outputs]]
+id = "BI5Px19Zkw7jhkg2-OHO1"
+uri = "file://artifacts/mobile/assets/images/icon_concept_c.png"
+type = "image"
+title = "Concept C — Bold V Letter"
+
+[[outputs]]
+id = "FFwf5i4TPg-E62daIAf75"
+uri = "file://artifacts/mobile/assets/images/adaptive-icon-v2.png"
+type = "image"
+title = "Adaptive Icon Foreground"

@@ -22,6 +22,11 @@ class NotificationListenerModule(reactContext: ReactApplicationContext) :
     override fun getName(): String = "NotificationListenerModule"
 
     private fun sendEvent(eventName: String, params: WritableMap?) {
+        // Guard: in bridgeless (new-arch) mode, attempting to emit before the JS
+        // runtime is fully ready causes a fatal NullPointerException inside the
+        // Hermes thread. Events are already buffered in recentNotifications, so
+        // JS can poll them on startup — skipping the emit is safe.
+        if (!reactApplicationContext.hasActiveReactInstance()) return
         try {
             reactApplicationContext
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

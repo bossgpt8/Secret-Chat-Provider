@@ -1,14 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import VoxIcon from "../assets/images/icon.png";
-import {
-  Animated,
-
-  Easing,
-  Image,
-  StyleSheet,
-  Text,
-} from "react-native";
-
+import { Animated, Easing, Image, StyleSheet, Text } from "react-native";
 
 const APP_NAME = "Vox";
 const TYPING_SPEED = 120; // ms per character
@@ -108,7 +100,7 @@ export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
           duration: CURSOR_BLINK_SPEED,
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
     blink.start();
 
@@ -126,27 +118,18 @@ export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
           styles.iconWrapper,
           {
             opacity: iconOpacity,
-            transform: [
-              { scale: iconScale },
-              { translateY: iconTranslateY },
-            ],
+            transform: [{ scale: iconScale }, { translateY: iconTranslateY }],
           },
         ]}
       >
-        <Image
-          source={VoxIcon}
-          style={styles.icon}
-          resizeMode="contain"
-        />
+        <Image source={VoxIcon} style={styles.icon} resizeMode="contain" />
       </Animated.View>
 
       {/* Typing name */}
       <Animated.View style={[styles.nameRow, { opacity: taglineOpacity }]}>
         <Text style={styles.nameText}>{displayedText}</Text>
         {showCursor && (
-          <Animated.Text
-            style={[styles.cursor, { opacity: cursorOpacity }]}
-          >
+          <Animated.Text style={[styles.cursor, { opacity: cursorOpacity }]}>
             |
           </Animated.Text>
         )}

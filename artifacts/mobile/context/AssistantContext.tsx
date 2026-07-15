@@ -204,12 +204,13 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
   async function loadData() {
     console.log("[AssistantContext] Starting to load data from AsyncStorage");
-    await migrateZenoToVox();
-    // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs
+    // Safety valve: always unblock the UI within 5 seconds even if AsyncStorage hangs.
+    // Must be set BEFORE any async work so it covers the migration too.
     const timeoutId = setTimeout(() => {
       console.log("[AssistantContext] Loading timeout reached, forcing UI unblock");
       setIsLoading(false);
     }, 5000);
+    await migrateZenoToVox();
     try {
       const startTime = Date.now();
       const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang] = await Promise.all([

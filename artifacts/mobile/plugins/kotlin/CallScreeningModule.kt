@@ -42,6 +42,9 @@ class CallScreeningModule(private val reactContext: ReactApplicationContext) :
     override fun getName(): String = "CallScreeningModule"
 
     private fun sendEvent(params: com.facebook.react.bridge.WritableMap) {
+        // Guard: in bridgeless (new-arch) mode, emitting before the JS runtime
+        // is ready causes a fatal NullPointerException inside Hermes.
+        if (!reactContext.hasActiveReactInstance()) return
         try {
             reactContext
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
@@ -60,7 +63,14 @@ class CallScreeningModule(private val reactContext: ReactApplicationContext) :
             putString("state", stateStr)
             putString("number", number ?: "")
         }
-        sendEvent(map)
+        // PhoneStateListener callbacks (and TelephonyCallback on API 31+) fire on
+        // the telephony background thread which has NO Looper. Calling emit() from
+        // a Looper-less thread in bridgeless new-arch mode is fatal —
+        // BridgelessReact tears down the entire ReactHost. Post to main thread,
+        // same pattern used by VoxAccessibilityService and VoxNotificationService.
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            sendEvent(map)
+        }
     }
 
     @ReactMethod

@@ -56,8 +56,6 @@
     "expo-contacts": "~15.0.11",
     "expo-location": "~19.0.8",
     "expo-notifications": "~0.32.17",
-    "expo-speech": "^14.0.8",
-    "react": "19.1.0",
-    "react-native": "0.81.5"
+    "expo-speech": "^14.0.8"
   }
 }

@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import VoxIcon from "../assets/images/icon.png";
 import { Animated, Easing, Image, StyleSheet, Text } from "react-native";
-
-const APP_NAME = "Vox";
+import { useAssistant } from "@/context/AssistantContext";
 const TYPING_SPEED = 120; // ms per character
 const CURSOR_BLINK_SPEED = 500;
 const POST_TYPE_HOLD = 800; // ms to hold after typing completes
@@ -13,6 +12,9 @@ interface AnimatedSplashProps {
 }
 
 export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
+  const { assistantName } = useAssistant();
+  const APP_NAME = assistantName || "Vox";
+
   // --- Animated values ---
   const iconScale = useRef(new Animated.Value(0)).current;
   const iconTranslateY = useRef(new Animated.Value(30)).current;

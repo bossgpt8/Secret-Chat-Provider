@@ -23,7 +23,7 @@ import {
   Vibration,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { KeyboardAvoidingView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";

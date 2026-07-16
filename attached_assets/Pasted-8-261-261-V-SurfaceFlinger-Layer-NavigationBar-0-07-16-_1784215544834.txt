@@ -1,0 +1,476 @@
+8   261   261 V SurfaceFlinger: Layer: NavigationBar#0
+07-16 15:57:44.568   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:44.568   261   261 V SurfaceFlinger: postFramebuffer
+07-16 15:57:44.570   261   261 V SurfaceFlinger: postComposition
+07-16 15:57:44.572   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:44.573   261   873 I BufferQueueProducer: [StatusBar#0](this:0xaf16b000,id:3,api:1,p:931,c:261) queueBuffer: fps=0.17 dur=11665.99 max=11640.71 min=25.28
+07-16 15:57:44.584   261   261 V SurfaceFlinger: handlePageFlip
+07-16 15:57:44.584   261   261 V SurfaceFlinger: preComposition
+07-16 15:57:44.584   261   261 V SurfaceFlinger: rebuildLayerStacks
+07-16 15:57:44.584   261   261 V SurfaceFlinger: setUpHWComposer
+07-16 15:57:44.585   261   261 V SurfaceFlinger: doComposition
+07-16 15:57:44.586   261   261 V SurfaceFlinger: doDisplayComposition
+07-16 15:57:44.586   261   261 V SurfaceFlinger: doComposeSurfaces
+07-16 15:57:44.586   261   261 V SurfaceFlinger: Rendering client layers
+07-16 15:57:44.586   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 15:57:44.586   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:44.586   261   261 V SurfaceFlinger: Layer: StatusBar#0
+07-16 15:57:44.586   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:44.586   261   261 V SurfaceFlinger: Layer: NavigationBar#0
+07-16 15:57:44.586   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:44.586   261   261 V SurfaceFlinger: postFramebuffer
+07-16 15:57:44.587   261   261 V SurfaceFlinger: postComposition
+07-16 15:57:44.595   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:44.618   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:44.640 18253 18253 W dex2oat : Using default instruction set features for ARM CPU variant (default) using conservative defaults
+07-16 15:57:44.641 18253 18253 I dex2oat : The ClassLoaderContext is a special shared library.
+07-16 15:57:44.642   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:44.642 18253 18253 I dex2oat : /system/bin/dex2oat --dex-file=/data/data/com.boss.assistant/ext_oat/com@system@framework@media@v2306.jar --output-vdex-fd=39 --oat-fd=40 --oat-location=/data/data/com.boss.assistant/ext_oat/oat/arm/com@system@framework@media@v2306.odex --compiler-filter=quicken --class-loader-context=&
+07-16 15:57:44.648 18253 18253 W dex2oat : Could not reserve sentinel fault page
+07-16 15:57:44.665   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:44.758   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 4 lines
+07-16 15:57:44.782   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:44.804 18253 18253 I dex2oat : dex2oat took 164.485ms (168.847ms cpu) (threads: 4) arena alloc=14KB (14416B) java alloc=64KB (65880B) native alloc=530KB (542952B) free=1005KB (1029912B)
+07-16 15:57:44.805   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:44.816 18232 18232 I zygote  : The ClassLoaderContext is a special shared library.
+07-16 15:57:44.828   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.085   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 11 lines
+07-16 15:57:45.108   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.125 18232 18232 W FirebaseApp: Default FirebaseApp failed to initialize because no default options were found. This usually means that com.google.gms:google-services was not applied to your gradle project.
+07-16 15:57:45.126 18232 18232 I FirebaseInitProvider: FirebaseApp initialization unsuccessful
+07-16 15:57:45.132   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.178   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 2 lines
+07-16 15:57:45.202   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.208   261   873 I SurfaceFlinger: EventThread Client Pid (18232) created
+07-16 15:57:45.209   261   873 I SurfaceFlinger: EventThread Client Pid (18232) created
+07-16 15:57:45.220 18232 18232 W SoLoader: Initializing SoLoader: 0
+07-16 15:57:45.224 18232 18232 W SoLoader: Recording new base apk path: /data/app/com.boss.assistant-9DvzxUin5Z0Z4vtb25lggw==/base.apk
+07-16 15:57:45.224 18232 18232 W SoLoader: Previously recorded 0 base apk paths.
+07-16 15:57:45.225   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.227 18232 18232 I SoLoader: Preparing SO source: DirectorySoSource[root = /system/lib flags = 2]
+07-16 15:57:45.228 18232 18232 I SoLoader: Preparing SO source: DirectorySoSource[root = /vendor/lib flags = 2]
+07-16 15:57:45.228 18232 18232 I SoLoader: Preparing SO source: DirectApkSoSource[root = [/data/app/com.boss.assistant-9DvzxUin5Z0Z4vtb25lggw==/base.apk!/lib/armeabi-v7a]]
+07-16 15:57:45.248   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.272   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 1 line
+07-16 15:57:45.295   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.314 18232 18232 I SoLoader: Preparing SO source: ApplicationSoSource[DirectorySoSource[root = /data/app/com.boss.assistant-9DvzxUin5Z0Z4vtb25lggw==/lib/arm flags = 0]]
+07-16 15:57:45.315 18232 18232 I SoLoader: init finish: 4 SO sources prepared
+07-16 15:57:45.316 18232 18232 W SoLoader: SoLoader initialized: 8
+07-16 15:57:45.318   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.365   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 2 lines
+07-16 15:57:45.388   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Entering merged library JNI_OnLoad.
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing 12 pre-merged libs (including stub)
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register libfabricjni_so.  onload_func: 0x8d473d25
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register libreact_devsupportjni_so.  onload_func: 0x8d50a10d
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register libreact_featureflagsjni_so.  onload_func: 0x8d517e75
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register libreact_newarchdefaults_so.  onload_func: 0x8d531c99
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register libreactnativeblob_so.  onload_func: 0x8d5a2399
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register libreactnativejni_so.  onload_func: 0x8d5b4015
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register libreactnativejni_common_so.  onload_func: 0x8d5b89c1
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register librninstance_so.  onload_func: 0x8d5ccded
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register libturbomodulejsijni_so.  onload_func: 0x8d6417b1
+07-16 15:57:45.400 18232 18232 D jni_lib_merge: Preparing to register libuimanagerjni_so.  onload_func: 0x8d646bfd
+07-16 15:57:45.401 18232 18232 D jni_lib_merge: Preparing to register libyoga_so.  onload_func: 0x8d64bbbd
+07-16 15:57:45.401 18232 18232 D jni_lib_merge: About to register 11 actual methods.
+07-16 15:57:45.412   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.422 18232 18232 D jni_lib_merge: Entering merged library JNI_OnLoad.
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing 12 pre-merged libs (including stub)
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libfabricjni_so.  onload_func: 0x8d473d25
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libreact_devsupportjni_so.  onload_func: 0x8d50a10d
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libreact_featureflagsjni_so.  onload_func: 0x8d517e75
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libreact_newarchdefaults_so.  onload_func: 0x8d531c99
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libreactnativeblob_so.  onload_func: 0x8d5a2399
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libreactnativejni_so.  onload_func: 0x8d5b4015
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libreactnativejni_common_so.  onload_func: 0x8d5b89c1
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register librninstance_so.  onload_func: 0x8d5ccded
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libturbomodulejsijni_so.  onload_func: 0x8d6417b1
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libuimanagerjni_so.  onload_func: 0x8d646bfd
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: Preparing to register libyoga_so.  onload_func: 0x8d64bbbd
+07-16 15:57:45.423 18232 18232 D jni_lib_merge: About to register 11 actual methods.
+07-16 15:57:45.435   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Entering merged library JNI_OnLoad.
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing 12 pre-merged libs (including stub)
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libfabricjni_so.  onload_func: 0x8d473d25
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libreact_devsupportjni_so.  onload_func: 0x8d50a10d
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libreact_featureflagsjni_so.  onload_func: 0x8d517e75
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libreact_newarchdefaults_so.  onload_func: 0x8d531c99
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libreactnativeblob_so.  onload_func: 0x8d5a2399
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libreactnativejni_so.  onload_func: 0x8d5b4015
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libreactnativejni_common_so.  onload_func: 0x8d5b89c1
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register librninstance_so.  onload_func: 0x8d5ccded
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libturbomodulejsijni_so.  onload_func: 0x8d6417b1
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libuimanagerjni_so.  onload_func: 0x8d646bfd
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: Preparing to register libyoga_so.  onload_func: 0x8d64bbbd
+07-16 15:57:45.436 18232 18232 D jni_lib_merge: About to register 11 actual methods.
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Entering merged library JNI_OnLoad.
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing 12 pre-merged libs (including stub)
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libfabricjni_so.  onload_func: 0x8d473d25
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libreact_devsupportjni_so.  onload_func: 0x8d50a10d
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libreact_featureflagsjni_so.  onload_func: 0x8d517e75
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libreact_newarchdefaults_so.  onload_func: 0x8d531c99
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libreactnativeblob_so.  onload_func: 0x8d5a2399
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libreactnativejni_so.  onload_func: 0x8d5b4015
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libreactnativejni_common_so.  onload_func: 0x8d5b89c1
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register librninstance_so.  onload_func: 0x8d5ccded
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libturbomodulejsijni_so.  onload_func: 0x8d6417b1
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libuimanagerjni_so.  onload_func: 0x8d646bfd
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: Preparing to register libyoga_so.  onload_func: 0x8d64bbbd
+07-16 15:57:45.458 18232 18232 D jni_lib_merge: About to register 11 actual methods.
+07-16 15:57:45.459   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.477 18232 18237 I zygote  : Do partial code cache collection, code=30KB, data=25KB
+07-16 15:57:45.479 18232 18237 I zygote  : After code cache collection, code=30KB, data=25KB
+07-16 15:57:45.479 18232 18237 I zygote  : Increasing code cache capacity to 128KB
+07-16 15:57:45.482   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.492   705  5595 V SettingsProvider: packageValueForCallResult, name = oaid, value : Bundle[{_track_generation=android.util.MemoryIntArray@54, value=a3ba1947f2a44d9682160e4118d2f28aX9M12rfnKR, _generation_index=2, _generation=37}]
+07-16 15:57:45.505   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.517   705  4700 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784213865487 from system 1007:com.android.phone/1001 pkg com.android.phone
+07-16 15:57:45.517   705  4700 E ActivityManager: java.lang.Throwable
+07-16 15:57:45.517   705  4700 E ActivityManager:       at com.android.server.am.ActivityManagerService.checkBroadcastFromSystem(ActivityManagerService.java:19303)
+07-16 15:57:45.517   705  4700 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntentLocked(ActivityManagerService.java:19815)
+07-16 15:57:45.517   705  4700 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntent(ActivityManagerService.java:20050)
+07-16 15:57:45.517   705  4700 E ActivityManager:       at android.app.IActivityManager$Stub.onTransact(IActivityManager.java:240)
+07-16 15:57:45.517   705  4700 E ActivityManager:       at com.android.server.am.ActivityManagerService.onTransact(ActivityManagerService.java:3007)
+07-16 15:57:45.517   705  4700 E ActivityManager:       at android.os.Binder.execTransact(Binder.java:697)
+07-16 15:57:45.522 18176 18176 W ContextImpl: Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:967 android.content.ContextWrapper.sendBroadcast:437 com.android.system.checkupdate.a.c$a.onReceive:50 android.app.LoadedApk$ReceiverDispatcher$Args.lambda$-android_app_LoadedApk$ReceiverDispatcher$Args_53034:1323 android.app.-$Lambda$aS31cHIhRx41653CMnd4gZqshIQ.$m$7:4
+07-16 15:57:45.526   705  4700 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784213865487 from system 1007:com.android.phone/1001 pkg com.android.phone
+07-16 15:57:45.526   705  4700 E ActivityManager: java.lang.Throwable
+07-16 15:57:45.526   705  4700 E ActivityManager:       at com.android.server.am.ActivityManagerService.checkBroadcastFromSystem(ActivityManagerService.java:19303)
+07-16 15:57:45.526   705  4700 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntentLocked(ActivityManagerService.java:19908)
+07-16 15:57:45.526   705  4700 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntent(ActivityManagerService.java:20050)
+07-16 15:57:45.526   705  4700 E ActivityManager:       at android.app.IActivityManager$Stub.onTransact(IActivityManager.java:240)
+07-16 15:57:45.526   705  4700 E ActivityManager:       at com.android.server.am.ActivityManagerService.onTransact(ActivityManagerService.java:3007)
+07-16 15:57:45.526   705  4700 E ActivityManager:       at android.os.Binder.execTransact(Binder.java:697)
+07-16 15:57:45.528   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.532 18232 18232 D AppCompatDelegate: Checking for metadata for AppLocalesMetadataHolderService : Service not found
+07-16 15:57:45.533   705 10113 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784213865487 from system 18176:com.android.settings/1000 pkg com.android.settings
+07-16 15:57:45.533   705 10113 E ActivityManager: java.lang.Throwable
+07-16 15:57:45.533   705 10113 E ActivityManager:       at com.android.server.am.ActivityManagerService.checkBroadcastFromSystem(ActivityManagerService.java:19303)
+07-16 15:57:45.533   705 10113 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntentLocked(ActivityManagerService.java:19815)
+07-16 15:57:45.533   705 10113 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntent(ActivityManagerService.java:20050)
+07-16 15:57:45.533   705 10113 E ActivityManager:       at android.app.IActivityManager$Stub.onTransact(IActivityManager.java:240)
+07-16 15:57:45.533   705 10113 E ActivityManager:       at com.android.server.am.ActivityManagerService.onTransact(ActivityManagerService.java:3007)
+07-16 15:57:45.533   705 10113 E ActivityManager:       at android.os.Binder.execTransact(Binder.java:697)
+07-16 15:57:45.538   705 10113 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784213865487 from system 18176:com.android.settings/1000 pkg com.android.settings
+07-16 15:57:45.538   705 10113 E ActivityManager: java.lang.Throwable
+07-16 15:57:45.538   705 10113 E ActivityManager:       at com.android.server.am.ActivityManagerService.checkBroadcastFromSystem(ActivityManagerService.java:19303)
+07-16 15:57:45.538   705 10113 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntentLocked(ActivityManagerService.java:19908)
+07-16 15:57:45.538   705 10113 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntent(ActivityManagerService.java:20050)
+07-16 15:57:45.538   705 10113 E ActivityManager:       at android.app.IActivityManager$Stub.onTransact(IActivityManager.java:240)
+07-16 15:57:45.538   705 10113 E ActivityManager:       at com.android.server.am.ActivityManagerService.onTransact(ActivityManagerService.java:3007)
+07-16 15:57:45.538   705 10113 E ActivityManager:       at android.os.Binder.execTransact(Binder.java:697)
+07-16 15:57:45.540   705  4700 V SettingsProvider: packageValueForCallResult, name = null, value : Bundle[{_track_generation=android.util.MemoryIntArray@54, value=null, _generation_index=0, _generation=12}]
+07-16 15:57:45.543 18232 18232 E ResourceType: Style contains key with bad entry: 0x01010586
+07-16 15:57:45.543 18232 18232 E ResourceType: Style contains key with bad entry: 0x01010668
+07-16 15:57:45.548   705   749 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.DROPBOX_ENTRY_ADDED flg=0x10 (has extras) } to com.google.android.gms/.stats.service.DropBoxEntryAddedReceiver
+07-16 15:57:45.552   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.645   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 4 lines
+07-16 15:57:45.668   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.682 18232 18232 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+07-16 15:57:45.682 18232 18232 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+07-16 15:57:45.685 18232 18266 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+07-16 15:57:45.686 18232 18266 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask(): Start
+07-16 15:57:45.686 18232 18266 W unknown:BridgelessReact: ReactHost{0}.getJSBundleLoader()
+07-16 15:57:45.690 18232 18266 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactContext(): Creating BridgelessReactContext
+07-16 15:57:45.692   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.692 18232 18266 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask(): Creating ReactInstance
+07-16 15:57:45.701 18232 18232 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+07-16 15:57:45.702 18232 18232 W unknown:BridgelessReact: ReactContext.onHostResume()
+07-16 15:57:45.715   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.715 18232 18232 D WindowClient: Add to mViews: DecorView@e29c1a0[MainActivity], this = android.view.WindowManagerGlobal@2866159
+07-16 15:57:45.717 18232 18232 D OpenGLRenderer: Dumper init 2 threads <0x90319680>
+07-16 15:57:45.717 18232 18232 D OpenGLRenderer: <com.boss.assistant> is running.
+07-16 15:57:45.719   261   873 I SurfaceFlinger: EventThread Client Pid (18232) created
+07-16 15:57:45.720 18232 18269 D OpenGLRenderer: HWUI GL Pipeline
+07-16 15:57:45.724 18232 18232 D ViewRootImpl[MainActivity]: hardware acceleration = true , fakeHwAccelerated = false, sRendererDisabled = false, forceHwAccelerated = false, sSystemRendererDisabled = false
+07-16 15:57:45.726 18232 18266 D jni_lib_merge: Entering merged library JNI_OnLoad.
+07-16 15:57:45.726 18232 18266 D jni_lib_merge: Preparing 4 pre-merged libs (including stub)
+07-16 15:57:45.726   261   873 I SurfaceFlinger: [SF client] NEW(0xaf137ae0) for (705:system_server)
+07-16 15:57:45.726 18232 18266 D jni_lib_merge: Preparing to register libhermes_executor_so.  onload_func: 0x8d0ee365
+07-16 15:57:45.726 18232 18266 D jni_lib_merge: Preparing to register libhermesinstancejni_so.  onload_func: 0x8d0f3349
+07-16 15:57:45.726 18232 18266 D jni_lib_merge: Preparing to register libjsijniprofiler_so.  onload_func: 0x8d0f3909
+07-16 15:57:45.726 18232 18266 D jni_lib_merge: About to register 3 actual methods.
+07-16 15:57:45.729 18232 18232 V PhoneWindow: DecorView setVisiblity: visibility = 0, Parent = ViewRoot{8b6c11e com.boss.assistant/com.boss.assistant.MainActivity,ident = 0}, this = DecorView@e29c1a0[MainActivity]
+07-16 15:57:45.738   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.560   705   749 I chatty  : uid=1000(system) ActivityManager identical 2 lines
+07-16 15:57:45.561   705   749 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.DROPBOX_ENTRY_ADDED flg=0x10 (has extras) } to com.google.android.gms/.stats.service.DropBoxEntryAddedReceiver
+07-16 15:57:45.750   705  4700 I WindowManager: Relayout Window{c50cde9 u0 com.boss.assistant/com.boss.assistant.MainActivity}: oldVis=4 newVis=0 focusMayChange = true
+07-16 15:57:45.754   261   261 I BufferQueue: [unnamed-261-535](this:0xadbb5000,id:535,api:0,p:-1,c:-1) BufferQueue core=(261:/system/bin/surfaceflinger)
+07-16 15:57:45.755   261   261 E DumpTunnel: finding regDump() failed
+07-16 15:57:45.755   261   261 I BufferQueueConsumer: [unnamed-261-535](this:0xadbb5000,id:535,api:0,p:-1,c:261) connect(C): consumer=(261:/system/bin/surfaceflinger) controlledByApp=false
+07-16 15:57:45.755   261   261 I BufferQueueConsumer: [unnamed-261-535](this:0xadbb5000,id:535,api:0,p:-1,c:261) setConsumerName: unnamed-261-535
+07-16 15:57:45.755   261   261 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xadbb5000,id:535,api:0,p:-1,c:261) setConsumerName: com.boss.assistant/com.boss.assistant.MainActivity#0
+07-16 15:57:45.755   261   261 I BufferQueueProducer: [](this:0xadbb5000,id:535,api:0,p:-1,c:261) setMaxDequeuedBufferCount: maxDequeuedBuffers = 2
+07-16 15:57:45.755   261   261 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xadbb5000,id:535,api:0,p:-1,c:261) setDefaultBufferSize: width=384 height=854
+07-16 15:57:45.757   705  4700 V WindowManager: Changing focus from null to Window{c50cde9 u0 com.boss.assistant/com.boss.assistant.MainActivity} Callers=com.android.server.wm.WindowManagerService.relayoutWindow:2169 com.android.server.wm.Session.relayout:239 android.view.IWindowSession$Stub.onTransact:286 com.android.server.wm.Session.onTransact:163
+07-16 15:57:45.758   705  4700 D WindowManager: Input focus has changed to Window{c50cde9 u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-16 15:57:45.759   931   931 D StatusBar: setSystemUiVisibility vis=8708 mask=ffffffff oldVal=8608 newVal=8708 diff=100
+07-16 15:57:45.762   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.764   261   261 V SurfaceFlinger: handlePageFlip
+07-16 15:57:45.764   261   261 V SurfaceFlinger: preComposition
+07-16 15:57:45.764   261   261 V SurfaceFlinger: rebuildLayerStacks
+07-16 15:57:45.764   261   261 V SurfaceFlinger: computeVisibleRegions
+07-16 15:57:45.765   261   261 V SurfaceFlinger: setUpHWComposer
+07-16 15:57:45.766   261   261 V SurfaceFlinger: doComposition
+07-16 15:57:45.767   261   261 V SurfaceFlinger: doDisplayComposition
+07-16 15:57:45.767 18232 18232 D Surface : Surface::allocateBuffers(this=0x9021b000)
+07-16 15:57:45.767   261   261 V SurfaceFlinger: doComposeSurfaces
+07-16 15:57:45.767   261   261 V SurfaceFlinger: Rendering client layers
+07-16 15:57:45.767   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 15:57:45.767   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:45.767   261   261 V SurfaceFlinger: Layer: StatusBar#0
+07-16 15:57:45.767   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:45.767   261   261 V SurfaceFlinger: Layer: NavigationBar#0
+07-16 15:57:45.767   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:45.767   261   261 I DisplayDevice: [Built-in Screen (type:0)] fps:16.624161,dur:1744.45,max:1180.95,min:15.32
+07-16 15:57:45.767   261   261 V SurfaceFlinger: postFramebuffer
+07-16 15:57:45.767   257  2712 I [Gralloc]: usage1: 0x900, format: 1 stride: 384 vertical_stride: 854 size: 1311744
+07-16 15:57:45.768   261   261 V SurfaceFlinger: postComposition
+07-16 15:57:45.769   257   289 I [Gralloc]: usage1: 0x900, format: 1 stride: 384 vertical_stride: 854 size: 1311744
+07-16 15:57:45.772   705   764 I WindowManager: Focus moving from null to Window{c50cde9 u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-16 15:57:45.770   257   289 I [Gralloc]: usage1: 0x900, format: 1 stride: 384 vertical_stride: 854 size: 1311744
+07-16 15:57:45.774 18232 18269 E         : appName=com.boss.assistant, acAppName=/system/bin/surfaceflinger
+07-16 15:57:45.774 18232 18269 E         : 0
+07-16 15:57:45.779 18232 18269 I com.boss.assistant: android::hardware::configstore::V1_0::ISurfaceFlingerConfigs::hasWideColorDisplay retrieved: 0
+07-16 15:57:45.779 18232 18269 I OpenGLRenderer: Initialized EGL, version 1.4
+07-16 15:57:45.779 18232 18269 D OpenGLRenderer: Swap behavior 1
+07-16 15:57:45.782   261   261 V SurfaceFlinger: handlePageFlip
+07-16 15:57:45.782   261   261 V SurfaceFlinger: preComposition
+07-16 15:57:45.782   261   261 V SurfaceFlinger: rebuildLayerStacks
+07-16 15:57:45.782   261   261 V SurfaceFlinger: computeVisibleRegions
+07-16 15:57:45.782   261   261 V SurfaceFlinger: setUpHWComposer
+07-16 15:57:45.784 18232 18269 E         : appName=com.boss.assistant, acAppName=com.instagram.android
+07-16 15:57:45.784 18232 18269 E         : 0
+07-16 15:57:45.784   261   261 V SurfaceFlinger: doComposition
+07-16 15:57:45.784   261   261 V SurfaceFlinger: doDisplayComposition
+07-16 15:57:45.784   261   261 V SurfaceFlinger: doComposeSurfaces
+07-16 15:57:45.784   261   261 V SurfaceFlinger: Rendering client layers
+07-16 15:57:45.784   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 15:57:45.784   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:45.784   261   261 V SurfaceFlinger: Layer: StatusBar#0
+07-16 15:57:45.784   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:45.784   261   261 V SurfaceFlinger: Layer: NavigationBar#0
+07-16 15:57:45.784   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:57:45.784   261   261 V SurfaceFlinger: postFramebuffer
+07-16 15:57:45.785   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.786   261   261 V SurfaceFlinger: postComposition
+07-16 15:57:45.791 18232 18269 D OpenGLRenderer: [init] completed
+07-16 15:57:45.791 18232 18269 D HWUIExtension: MTKProgramCache.init: enable enhancement 1
+07-16 15:57:45.791 18232 18269 I HWUIExtension: Get disable program binary service property (0)
+07-16 15:57:45.791 18232 18269 I HWUIExtension: Initializing program atlas...
+07-16 15:57:45.794 18232 18269 I ProgramBinary/Service: ProgramBinaryService client side disable debugging.
+07-16 15:57:45.794 18232 18269 I ProgramBinary/Service: ProgramBinaryService client side disable binary content debugging.
+07-16 15:57:45.794 18232 18269 D ProgramBinary/Service: BpProgramBinaryService.getReady
+07-16 15:57:45.794 18232 18269 D ProgramBinary/Service: zhiyin- 1 BpProgramBinaryService::getReady()
+07-16 15:57:45.794   324   337 D ProgramBinary/Service: zhiyin- ontransact 1 code 1
+07-16 15:57:45.794   324   337 D ProgramBinary/Service: zhiyin- ontransact 2 code 1
+07-16 15:57:45.795   324   337 D ProgramBinary/Service: zhiyin- ontransact 3 code 1
+07-16 15:57:45.797   705 10440 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784213865487 from system 1007:com.android.phone/1001 pkg com.android.phone
+07-16 15:57:45.797   705 10440 E ActivityManager: java.lang.Throwable
+07-16 15:57:45.797   705 10440 E ActivityManager:       at com.android.server.am.ActivityManagerService.checkBroadcastFromSystem(ActivityManagerService.java:19303)
+07-16 15:57:45.797   705 10440 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntentLocked(ActivityManagerService.java:19815)
+07-16 15:57:45.797   705 10440 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntent(ActivityManagerService.java:20050)
+07-16 15:57:45.797   705 10440 E ActivityManager:       at android.app.IActivityManager$Stub.onTransact(IActivityManager.java:240)
+07-16 15:57:45.797   705 10440 E ActivityManager:       at com.android.server.am.ActivityManagerService.onTransact(ActivityManagerService.java:3007)
+07-16 15:57:45.797   705 10440 E ActivityManager:       at android.os.Binder.execTransact(Binder.java:697)
+07-16 15:57:45.798 18176 18176 W ContextImpl: Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:967 android.content.ContextWrapper.sendBroadcast:437 com.android.system.checkupdate.a.c$a.onReceive:50 android.app.LoadedApk$ReceiverDispatcher$Args.lambda$-android_app_LoadedApk$ReceiverDispatcher$Args_53034:1323 android.app.-$Lambda$aS31cHIhRx41653CMnd4gZqshIQ.$m$7:4
+07-16 15:57:45.798 18232 18269 D ProgramBinary/Service: zhiyin- 2 BpProgramBinaryService::getReady()
+07-16 15:57:45.798 18232 18269 D ProgramBinary/Service: BpProgramBinaryService.getProgramBinaryData
+07-16 15:57:45.798   324   337 D ProgramBinary/Service: zhiyin- ontransact 1 code 3
+07-16 15:57:45.800 18232 18269 I HWUIExtension: Program binary detail: Binary length is 78196, program map length is 104.
+07-16 15:57:45.800 18232 18269 I HWUIExtension: Succeeded to mmap program binaries. File descriptor is 53, and path is /dev/ashmem.
+07-16 15:57:45.800 18232 18269 I HWUIExtension: No need to use file discriptor anymore, close fd(53).
+07-16 15:57:45.801 18232 18269 D HWUIExtension: Dumper init 2 threads <0x90263120>
+07-16 15:57:45.801 18232 18269 D HWUIExtension: <com.boss.assistant> is running.
+07-16 15:57:45.801 18232 18269 D HWUIExtension: Initializing program cache from 0x0, size = -1
+07-16 15:57:45.801 18232 18269 D Surface : Surface::connect(this=0x9021b000,api=1)
+07-16 15:57:45.802   261   421 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xadbb5000,id:535,api:1,p:18232,c:261) connect(P): api=1 producer=(18232:com.boss.assistant) producerControlledByApp=true
+07-16 15:57:45.803 18232 18269 D Surface : Surface::setBufferCount(this=0x9021b000,bufferCount=4)
+07-16 15:57:45.804   261   421 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xadbb5000,id:535,api:1,p:18232,c:261) setMaxDequeuedBufferCount: maxDequeuedBuffers = 3
+07-16 15:57:45.807   705 10440 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784213865487 from system 1007:com.android.phone/1001 pkg com.android.phone
+07-16 15:57:45.807   705 10440 E ActivityManager: java.lang.Throwable
+07-16 15:57:45.807   705 10440 E ActivityManager:       at com.android.server.am.ActivityManagerService.checkBroadcastFromSystem(ActivityManagerService.java:19303)
+07-16 15:57:45.807   705 10440 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntentLocked(ActivityManagerService.java:19908)
+07-16 15:57:45.807   705 10440 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntent(ActivityManagerService.java:20050)
+07-16 15:57:45.807   705 10440 E ActivityManager:       at android.app.IActivityManager$Stub.onTransact(IActivityManager.java:240)
+07-16 15:57:45.807   705 10440 E ActivityManager:       at com.android.server.am.ActivityManagerService.onTransact(ActivityManagerService.java:3007)
+07-16 15:57:45.807   705 10440 E ActivityManager:       at android.os.Binder.execTransact(Binder.java:697)
+07-16 15:57:45.809   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:45.814   705  5595 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784213865487 from system 18176:com.android.settings/1000 pkg com.android.settings
+07-16 15:57:45.814   705  5595 E ActivityManager: java.lang.Throwable
+07-16 15:57:45.814   705  5595 E ActivityManager:       at com.android.server.am.ActivityManagerService.checkBroadcastFromSystem(ActivityManagerService.java:19303)
+07-16 15:57:45.814   705  5595 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntentLocked(ActivityManagerService.java:19815)
+07-16 15:57:45.814   705  5595 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntent(ActivityManagerService.java:20050)
+07-16 15:57:45.814   705  5595 E ActivityManager:       at android.app.IActivityManager$Stub.onTransact(IActivityManager.java:240)
+07-16 15:57:45.814   705  5595 E ActivityManager:       at com.android.server.am.ActivityManagerService.onTransact(ActivityManagerService.java:3007)
+07-16 15:57:45.814   705  5595 E ActivityManager:       at android.os.Binder.execTransact(Binder.java:697)
+07-16 15:57:45.815  3078  3078 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():3302
+07-16 15:57:45.817  3078  3078 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2152 repeatCheckTimes = 0, unlocked = true
+07-16 15:57:45.817   705  5595 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784213865487 from system 18176:com.android.settings/1000 pkg com.android.settings
+07-16 15:57:45.817   705  5595 E ActivityManager: java.lang.Throwable
+07-16 15:57:45.817   705  5595 E ActivityManager:       at com.android.server.am.ActivityManagerService.checkBroadcastFromSystem(ActivityManagerService.java:19303)
+07-16 15:57:45.817   705  5595 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntentLocked(ActivityManagerService.java:19908)
+07-16 15:57:45.817   705  5595 E ActivityManager:       at com.android.server.am.ActivityManagerService.broadcastIntent(ActivityManagerService.java:20050)
+07-16 15:57:45.817   705  5595 E ActivityManager:       at android.app.IActivityManager$Stub.onTransact(IActivityManager.java:240)
+07-16 15:57:45.817   705  5595 E ActivityManager:       at com.android.server.am.ActivityManagerService.onTransact(ActivityManagerService.java:3007)
+07-16 15:57:45.817   705  5595 E ActivityManager:       at android.os.Binder.execTransact(Binder.java:697)
+07-16 15:57:45.818  3078  3078 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1930 onStartInput(EditorInfo{inputType=0x0(NULL) imeOptions=0x0 privateImeOptions=null actionName=UNSPECIFIED actionLabel=null actionId=0 initialSelStart=-1 initialSelEnd=-1 initialCapsMode=0x0 hintText=null label=null packageName=com.boss.assistant fieldId=-1 fieldName=null extras=null}, false)
+07-16 15:57:45.819  3078  3078 I GoogleInputMethodService: GoogleInputMethodService.shouldHideHeaderOnInitialState():4116 ShouldHideHeaderOnInitialState = false
+07-16 15:57:45.821  3078  3078 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2152 repeatCheckTimes = 2, unlocked = true
+07-16 15:57:45.827   705   749 W BroadcastQueue: Background execution not allowed: receiving Intent { act=android.intent.action.DROPBOX_ENTRY_ADDED flg=0x10 (has extras) } to com.google.android.gms/.stats.service.DropBoxEntryAddedReceiver
+07-16 15:57:45.832   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:46.065   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 10 lines
+07-16 15:57:46.088   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:46.111 18232 18266 I ExpoModulesCore: â AppContext was initialized
+07-16 15:57:46.112   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:46.133 18232 18266 W unknown:BridgelessReact: ReactHost{0}.handleHostException(message = "Attempt to read from field 'android.os.MessageQueue android.os.Looper.mQueue' on a null object reference")
+07-16 15:57:46.135   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:46.182   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 2 lines
+07-16 15:57:46.205   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:46.220  1213  1629 I FontLog : (REDACTED) Received query %s, URI %s
+07-16 15:57:46.222  1213  1629 I FontLog : (REDACTED) Query [%s] resolved to %s
+07-16 15:57:46.228   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:46.229  1213  1629 I FontLog : (REDACTED) Fetch %s end status %s
+07-16 15:57:46.240  1213  1629 I FontLog : (REDACTED) Pulling font file for id = %d, cache size = %d
+07-16 15:57:46.252   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:46.254  1213  1629 I FontLog : (REDACTED) Pulling font file for id = %d, cache size = %d
+07-16 15:57:46.275   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:46.392   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 5 lines
+07-16 15:57:46.415   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:46.434 18232 18237 I zygote  : Do partial code cache collection, code=58KB, data=50KB
+07-16 15:57:46.435 18232 18237 I zygote  : After code cache collection, code=58KB, data=50KB
+07-16 15:57:46.435 18232 18237 I zygote  : Increasing code cache capacity to 256KB
+07-16 15:57:46.438   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:47.722   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 55 lines
+07-16 15:57:47.745   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:47.754   931  1075 D NetworkController.MobileSignalController(1): onSignalStrengthsChanged signalStrength=MtkSignalStrength: 8 99 -120 -160 -120 -1 -1 99 2147483647 2147483647 2147483647 2147483647 0 -95 gsm|lte 0 level=2
+07-16 15:57:47.768   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:48.468   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 30 lines
+07-16 15:57:48.492   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:48.499  1213  1275 I FacsCacheGmsModule: (REDACTED) Receiving API connection to FACS API from package '%s'...
+07-16 15:57:48.500  1213  1275 I FacsCacheGmsModule: API connection successful!
+07-16 15:57:48.510  1213  1275 I FacsCacheGmsModule: (REDACTED) Received 'getActivityControlsSettings' request from package '%s', instance id '%s', version '%d'...
+07-16 15:57:48.511  1597  1597 D BoundBrokerSvc: onBind: Intent { act=com.google.android.gms.facs.internal.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.GmsInternalApiService }
+07-16 15:57:48.511  1597  1597 D BoundBrokerSvc: Loading bound service for intent: Intent { act=com.google.android.gms.facs.internal.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.GmsInternalApiService }
+07-16 15:57:48.511  1213  1275 I FacsCacheGmsModule: Operation 'getActivityControlsSettings' dispatched!
+07-16 15:57:48.513  1213 16986 I FacsCacheGmsModule: (REDACTED) Executing operation '%s'...
+07-16 15:57:48.516   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:48.523  1213 16986 I FacsCacheGmsModule: (REDACTED) Operation '%s' successful!
+07-16 15:57:48.523  1597  5173 I FacsCacheGmsModule: Receiving API connection to internal FACS API...
+07-16 15:57:48.527  1597  5173 I FacsCacheGmsModule: API connection successful!
+07-16 15:57:48.529  1213 15786 I NearbySharing: Not consented to upload device contacts.
+07-16 15:57:48.530  1213 15786 I NearbySharing: Syncing contacts - device contacts consent not granted
+07-16 15:57:48.534  1213 15786 I NearbySharing: Syncing contacts - source CONTACT_BOOK_SOURCE_LOCAL_GAIA
+07-16 15:57:48.538   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:48.585   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 2 lines
+07-16 15:57:48.608   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:48.611  1213 15786 I NearbySharing: The contact book was modified but all emails and phone numbers are unchanged.
+07-16 15:57:48.612  1213 15786 I NearbySharing: Contact book update: NO_CONTACTS_CHANGED.
+07-16 15:57:48.623  1213 15786 I NearbySharing: Sync succeeded, contacts uploaded: true
+07-16 15:57:48.632   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:48.725   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 4 lines
+07-16 15:57:48.748   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:48.760   705   999 D AES     : AEEIOCTL_GET/SET_SF_STATE IOCTL,cmd= 1074294797, lParam=0.
+07-16 15:57:48.760   705   999 D AES     : AEEIOCTL_RT_MON_Kick IOCTL,cmd= 2147774474, lParam=300.
+07-16 15:57:48.772   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:51.222   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 105 lines
+07-16 15:57:51.245   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:51.265 18232 18280 D ProfileInstaller: Skipping profile installation for com.boss.assistant
+07-16 15:57:51.268   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:52.832   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 67 lines
+07-16 15:57:52.855   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:52.875   931  1075 D NetworkController.MobileSignalController(1): onSignalStrengthsChanged signalStrength=MtkSignalStrength: 11 99 -120 -160 -120 -1 -1 99 2147483647 2147483647 2147483647 2147483647 0 -94 gsm|lte 0 level=2
+07-16 15:57:52.878   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:53.182   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 13 lines
+07-16 15:57:53.205   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:53.215   313   313 I thermal_repeater: [recvMdThermalInfo] ret=15, strLen=127,  2, 32767, -127
+07-16 15:57:53.228   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:54.046   705   749 W ActivityManager: Launch timeout has expired, giving up wake lock!
+07-16 15:57:54.465   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 53 lines
+07-16 15:57:54.488   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:54.504   257   289 I vendor.mediatek.hardware.power@1.1-impl: PowerHint hint:8, data:0
+07-16 15:57:54.504   257   288 I libPerfService: 8: legacy set: -1 -1
+07-16 15:57:54.504   257   288 I libPerfService: 8: legacy set freq: -1 -1
+07-16 15:57:54.512   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:57.966   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 148 lines
+07-16 15:57:57.993   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:58.004   931  1075 D NetworkController.MobileSignalController(1): onSignalStrengthsChanged signalStrength=MtkSignalStrength: 11 99 -120 -160 -120 -1 -1 99 2147483647 2147483647 2147483647 2147483647 0 -92 gsm|lte 0 level=2
+07-16 15:57:58.012   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:57:59.972   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 84 lines
+07-16 15:57:59.995   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:00.001   705   868 D MtkDataShapingUtils: openLteGateByDataShaping datashaping instance is null
+07-16 15:58:00.049   261  1210 I BufferQueueProducer: [StatusBar#0](this:0xaf16b000,id:3,api:1,p:931,c:261) queueBuffer: fps=0.06 dur=15476.88 max=15476.88 min=15476.88
+07-16 15:58:00.053   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:00.053   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 1 line
+07-16 15:58:00.065   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:00.070   261   261 V SurfaceFlinger: handlePageFlip
+07-16 15:58:00.070   261   261 V SurfaceFlinger: preComposition
+07-16 15:58:00.070   261   261 V SurfaceFlinger: rebuildLayerStacks
+07-16 15:58:00.070   261   261 V SurfaceFlinger: setUpHWComposer
+07-16 15:58:00.072   261   261 V SurfaceFlinger: doComposition
+07-16 15:58:00.072   261   261 V SurfaceFlinger: doDisplayComposition
+07-16 15:58:00.072   261   261 V SurfaceFlinger: doComposeSurfaces
+07-16 15:58:00.072   261   261 V SurfaceFlinger: Rendering client layers
+07-16 15:58:00.072   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 15:58:00.072   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:58:00.072   261   261 V SurfaceFlinger: Layer: StatusBar#0
+07-16 15:58:00.072   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:58:00.072   261   261 V SurfaceFlinger: Layer: NavigationBar#0
+07-16 15:58:00.072   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:58:00.072   261   261 I DisplayDevice: [Built-in Screen (type:0)] fps:0.139810,dur:14305.16,max:14287.77,min:17.39
+07-16 15:58:00.072   261   261 V SurfaceFlinger: postFramebuffer
+07-16 15:58:00.073   261   261 V SurfaceFlinger: postComposition
+07-16 15:58:00.087   261   261 V SurfaceFlinger: handlePageFlip
+07-16 15:58:00.088   261   261 V SurfaceFlinger: preComposition
+07-16 15:58:00.088   261   261 V SurfaceFlinger: rebuildLayerStacks
+07-16 15:58:00.088   261   261 V SurfaceFlinger: setUpHWComposer
+07-16 15:58:00.089   261   261 V SurfaceFlinger: doComposition
+07-16 15:58:00.089   261   261 V SurfaceFlinger: doDisplayComposition
+07-16 15:58:00.089   261   261 V SurfaceFlinger: doComposeSurfaces
+07-16 15:58:00.089   261   261 V SurfaceFlinger: Rendering client layers
+07-16 15:58:00.089   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 15:58:00.089   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:58:00.089   261   261 V SurfaceFlinger: Layer: StatusBar#0
+07-16 15:58:00.089   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:58:00.089   261   261 V SurfaceFlinger: Layer: NavigationBar#0
+07-16 15:58:00.089   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:58:00.089   261   261 V SurfaceFlinger: postFramebuffer
+07-16 15:58:00.090   261   261 V SurfaceFlinger: postComposition
+07-16 15:58:00.091   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:00.112   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:00.123   261   261 V SurfaceFlinger: handlePageFlip
+07-16 15:58:00.123   261   261 V SurfaceFlinger: preComposition
+07-16 15:58:00.123   261   261 V SurfaceFlinger: rebuildLayerStacks
+07-16 15:58:00.123   261   261 V SurfaceFlinger: setUpHWComposer
+07-16 15:58:00.124   261   261 V SurfaceFlinger: doComposition
+07-16 15:58:00.124   261   261 V SurfaceFlinger: doDisplayComposition
+07-16 15:58:00.124   261   261 V SurfaceFlinger: doComposeSurfaces
+07-16 15:58:00.124   261   261 V SurfaceFlinger: Rendering client layers
+07-16 15:58:00.124   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 15:58:00.124   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:58:00.124   261   261 V SurfaceFlinger: Layer: StatusBar#0
+07-16 15:58:00.124   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:58:00.124   261   261 V SurfaceFlinger: Layer: NavigationBar#0
+07-16 15:58:00.125   261   261 V SurfaceFlinger:   Composition type: Device
+07-16 15:58:00.125   261   261 V SurfaceFlinger: postFramebuffer
+07-16 15:58:00.126   261   261 V SurfaceFlinger: postComposition
+07-16 15:58:00.135   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:03.192   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 131 lines
+07-16 15:58:03.215   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:03.230   313   313 I thermal_repeater: [recvMdThermalInfo] ret=15, strLen=127,  2, 32767, -127
+07-16 15:58:03.239   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:03.542   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 13 lines
+07-16 15:58:03.566   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:03.591  1597  1597 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.facs.internal.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.GmsInternalApiService }
+07-16 15:58:03.594   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:08.208   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 198 lines
+07-16 15:58:08.235   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:08.247   931  1075 D NetworkController.MobileSignalController(1): onSignalStrengthsChanged signalStrength=MtkSignalStrength: 11 99 -120 -160 -120 -1 -1 99 2147483647 2147483647 2147483647 2147483647 0 -93 gsm|lte 0 level=2
+07-16 15:58:08.255   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:13.202   261   419 I chatty  : uid=1000(system) HwBinder:261_1 identical 212 lines
+07-16 15:58:13.225   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+07-16 15:58:13.245   313   313 I thermal_repeater: [recvMdThermalInfo] ret=15, strLen=127,  2, 32767, -127
+07-16 15:58:13.250   261   419 W HWComposer: Ignoring duplicate VSYNC event from HWC (t=0)
+^Z
+[1]+  Stopped                 adb logcat
+boss@q4os-desktop:~$          

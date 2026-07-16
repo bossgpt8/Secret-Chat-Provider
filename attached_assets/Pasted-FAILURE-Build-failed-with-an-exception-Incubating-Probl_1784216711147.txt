@@ -1,0 +1,41 @@
+FAILURE: Build failed with an exception.
+[Incubating] Problems report is available at: file:///home/runner/work/Secret-Chat-Provider/Secret-Chat-Provider/artifacts/mobile/android/build/reports/problems/problems-report.html
+
+* What went wrong:
+Execution failed for task ':react-native-reanimated:compileReleaseJavaWithJavac'.
+
+> Compilation failed; see the compiler output below.
+  /home/runner/work/Secret-Chat-Provider/Secret-Chat-Provider/node_modules/.pnpm/react-native-reanimated@3.16.7_@babel+core@7.29.0_react-native@0.81.5_@babel+core@7.29._4521e3b1f917997735f0bf1026017f03/node_modules/react-native-reanimated/android/src/reactNativeVersionPatch/BorderRadiiDrawableUtils/latest/com/swmansion/reanimated/BorderRadiiDrawableUtils.java:21: error: method resolve in class LengthPercentage cannot be applied to given types;
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+      return length.resolve(bounds.width(), bounds.height()).toPixelFromDIP().getHorizontal();
+
+                   ^
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+    required: float
+
+    found:    int,int
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+    reason: actual and formal argument lists differ in length
+380 actionable tasks: 380 executed
+  Note: Recompile with -Xlint:deprecation for details.
+  /home/runner/work/Secret-Chat-Provider/Secret-Chat-Provider/node_modules/.pnpm/react-native-reanimated@3.16.7_@babel+core@7.29.0_react-native@0.81.5_@babel+core@7.29._4521e3b1f917997735f0bf1026017f03/node_modules/react-native-reanimated/android/src/main/java/com/swmansion/reanimated/ReanimatedPackage.java:72: error: cannot find symbol
+      Systrace.beginSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE, "createUIManagerModule");
+                                    ^
+    symbol:   variable TRACE_TAG_REACT_JAVA_BRIDGE
+    location: class Systrace
+  /home/runner/work/Secret-Chat-Provider/Secret-Chat-Provider/node_modules/.pnpm/react-native-reanimated@3.16.7_@babel+core@7.29.0_react-native@0.81.5_@babel+core@7.29._4521e3b1f917997735f0bf1026017f03/node_modules/react-native-reanimated/android/src/main/java/com/swmansion/reanimated/ReanimatedPackage.java:80: error: cannot find symbol
+        Systrace.endSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE);
+                                    ^
+    symbol:   variable TRACE_TAG_REACT_JAVA_BRIDGE
+    location: class Systrace
+  Note: Recompile with -Xlint:unchecked for details.
+  Note: Some input files use or override a deprecated API.
+  Note: Some input files use unchecked or unsafe operations.
+  3 errors
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 6m
+Error: Process completed with exit code 1.

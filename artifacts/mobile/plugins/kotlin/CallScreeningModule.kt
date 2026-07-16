@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.telecom.TelecomManager
 import android.telephony.PhoneStateListener
-import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -32,17 +31,26 @@ class CallScreeningModule(private val reactContext: ReactApplicationContext) :
     private var telephonyCallback: Any? = null   // TelephonyCallback (API 31+)
 
     // ── Legacy listener (API < 31) ────────────────────────────────────────────
+    // Lazy: PhoneStateListener() creates a Handler on the calling thread.
+    // React Native constructs native modules on a background thread (create_react_context)
+    // that has no Looper — instantiating here would crash with mQueue NPE.
+    // Deferring to first use guarantees construction happens on the main thread (from JS).
     @Suppress("DEPRECATION")
-    private val legacyListener = object : PhoneStateListener() {
-        @Deprecated("Deprecated in API 31")
-        override fun onCallStateChanged(state: Int, phoneNumber: String?) {
-            emitState(state, phoneNumber)
+    private val legacyListener by lazy {
+        object : PhoneStateListener() {
+            @Deprecated("Deprecated in API 31")
+            override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                emitState(state, phoneNumber)
+            }
         }
     }
 
     override fun getName(): String = "CallScreeningModule"
 
     private fun sendEvent(params: com.facebook.react.bridge.WritableMap) {
+        // Guard: in bridgeless (new-arch) mode, emitting before the JS runtime
+        // is ready causes a fatal NullPointerException inside Hermes.
+        if (!reactContext.hasActiveReactInstance()) return
         try {
             reactContext
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
@@ -61,7 +69,14 @@ class CallScreeningModule(private val reactContext: ReactApplicationContext) :
             putString("state", stateStr)
             putString("number", number ?: "")
         }
-        sendEvent(map)
+        // PhoneStateListener callbacks (and TelephonyCallback on API 31+) fire on
+        // the telephony background thread which has NO Looper. Calling emit() from
+        // a Looper-less thread in bridgeless new-arch mode is fatal —
+        // BridgelessReact tears down the entire ReactHost. Post to main thread,
+        // same pattern used by VoxAccessibilityService and VoxNotificationService.
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            sendEvent(map)
+        }
     }
 
     @ReactMethod
@@ -77,16 +92,34 @@ class CallScreeningModule(private val reactContext: ReactApplicationContext) :
             telephonyManager = tm
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val cb = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
-                    override fun onCallStateChanged(state: Int) {
-                        emitState(state, null)
+                try {
+                    // Use reflection to avoid ClassNotFoundException on older devices
+                    val callbackClass = Class.forName("android.telephony.TelephonyCallback")
+                    val listenerInterface = Class.forName("android.telephony.TelephonyCallback\$CallStateListener")
+                    
+                    val proxyHandler = java.lang.reflect.Proxy.newProxyInstance(
+                        callbackClass.classLoader,
+                        arrayOf(callbackClass, listenerInterface)
+                    ) { _, method, args ->
+                        if (method.name == "onCallStateChanged" && args != null) {
+                            val state = (args.getOrNull(0) as? Int) ?: -1
+                            emitState(state, null)
+                        }
+                        null
                     }
+                    
+                    telephonyCallback = proxyHandler
+                    val registerMethod = tm.javaClass.getMethod(
+                        "registerTelephonyCallback",
+                        java.util.concurrent.Executor::class.java,
+                        callbackClass
+                    )
+                    registerMethod.invoke(tm, reactContext.mainExecutor, proxyHandler)
+                } catch (e: Exception) {
+                    Log.w(TAG, "API 31+ TelephonyCallback failed, falling back to legacy listener", e)
+                    @Suppress("DEPRECATION")
+                    tm.listen(legacyListener, PhoneStateListener.LISTEN_CALL_STATE)
                 }
-                telephonyCallback = cb
-                tm.registerTelephonyCallback(
-                    reactContext.mainExecutor,
-                    cb
-                )
             } else {
                 @Suppress("DEPRECATION")
                 tm.listen(legacyListener, PhoneStateListener.LISTEN_CALL_STATE)
@@ -104,7 +137,17 @@ class CallScreeningModule(private val reactContext: ReactApplicationContext) :
         try {
             val tm = telephonyManager ?: run { promise.resolve(true); return }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                (telephonyCallback as? TelephonyCallback)?.let { tm.unregisterTelephonyCallback(it) }
+                try {
+                    telephonyCallback?.let { 
+                        val unregisterMethod = tm.javaClass.getMethod(
+                            "unregisterTelephonyCallback",
+                            Class.forName("android.telephony.TelephonyCallback")
+                        )
+                        unregisterMethod.invoke(tm, it)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to unregister TelephonyCallback", e)
+                }
             } else {
                 @Suppress("DEPRECATION")
                 tm.listen(legacyListener, PhoneStateListener.LISTEN_NONE)

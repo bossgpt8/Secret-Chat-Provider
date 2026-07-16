@@ -39,6 +39,7 @@ packages:
   - lib/*
   - lib/integrations/*
   - scripts
+  - stubs/*
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.1
@@ -74,6 +75,9 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # shell-quote is blocked by the Replit package firewall (403). It is only
+  # used by react-devtools-core (debug tooling). Use a local stub instead.
+  shell-quote: "file:./stubs/shell-quote"
   # replit uses linux-x64 only, we can exclude all other platforms
   "esbuild>@esbuild/darwin-arm64": "-"
   "esbuild>@esbuild/darwin-x64": "-"

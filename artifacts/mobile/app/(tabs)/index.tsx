@@ -23,14 +23,14 @@ import {
   Vibration,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { KeyboardAvoidingView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
-import { NativeAccessibility, type ZenoAccessibilityNotification } from "@/modules/NativeAccessibility";
+import { NativeAccessibility, type VoxAccessibilityNotification } from "@/modules/NativeAccessibility";
 import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallScreening";
 import { NativeMediaControl } from "@/modules/NativeMediaControl";
-import { NativeNotifications, type ZenoNotification } from "@/modules/NativeNotifications";
+import { NativeNotifications, type VoxNotification } from "@/modules/NativeNotifications";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 
 // ─── Typing indicator ────────────────────────────────────────────────────────
@@ -231,6 +231,8 @@ interface ActiveTimer {
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
     priority: Notifications.AndroidNotificationPriority.HIGH,
@@ -257,8 +259,8 @@ export default function ChatScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [notifPermGranted, setNotifPermGranted] = useState(false);
-  const [lastNotification, setLastNotification] = useState<ZenoNotification | null>(null);
-  const lastNotifRef = useRef<ZenoNotification | null>(null);
+  const [lastNotification, setLastNotification] = useState<VoxNotification | null>(null);
+  const lastNotifRef = useRef<VoxNotification | null>(null);
 
   // Timers
   const [activeTimers, setActiveTimers] = useState<ActiveTimer[]>([]);
@@ -327,7 +329,7 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wakeWordEnabled, isCallMode]);
 
-  function toNotificationFromAccessibility(n: ZenoAccessibilityNotification): ZenoNotification {
+  function toNotificationFromAccessibility(n: VoxAccessibilityNotification): VoxNotification {
     const sender = n.sender?.trim() || n.app || "Unknown sender";
     const text = n.text?.trim() || "New notification";
     return {
@@ -341,7 +343,7 @@ export default function ChatScreen() {
     };
   }
 
-  function buildIncomingSpeechText(n: Pick<ZenoNotification, "sender" | "text">): string {
+  function buildIncomingSpeechText(n: Pick<VoxNotification, "sender" | "text">): string {
     const sender = n.sender?.trim() || "Unknown sender";
     const msg = n.text?.trim();
     return msg
@@ -349,7 +351,7 @@ export default function ChatScreen() {
       : `Boss, you have a new message from ${sender}`;
   }
 
-  function handleIncomingNotification(n: ZenoNotification) {
+  function handleIncomingNotification(n: VoxNotification) {
     setLastNotification(n);
     lastNotifRef.current = n;
     setNotifPermGranted(true);
@@ -407,8 +409,8 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (Platform.OS === "web") return;
-    let unsubLevel: { remove: () => void } | undefined;
-    let unsubState: { remove: () => void } | undefined;
+    let unsubLevel: { remove(): void } | undefined;
+    let unsubState: { remove(): void } | undefined;
     (async () => {
       try {
         const Battery = await import("expo-battery");
@@ -528,7 +530,7 @@ export default function ChatScreen() {
     const envUrl = process.env.EXPO_PUBLIC_API_URL;
     if (envUrl) return envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
     if (Platform.OS === "web") return "/api/";
-    return "https://secret-chat-provider--adellamarie.replit.app/api/";
+    return "https://secret-chat-provider--b-oss.replit.app/api/";
   }
 
   // ── Wake word ──────────────────────────────────────────────────────────────
@@ -1472,7 +1474,7 @@ export default function ChatScreen() {
         if (cachedNotif) {
           await respond(`${cachedNotif.sender} on ${cachedNotif.app} said: "${cachedNotif.text}"`);
         } else if (hasPermN) {
-          const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
+          const recent = await NativeNotifications.getRecent().catch((): VoxNotification[] => []);
           const latest = recent[0];
           if (latest) {
             await respond(`Latest message from ${latest.sender} on ${latest.app}: "${latest.text}"`);
@@ -1501,7 +1503,7 @@ export default function ChatScreen() {
         // When a person name is given, search recent notifications for that sender
         let target = lastNotifRef.current;
         if (intent.name && hasPermR) {
-          const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
+          const recent = await NativeNotifications.getRecent().catch((): VoxNotification[] => []);
           const named = recent.find((n) => matchesSenderName(n.sender, intent.name!));
           if (named) {
             target = named;
@@ -1549,7 +1551,7 @@ export default function ChatScreen() {
         if (NativeNotifications.isAvailable && intent.name) {
           const hasPerm = await NativeNotifications.hasPermission().catch(() => false);
           if (hasPerm) {
-            const recent = await NativeNotifications.getRecent().catch((): ZenoNotification[] => []);
+            const recent = await NativeNotifications.getRecent().catch((): VoxNotification[] => []);
             const appFilter = intent.app?.toLowerCase();
             const match = recent.find((n) => {
               const nameOk = matchesSenderName(n.sender, intent.name!);

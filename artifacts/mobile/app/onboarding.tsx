@@ -17,13 +17,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
 
-const SUGGESTIONS = ["Zeno", "Nova", "Aria", "Echo", "Sage", "Orion"];
+const SUGGESTIONS = ["Vox", "Nova", "Aria", "Echo", "Sage", "Orion"];
 
 export default function OnboardingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { setAssistantName } = useAssistant();
-  const [name, setName] = useState("Zeno");
+  const [name, setName] = useState("Vox");
   const [error, setError] = useState("");
   const pulseAnim = useRef(new Animated.Value(1)).current;
 

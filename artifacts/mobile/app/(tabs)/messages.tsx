@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
-import { NativeNotifications, ZenoNotification } from "@/modules/NativeNotifications";
+import { NativeNotifications, VoxNotification } from "@/modules/NativeNotifications";
 
 const APP_META: Record<string, { name: string; color: string; icon: string }> = {
   "com.whatsapp":                        { name: "WhatsApp",  color: "#25D366", icon: "logo-whatsapp" },
@@ -63,7 +63,7 @@ export default function MessagesScreen() {
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [notifications, setNotifications] = useState<ZenoNotification[]>([]);
+  const [notifications, setNotifications] = useState<VoxNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -98,7 +98,7 @@ export default function MessagesScreen() {
     }
   }
 
-  async function handleSmartReply(n: ZenoNotification) {
+  async function handleSmartReply(n: VoxNotification) {
     if (!replyText.trim()) return;
     setReplyStatus("sending");
     setReplyError(null);
@@ -194,7 +194,7 @@ export default function MessagesScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Notification Access needed</Text>
                 <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
-                  Grant Notification Access so Zeno can read your incoming messages from WhatsApp, SMS, and other apps.
+                  Grant Notification Access so Vox can read your incoming messages from WhatsApp, SMS, and other apps.
                 </Text>
               </View>
             </View>
@@ -211,7 +211,7 @@ export default function MessagesScreen() {
             <View style={[styles.stepsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               {[
                 { step: "1", text: "Tap Grant above" },
-                { step: "2", text: "Find \"Zeno\" in the list and toggle it ON" },
+                { step: "2", text: "Find \"Vox\" in the list and toggle it ON" },
                 { step: "3", text: "Come back — messages appear here automatically" },
               ].map(({ step, text }) => (
                 <View key={step} style={styles.stepRow}>

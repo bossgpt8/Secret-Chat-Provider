@@ -10,9 +10,9 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { AnimatedSplash } from "@/components/AnimatedSplash";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AssistantProvider } from "@/context/AssistantContext";
 
@@ -38,14 +38,16 @@ export default function RootLayout() {
     Inter_700Bold,
   });
   const [fontTimeoutExpired, setFontTimeoutExpired] = useState(false);
+  const [fontsReady, setFontsReady] = useState(false);
+  const [animatedSplashDone, setAnimatedSplashDone] = useState(false);
   const fontTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fallback: hide splash after 3 s even if fonts never resolve
+  // Fallback: mark fonts ready after 2 s even if they never resolve
   useEffect(() => {
     fontTimerRef.current = setTimeout(() => {
       setFontTimeoutExpired(true);
-      SplashScreen.hideAsync();
-    }, 3000);
+      setFontsReady(true);
+    }, 2000);
     return () => {
       if (fontTimerRef.current) clearTimeout(fontTimerRef.current);
     };
@@ -57,22 +59,34 @@ export default function RootLayout() {
         clearTimeout(fontTimerRef.current);
         fontTimerRef.current = null;
       }
-      SplashScreen.hideAsync();
+      setFontsReady(true);
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError && !fontTimeoutExpired) return null;
+  // Hide the native splash as soon as fonts are ready — our JS animated
+  // splash takes over from here, rendered on top of the real app.
+  useEffect(() => {
+    if (fontsReady) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsReady]);
+
+  // Don't render anything until fonts are ready (keeps native splash visible)
+  if (!fontsReady) return null;
 
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardProvider>
               <AssistantProvider>
                 <RootLayoutNav />
+
+                {/* Animated splash sits on top, fades out when done */}
+                {!animatedSplashDone && (
+                  <AnimatedSplash onDone={() => setAnimatedSplashDone(true)} />
+                )}
               </AssistantProvider>
-            </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>
       </ErrorBoundary>

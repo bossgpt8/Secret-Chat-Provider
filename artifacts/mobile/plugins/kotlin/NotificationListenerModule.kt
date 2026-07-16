@@ -14,14 +14,19 @@ class NotificationListenerModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     init {
-        ZenoNotificationService.onNotificationPostedCallback = { data ->
-            sendEvent("onZenoNotification", data.toWritableMap())
+        VoxNotificationService.onNotificationPostedCallback = { data ->
+            sendEvent("onVoxNotification", data.toWritableMap())
         }
     }
 
     override fun getName(): String = "NotificationListenerModule"
 
     private fun sendEvent(eventName: String, params: WritableMap?) {
+        // Guard: in bridgeless (new-arch) mode, attempting to emit before the JS
+        // runtime is fully ready causes a fatal NullPointerException inside the
+        // Hermes thread. Events are already buffered in recentNotifications, so
+        // JS can poll them on startup — skipping the emit is safe.
+        if (!reactApplicationContext.hasActiveReactInstance()) return
         try {
             reactApplicationContext
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
@@ -53,7 +58,7 @@ class NotificationListenerModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun getRecentNotifications(promise: Promise) {
         val arr = Arguments.createArray()
-        for (n in ZenoNotificationService.recentNotifications.toList()) {
+        for (n in VoxNotificationService.recentNotifications.toList()) {
             arr.pushMap(n.toWritableMap())
         }
         promise.resolve(arr)
@@ -61,13 +66,13 @@ class NotificationListenerModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun replyToNotification(key: String, text: String, promise: Promise) {
-        val result = ZenoNotificationService.instance?.replyTo(key, text) ?: false
+        val result = VoxNotificationService.instance?.replyTo(key, text) ?: false
         promise.resolve(result)
     }
 
     @ReactMethod
     fun dismissNotification(key: String, promise: Promise) {
-        ZenoNotificationService.instance?.dismiss(key)
+        VoxNotificationService.instance?.dismiss(key)
         promise.resolve(null)
     }
 

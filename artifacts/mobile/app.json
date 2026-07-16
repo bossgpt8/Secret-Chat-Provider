@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "Zeno",
+    "name": "Vox",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mobile",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#7c3aed"
+      "backgroundColor": "#0d0b1a"
     },
     "ios": {
       "supportsTablet": false,
@@ -25,6 +25,10 @@
     },
     "android": {
       "package": "com.boss.assistant",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0d0b1a"
+      },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.FLASHLIGHT",

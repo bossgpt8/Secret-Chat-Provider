@@ -31,11 +31,17 @@ class CallScreeningModule(private val reactContext: ReactApplicationContext) :
     private var telephonyCallback: Any? = null   // TelephonyCallback (API 31+)
 
     // ── Legacy listener (API < 31) ────────────────────────────────────────────
+    // Lazy: PhoneStateListener() creates a Handler on the calling thread.
+    // React Native constructs native modules on a background thread (create_react_context)
+    // that has no Looper — instantiating here would crash with mQueue NPE.
+    // Deferring to first use guarantees construction happens on the main thread (from JS).
     @Suppress("DEPRECATION")
-    private val legacyListener = object : PhoneStateListener() {
-        @Deprecated("Deprecated in API 31")
-        override fun onCallStateChanged(state: Int, phoneNumber: String?) {
-            emitState(state, phoneNumber)
+    private val legacyListener by lazy {
+        object : PhoneStateListener() {
+            @Deprecated("Deprecated in API 31")
+            override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                emitState(state, phoneNumber)
+            }
         }
     }
 

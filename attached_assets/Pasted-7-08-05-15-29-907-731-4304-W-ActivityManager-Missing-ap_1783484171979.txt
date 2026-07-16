@@ -1,0 +1,79 @@
+7-08 05:15:29.907   731  4304 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:29.908   731  4304 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:30.198   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:31.919   731  4304 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:31.919   731  4304 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:33.932   731  4304 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:33.938   731  4304 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:35.952   731  4304 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:35.952   731  4304 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:37.956   731  4302 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:37.957   731  4302 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:38.653   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:38.777   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:38.794   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:38.804   258   423 I BufferQueueProducer: [Splash Screen com.boss.assistant#0](this:0xb08ff000,id:2335,api:2,p:731,c:258) disconnect(P): api 2
+07-08 05:15:38.804   258   423 I BufferQueueConsumer: [Splash Screen com.boss.assistant#0](this:0xb08ff000,id:2335,api:2,p:-1,c:258) getReleasedBuffers: returning mask 0xffffffffffffffff
+07-08 05:15:38.808   731  4303 V WindowManager: Set focused app to: AppWindowToken{9f9ecc6 token=Token{a81d919 ActivityRecord{50d4060 u0 com.android.systemui/.recents.RecentsActivity t1406}}} old focus=AppWindowToken{2f61f2c token=Token{6383901 ActivityRecord{cb30ee8 u0 com.boss.assistant/.MainActivity t1662}}} moveFocusNow=true
+07-08 05:15:38.809   731  4303 V WindowManager: Changing focus from Window{66881fb u0 com.boss.assistant/com.boss.assistant.MainActivity} to null Callers=com.android.server.wm.WindowManagerService.setFocusedApp:2730 com.android.server.am.ActivityManagerService.setResumedActivityUncheckLocked:3244 com.android.server.am.ActivityStack.setResumedActivityLocked:2284 com.android.server.am.ActivityStack.resumeTopActivityInnerLocked:2599
+07-08 05:15:38.810   258   258 I BufferQueueConsumer: [Splash Screen com.boss.assistant#0](this:0xb08ff000,id:2335,api:2,p:-1,c:-1) disconnect(C)
+07-08 05:15:38.812   258   258 I BufferQueue: [Splash Screen com.boss.assistant#0](this:0xb08ff000,id:2335,api:2,p:-1,c:-1) ~BufferQueueCore
+07-08 05:15:38.825   731   766 I WindowManager: Focus moving from Window{66881fb u0 com.boss.assistant/com.boss.assistant.MainActivity} to null
+07-08 05:15:38.877 13615 13615 V PhoneWindow: DecorView setVisiblity: visibility = 4, Parent = ViewRoot{5aa8e83 com.boss.assistant/com.boss.assistant.MainActivity,ident = 7}, this = DecorView@91ed694[MainActivity]
+07-08 05:15:38.886   258  1208 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08a0000,id:2336,api:1,p:13615,c:258) disconnect(P): api 1
+07-08 05:15:38.887   258  1208 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08a0000,id:2336,api:1,p:-1,c:258) getReleasedBuffers: returning mask 0xffffffffffffffff
+07-08 05:15:38.920   731   855 I WindowManager: Failed to capture screenshot of Token{6383901 ActivityRecord{cb30ee8 u0 com.boss.assistant/.MainActivity t1662}} appWin=Window{66881fb u0 com.boss.assistant/com.boss.assistant.MainActivity EXITING} drawState=1
+07-08 05:15:38.986   258   258 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08a0000,id:2336,api:1,p:-1,c:-1) disconnect(C)
+07-08 05:15:38.986   258   258 I BufferQueue: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08a0000,id:2336,api:1,p:-1,c:-1) ~BufferQueueCore
+07-08 05:15:38.996   731  4303 D IdleScreen: activityIdleScreen: android.app.ContextImpl@ab0b2b mNotifyNeeded: false idleIntent: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=com.boss.assistant/.MainActivity bnds=[134,587][250,757] }
+07-08 05:15:39.982   731  4304 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:39.983   731  4304 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:40.126  4659  6591 W System.err: android.content.pm.PackageManager$NameNotFoundException: com.dl.guard.lock
+07-08 05:15:40.140  4659  6591 W System.err: android.content.pm.PackageManager$NameNotFoundException: org.life.goal.tools
+07-08 05:15:40.153  4659  6591 W System.err: android.content.pm.PackageManager$NameNotFoundException: com.go.weather.mot
+07-08 05:15:40.166  4659  6591 W System.err: android.content.pm.PackageManager$NameNotFoundException: appicon.diy.tools.prop
+07-08 05:15:40.180  4659  6591 W System.err: android.content.pm.PackageManager$NameNotFoundException: com.arabmusic.tap.aghani_tamerhosny
+07-08 05:15:41.985   731  4303 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:41.986   731  4303 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:43.991   731  4311 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:43.992   731  4311 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:45.995   731  4311 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:45.995   731  4311 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:47.394   731  4311 I ActivityManager: START u0 {act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=com.boss.assistant/.MainActivity bnds=[134,587][250,757]} from uid 10013
+07-08 05:15:47.450   731  4302 V WindowManager: Set focused app to: AppWindowToken{6bf0d06 token=Token{4d82e65 ActivityRecord{555ab5c u0 com.boss.assistant/.MainActivity t1663}}} old focus=AppWindowToken{3e1ec17 token=Token{6f1e896 ActivityRecord{2d01bb1 u0 com.android.launcher3/.Launcher t1565}}} moveFocusNow=true
+07-08 05:15:47.452   731   769 D DuraSpeed/DuraSpeedInternalManager: switchState currentPackage = com.boss.assistant, event =1004
+07-08 05:15:47.456   254  8460 I vendor.mediatek.hardware.power@1.1-impl: notifyAppState pack:com.boss.assistant, act:com.boss.assistant.MainActivity, pid:13615, state:1
+07-08 05:15:47.456   254   268 I libPerfService: [perfNotifyAppState] foreground:com.boss.assistant, pid:13615
+07-08 05:15:47.466   258   258 I BufferQueueConsumer: [Splash Screen com.boss.assistant#0](this:0xb08f4000,id:2340,api:0,p:-1,c:258) setConsumerName: Splash Screen com.boss.assistant#0
+07-08 05:15:47.466   258   258 I BufferQueueConsumer: [Splash Screen com.boss.assistant#0](this:0xb08f4000,id:2340,api:0,p:-1,c:258) setDefaultBufferSize: width=384 height=854
+07-08 05:15:47.497   258   774 I BufferQueueProducer: [Splash Screen com.boss.assistant#0](this:0xb08f4000,id:2340,api:2,p:731,c:258) connect(P): api=2 producer=(731:system_server) producerControlledByApp=false
+07-08 05:15:47.515 13615 13687 W unknown:BridgelessReact: ReactHost{0}.handleHostException(message = "Attempt to read from field 'android.os.MessageQueue android.os.Looper.mQueue' on a null object reference")
+07-08 05:15:47.533   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:47.549 13615 13615 V PhoneWindow: DecorView setVisiblity: visibility = 0, Parent = ViewRoot{608178 com.boss.assistant/com.boss.assistant.MainActivity,ident = 8}, this = DecorView@8425bd5[MainActivity]
+07-08 05:15:47.551   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:47.566   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:47.579   731  4311 I WindowManager: Relayout Window{a88a38c u0 com.boss.assistant/com.boss.assistant.MainActivity}: oldVis=4 newVis=0 focusMayChange = true
+07-08 05:15:47.581   258   258 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08ff000,id:2341,api:0,p:-1,c:258) setConsumerName: com.boss.assistant/com.boss.assistant.MainActivity#0
+07-08 05:15:47.581   258   258 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08ff000,id:2341,api:0,p:-1,c:258) setDefaultBufferSize: width=384 height=796
+07-08 05:15:47.584   731  4311 V WindowManager: Changing focus from null to Window{a88a38c u0 com.boss.assistant/com.boss.assistant.MainActivity} Callers=com.android.server.wm.WindowManagerService.relayoutWindow:2169 com.android.server.wm.Session.relayout:239 android.view.IWindowSession$Stub.onTransact:286 com.android.server.wm.Session.onTransact:163
+07-08 05:15:47.584   731  4311 D WindowManager: Input focus has changed to Window{a88a38c u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-08 05:15:47.585   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:47.600   258   258 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08ff000,id:2341,api:0,p:-1,c:258) setDefaultBufferSize: width=384 height=854
+07-08 05:15:47.603   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:47.608   258   774 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08ff000,id:2341,api:1,p:13615,c:258) connect(P): api=1 producer=(13615:com.boss.assistant) producerControlledByApp=true
+07-08 05:15:47.608   731   766 I WindowManager: Focus moving from null to Window{a88a38c u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-08 05:15:47.612   258  1422 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08ff000,id:2341,api:1,p:13615,c:258) setMaxDequeuedBufferCount: maxDequeuedBuffers = 3
+07-08 05:15:47.619   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:47.638   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:47.643  3300  3300 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1986 onStartInput(EditorInfo{EditorInfo{packageName=com.boss.assistant, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=-1, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+07-08 05:15:47.997   731  4304 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:47.998   731  4304 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:48.746   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:49.999   731  4304 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:50.000   731  4304 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:52.002   731  4026 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:52.002   731  4026 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:53.309   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:15:54.005   731  4026 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:15:54.005   731  4026 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:15:54.313   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0

@@ -409,8 +409,8 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (Platform.OS === "web") return;
-    let unsubLevel: (() => void) | undefined;
-    let unsubState: (() => void) | undefined;
+    let unsubLevel: { remove(): void } | undefined;
+    let unsubState: { remove(): void } | undefined;
     (async () => {
       try {
         const Battery = await import("expo-battery");

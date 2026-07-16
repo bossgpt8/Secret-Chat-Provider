@@ -4,7 +4,6 @@
     "baseUrl": ".",
     "strict": true,
     "jsx": "react-native",
-    "moduleResolution": "node",
     "paths": {
       "@/*": [
         "./*"

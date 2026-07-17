@@ -29,8 +29,9 @@ import * as path from "path";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const KOTLIN_SRC_DIR = path.join(__dirname, "kotlin");
-const XML_SRC_DIR = path.join(__dirname, "xml");
+const KOTLIN_SRC_DIR  = path.join(__dirname, "kotlin");
+const XML_SRC_DIR     = path.join(__dirname, "xml");
+const ASSETS_SRC_DIR  = path.join(__dirname, "assets");
 
 const KOTLIN_FILES = [
   "AudioControlModule.kt",
@@ -68,6 +69,10 @@ function xmlResDir(projectRoot: string): string {
   return path.join(projectRoot, "android/app/src/main/res/xml");
 }
 
+function drawableResDir(projectRoot: string): string {
+  return path.join(projectRoot, "android/app/src/main/res/drawable");
+}
+
 // ---------------------------------------------------------------------------
 // Step 1 – copy Kotlin source files and device_admin.xml resource
 // ---------------------------------------------------------------------------
@@ -98,6 +103,14 @@ const withKotlinSources: ConfigPlugin = (config) =>
       fs.copyFileSync(
         path.join(XML_SRC_DIR, "voice_interaction_service.xml"),
         path.join(resDir, "voice_interaction_service.xml")
+      );
+
+      // Floating bubble logo image
+      const drawableDir = drawableResDir(root);
+      fs.mkdirSync(drawableDir, { recursive: true });
+      fs.copyFileSync(
+        path.join(ASSETS_SRC_DIR, "vox_bubble.png"),
+        path.join(drawableDir, "vox_bubble.png")
       );
 
       return config;

@@ -10,8 +10,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.RadialGradient
-import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -406,27 +404,24 @@ class VoxOverlayService : Service() {
 
     // ── Custom bubble View ────────────────────────────────────────────────────
     inner class BubbleView(context: android.content.Context) : View(context) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textAlign = Paint.Align.CENTER
-            textSize = dpToPx(22).toFloat()
-            isFakeBoldText = true
-        }
+        private val clipPaint   = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val ringPaint   = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+        private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var currentState = STATE_IDLE
+
+        // The Vox logo bitmap (vox_bubble.png bundled in res/drawable)
+        private var logoBitmap: android.graphics.Bitmap? = null
+        private var bitmapShader: android.graphics.BitmapShader? = null
 
         // Pulse animation
         private var pulseScale = 1f
-        private var pulseUp = true
+        private var pulseUp    = true
         private val pulseRunnable = object : Runnable {
             override fun run() {
-                if (currentState == STATE_LISTENING || currentState == STATE_WAKE ||
-                    currentState == STATE_SPEAKING || currentState == STATE_PROCESSING) {
-                    pulseScale = if (pulseUp) {
-                        (pulseScale + 0.02f).coerceAtMost(1.14f)
-                    } else {
-                        (pulseScale - 0.02f).coerceAtLeast(0.88f)
-                    }
+                val active = currentState != STATE_IDLE
+                if (active) {
+                    pulseScale = if (pulseUp) (pulseScale + 0.02f).coerceAtMost(1.14f)
+                                 else         (pulseScale - 0.02f).coerceAtLeast(0.88f)
                     if (pulseScale >= 1.14f) pulseUp = false
                     if (pulseScale <= 0.88f) pulseUp = true
                     invalidate()
@@ -438,37 +433,88 @@ class VoxOverlayService : Service() {
             }
         }
 
+        init { loadBitmap() }
+
+        private fun loadBitmap() {
+            try {
+                val pkg  = context.packageName
+                val resId = context.resources.getIdentifier("vox_bubble", "drawable", pkg)
+                if (resId != 0) {
+                    logoBitmap = android.graphics.BitmapFactory.decodeResource(context.resources, resId)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not load vox_bubble drawable: ${e.message}")
+            }
+        }
+
+        private fun rebuildShader(w: Int, h: Int) {
+            val bmp = logoBitmap ?: return
+            // Scale bitmap to fill the view
+            val scaled = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true)
+            bitmapShader = android.graphics.BitmapShader(
+                scaled,
+                android.graphics.Shader.TileMode.CLAMP,
+                android.graphics.Shader.TileMode.CLAMP
+            )
+            clipPaint.shader = bitmapShader
+        }
+
+        override fun onSizeChanged(w: Int, h: Int, oldW: Int, oldH: Int) {
+            super.onSizeChanged(w, h, oldW, oldH)
+            if (w > 0 && h > 0) rebuildShader(w, h)
+        }
+
         fun setState(s: String) {
             currentState = s
             mainHandler.removeCallbacks(pulseRunnable)
-            if (s != STATE_IDLE) mainHandler.post(pulseRunnable)
-            else invalidate()
+            if (s != STATE_IDLE) mainHandler.post(pulseRunnable) else invalidate()
         }
 
         override fun onDraw(canvas: Canvas) {
-            val cx = width / 2f
+            val cx = width  / 2f
             val cy = height / 2f
-            val r = (width / 2f - dpToPx(4)) * pulseScale
+            val base = (width / 2f - dpToPx(3)).coerceAtLeast(8f)
+            val r    = base * pulseScale
 
-            // Shadow ring
-            paint.color = Color.argb(60, 0, 0, 0)
-            canvas.drawCircle(cx, cy + dpToPx(2), r + dpToPx(3), paint)
+            // Drop shadow
+            shadowPaint.color = Color.argb(70, 0, 0, 0)
+            canvas.drawCircle(cx, cy + dpToPx(3), r, shadowPaint)
 
-            // Gradient fill
-            val (c1, c2) = when (currentState) {
-                STATE_WAKE, STATE_LISTENING -> Pair(Color.parseColor("#E53935"), Color.parseColor("#B71C1C"))
-                STATE_SPEAKING             -> Pair(Color.parseColor("#00BCD4"), Color.parseColor("#006064"))
-                STATE_PROCESSING           -> Pair(Color.parseColor("#FF9800"), Color.parseColor("#E65100"))
-                else                       -> Pair(Color.parseColor("#7C3AED"), Color.parseColor("#4C1D95"))
+            if (clipPaint.shader != null) {
+                // Save + scale around center for pulse, then clip-draw the logo bitmap
+                canvas.save()
+                canvas.scale(pulseScale, pulseScale, cx, cy)
+                canvas.drawCircle(cx, cy, base, clipPaint)
+                canvas.restore()
+            } else {
+                // Fallback: plain purple circle with "Vox" text if bitmap didn't load
+                val fallback = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#7C3AED")
+                }
+                canvas.drawCircle(cx, cy, r, fallback)
+                val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    textAlign = Paint.Align.CENTER
+                    textSize  = dpToPx(18).toFloat()
+                    isFakeBoldText = true
+                }
+                val fm = tp.fontMetrics
+                canvas.drawText("Vox", cx, cy - (fm.ascent + fm.descent) / 2f, tp)
             }
-            paint.shader = RadialGradient(cx, cy - r * 0.3f, r * 1.4f,
-                intArrayOf(c1, c2), null, Shader.TileMode.CLAMP)
-            canvas.drawCircle(cx, cy, r, paint)
-            paint.shader = null
 
-            // "V" letter
-            val fm = textPaint.fontMetrics
-            canvas.drawText("V", cx, cy - (fm.ascent + fm.descent) / 2f, textPaint)
+            // Colored state ring (drawn outside so it doesn't obscure the logo)
+            if (currentState != STATE_IDLE) {
+                val ringColor = when (currentState) {
+                    STATE_WAKE, STATE_LISTENING -> Color.parseColor("#EF4444")
+                    STATE_SPEAKING             -> Color.parseColor("#06B6D4")
+                    STATE_PROCESSING           -> Color.parseColor("#F97316")
+                    else                       -> Color.parseColor("#7C3AED")
+                }
+                ringPaint.color = ringColor
+                ringPaint.strokeWidth = dpToPx(3).toFloat()
+                ringPaint.alpha = 220
+                canvas.drawCircle(cx, cy, r + dpToPx(2), ringPaint)
+            }
         }
     }
 }

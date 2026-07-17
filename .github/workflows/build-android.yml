@@ -54,7 +54,7 @@ jobs:
       - name: Generate native Android project
         working-directory: artifacts/mobile
         env:
-          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://secret-chat-provider--israelifeoluwa.replit.app/api' }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://replit.com/@B-oss/Secret-Chat-Provider/api' }}
         run: CI=1 pnpm exec expo prebuild --platform android --clean --no-install
 
       - name: Configure ABI filter
@@ -101,7 +101,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: secret-chat-release-${{ github.event.inputs.architecture || 'all' }}-apk
+          name: secret-chat-release-${{ github.event.inputs.architecture || 'armeabi-v7a' }}-apk
           path: artifacts/mobile/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30

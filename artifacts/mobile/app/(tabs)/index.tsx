@@ -587,7 +587,7 @@ export default function ChatScreen() {
       const base = await getApiBase();
       const fd = new FormData();
       fd.append("audio", { uri, type: "audio/m4a", name: "audio.m4a" } as unknown as Blob);
-      const resp = await fetch(`${base}transcribe`, { method: "POST", body: fd });
+      const resp = await globalThis.fetch(`${base}transcribe`, { method: "POST", body: fd });
       const { text = "" } = await resp.json() as { text?: string };
       if (!wakeWordLoopRef.current) return;
       // Check for wake word: "hey [name]" or just "[name]"
@@ -819,7 +819,7 @@ export default function ChatScreen() {
         formData.append("audio", { uri, type: "audio/m4a", name: "audio.m4a" } as unknown as Blob);
       }
 
-      const response = await fetch(`${base}transcribe`, {
+      const response = await globalThis.fetch(`${base}transcribe`, {
         method: "POST",
         body: formData,
       });

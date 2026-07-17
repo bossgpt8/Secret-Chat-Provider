@@ -329,6 +329,37 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wakeWordEnabled, isCallMode]);
 
+  // Show a persistent notification while wake word is active.
+  // On Android this keeps the app process alive when minimized.
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const WAKE_NOTIF_ID = "wake-word-active";
+    if (wakeWordEnabled) {
+      Notifications.setNotificationChannelAsync("wake_word", {
+        name: "Wake Word Listener",
+        importance: Notifications.AndroidImportance.LOW,
+        sound: null,
+      }).then(() => {
+        Notifications.scheduleNotificationAsync({
+          identifier: WAKE_NOTIF_ID,
+          content: {
+            title: `Listening for "${assistantName}"…`,
+            body: `Say "Hey ${assistantName}" to start a conversation.`,
+            sticky: true,
+            autoDismiss: false,
+            data: { type: "wake_word" },
+          },
+          trigger: null,
+        }).catch(() => {});
+      }).catch(() => {});
+    } else {
+      Notifications.dismissNotificationAsync(WAKE_NOTIF_ID).catch(() => {});
+    }
+    return () => {
+      Notifications.dismissNotificationAsync(WAKE_NOTIF_ID).catch(() => {});
+    };
+  }, [wakeWordEnabled, assistantName]);
+
   function toNotificationFromAccessibility(n: VoxAccessibilityNotification): VoxNotification {
     const sender = n.sender?.trim() || n.app || "Unknown sender";
     const text = n.text?.trim() || "New notification";

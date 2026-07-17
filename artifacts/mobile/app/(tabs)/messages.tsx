@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
@@ -56,6 +56,26 @@ function AppIcon({ pkg, appName, colors }: { pkg: string; appName: string; color
   );
 }
 
+// Deduplication key: sender + first 80 chars of text + app package
+// This prevents the same message appearing multiple times when the native module
+// returns the same notification with a different `key` on each poll.
+function notifDedupeKey(n: VoxNotification): string {
+  return `${n.packageName}|${(n.sender ?? "").trim().toLowerCase()}|${(n.text ?? "").trim().slice(0, 80).toLowerCase()}`;
+}
+
+function dedupeNotifs(items: VoxNotification[]): VoxNotification[] {
+  const seen = new Set<string>();
+  const result: VoxNotification[] = [];
+  for (const item of items) {
+    const dk = notifDedupeKey(item);
+    if (!seen.has(dk)) {
+      seen.add(dk);
+      result.push(item);
+    }
+  }
+  return result;
+}
+
 export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -67,11 +87,42 @@ export default function MessagesScreen() {
   const [loading, setLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Smart-reply state: key → { text, status }
+  // Search + filter
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appFilter, setAppFilter] = useState<string | null>(null);
+
+  // Smart-reply state
   const [replyExpanded, setReplyExpanded] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [replyStatus, setReplyStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [replyError, setReplyError] = useState<string | null>(null);
+
+  // Derive unique apps for filter chips
+  const uniqueApps = useMemo(() => {
+    const seen = new Map<string, { pkg: string; name: string; color: string }>();
+    for (const n of notifications) {
+      if (!seen.has(n.packageName)) {
+        const meta = getAppMeta(n.packageName, n.app);
+        seen.set(n.packageName, { pkg: n.packageName, name: meta.name, color: meta.color });
+      }
+    }
+    return Array.from(seen.values());
+  }, [notifications]);
+
+  // Apply search + app filter
+  const displayed = useMemo(() => {
+    let list = notifications;
+    if (appFilter) list = list.filter((n) => n.packageName === appFilter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter((n) =>
+        (n.sender ?? "").toLowerCase().includes(q) ||
+        (n.text ?? "").toLowerCase().includes(q) ||
+        getAppMeta(n.packageName, n.app).name.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [notifications, appFilter, searchQuery]);
 
   async function checkPermissionAndLoad() {
     if (!NativeNotifications.isAvailable) {
@@ -90,7 +141,7 @@ export default function MessagesScreen() {
     try {
       const items = await NativeNotifications.getRecent();
       const filtered = items.filter((n) => n.sender?.trim() || n.text?.trim());
-      setNotifications(filtered);
+      setNotifications(dedupeNotifs(filtered));
     } catch (e) {
       console.warn("getRecent error", e);
     } finally {
@@ -115,7 +166,6 @@ export default function MessagesScreen() {
           return;
         }
       }
-      // Fall back to deep link
       const deepUrl = resolveReplyDeepUrl(n.packageName, n.app, n.sender, replyText.trim());
       if (deepUrl) {
         const canOpen = await Linking.canOpenURL(deepUrl).catch(() => false);
@@ -147,8 +197,12 @@ export default function MessagesScreen() {
 
       const unsub = NativeNotifications.onNotification((n) => {
         setNotifications((prev) => {
-          const filtered = prev.filter((p) => p.key !== n.key);
-          return [n, ...filtered].slice(0, 50);
+          const dk = notifDedupeKey(n);
+          // Remove any existing item with the same dedup key or same native key
+          const filtered = prev.filter(
+            (p) => p.key !== n.key && notifDedupeKey(p) !== dk
+          );
+          return [n, ...filtered].slice(0, 100);
         });
       });
 
@@ -170,6 +224,63 @@ export default function MessagesScreen() {
           </View>
         )}
       </View>
+
+      {/* ── Search bar ─────────────────────────────────────────────── */}
+      {hasPermission === true && notifications.length > 0 && (
+        <View style={[styles.searchRow, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+          <View style={[styles.searchBox, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+            <Ionicons name="search-outline" size={16} color={colors.mutedForeground} />
+            <TextInput
+              style={[styles.searchInput, { color: colors.foreground }]}
+              placeholder="Search sender, message, app…"
+              placeholderTextColor={colors.mutedForeground}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
+                <Ionicons name="close-circle" size={16} color={colors.mutedForeground} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* ── App filter chips ──────────────────────────────────────── */}
+      {hasPermission === true && uniqueApps.length > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[styles.filterRow, { borderBottomColor: colors.border }]}
+        >
+          <Pressable
+            onPress={() => setAppFilter(null)}
+            style={[
+              styles.filterChip,
+              { backgroundColor: !appFilter ? colors.primary : colors.muted, borderColor: !appFilter ? colors.primary : colors.border },
+            ]}
+          >
+            <Text style={[styles.filterChipText, { color: !appFilter ? colors.primaryForeground : colors.foreground }]}>All</Text>
+          </Pressable>
+          {uniqueApps.map((a) => {
+            const active = appFilter === a.pkg;
+            return (
+              <Pressable
+                key={a.pkg}
+                onPress={() => setAppFilter(active ? null : a.pkg)}
+                style={[
+                  styles.filterChip,
+                  { backgroundColor: active ? a.color : colors.muted, borderColor: active ? a.color : colors.border },
+                ]}
+              >
+                <Text style={[styles.filterChipText, { color: active ? "#fff" : colors.foreground }]}>{a.name}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 80 }]} showsVerticalScrollIndicator={false}>
 
@@ -194,7 +305,7 @@ export default function MessagesScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Notification Access needed</Text>
                 <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
-                  Grant Notification Access so Vox can read your incoming messages from WhatsApp, SMS, and other apps.
+                  Grant Notification Access so the assistant can read your incoming messages from WhatsApp, SMS, and other apps.
                 </Text>
               </View>
             </View>
@@ -211,7 +322,7 @@ export default function MessagesScreen() {
             <View style={[styles.stepsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               {[
                 { step: "1", text: "Tap Grant above" },
-                { step: "2", text: "Find \"Vox\" in the list and toggle it ON" },
+                { step: "2", text: "Find your assistant in the list and toggle it ON" },
                 { step: "3", text: "Come back — messages appear here automatically" },
               ].map(({ step, text }) => (
                 <View key={step} style={styles.stepRow}>
@@ -244,17 +355,30 @@ export default function MessagesScreen() {
           </View>
         )}
 
+        {/* ── No results from filter/search ──────────────────────────── */}
+        {hasPermission === true && notifications.length > 0 && displayed.length === 0 && (
+          <View style={styles.centered}>
+            <Ionicons name="search-outline" size={36} color={colors.mutedForeground} />
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No matches</Text>
+            <Text style={[styles.emptySubText, { color: colors.mutedForeground }]}>
+              Try a different search term or clear the filter.
+            </Text>
+          </View>
+        )}
+
         {/* ── Real notifications ─────────────────────────────────────── */}
-        {hasPermission === true && notifications.length > 0 && (
+        {hasPermission === true && displayed.length > 0 && (
           <>
             <View style={[styles.liveRow, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "30" }]}>
               <View style={[styles.liveDot, { backgroundColor: "#22c55e" }]} />
-              <Text style={[styles.liveText, { color: colors.primary }]}>Live — refreshes automatically</Text>
+              <Text style={[styles.liveText, { color: colors.primary }]}>
+                {displayed.length} {displayed.length === 1 ? "message" : "messages"} — refreshes automatically
+              </Text>
               <Pressable onPress={loadNotifications}>
                 <Ionicons name="refresh" size={15} color={colors.primary} />
               </Pressable>
             </View>
-            {notifications.map((n) => {
+            {displayed.map((n) => {
               const meta = getAppMeta(n.packageName, n.app);
               const isExpanded = replyExpanded === n.key;
               const canReply = n.hasReply || !!resolveReplyDeepUrl(n.packageName, n.app, n.sender, "");
@@ -347,36 +471,152 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: { fontSize: 22, fontFamily: "Inter_700Bold" },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
-  badgeText: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  scroll: { padding: 16 },
-  notice: { flexDirection: "row", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderLeftWidth: 3, marginBottom: 16 },
+  badge: { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
+  badgeText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+
+  // Search bar
+  searchRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    paddingVertical: 0,
+  },
+
+  // Filter chips
+  filterRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+
+  scroll: { paddingTop: 8 },
+  centered: { alignItems: "center", paddingVertical: 60, paddingHorizontal: 24, gap: 12 },
+  emptyText: { fontSize: 16, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  emptySubText: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19 },
+
+  notice: {
+    margin: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderLeftWidth: 4,
+    padding: 14,
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+  },
   noticeTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginBottom: 4 },
-  noticeText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
-  grantBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, padding: 14, borderRadius: 14, marginBottom: 16 },
-  grantBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  stepsCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 12, marginBottom: 16 },
-  stepRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  stepBadge: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  noticeText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+
+  grantBtn: {
+    marginHorizontal: 16,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  grantBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+
+  stepsCard: {
+    marginHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+  },
+  stepRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  stepBadge: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   stepNum: { fontSize: 12, fontFamily: "Inter_700Bold" },
-  stepText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
-  centered: { alignItems: "center", paddingTop: 60, gap: 12 },
-  emptyText: { fontSize: 15, fontFamily: "Inter_500Medium" },
-  emptySubText: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19, paddingHorizontal: 20 },
-  liveRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, marginBottom: 14 },
+  stepText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+
+  liveRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+  },
   liveDot: { width: 7, height: 7, borderRadius: 4 },
   liveText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },
-  msgCard: { flexDirection: "row", alignItems: "flex-start", padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 8, gap: 12 },
-  appIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  msgTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
+
+  msgCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+  },
+  appIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 },
+  msgTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 2 },
   sender: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1, marginRight: 8 },
-  appLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 2 },
-  time: { fontSize: 12, fontFamily: "Inter_400Regular", flexShrink: 0 },
+  time: { fontSize: 11, fontFamily: "Inter_400Regular", flexShrink: 0 },
+  appLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 4 },
   preview: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
-  replyDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  replyRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingBottom: 10, paddingTop: 4, borderWidth: 1, borderTopWidth: 0, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, marginBottom: 8 },
-  replyInput: { flex: 1, height: 36, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, fontSize: 14, fontFamily: "Inter_400Regular" },
-  replyBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  replyErrorRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 7, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, marginBottom: 8 },
+  replyDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 6 },
+
+  replyRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: -4,
+    marginBottom: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 10,
+  },
+  replyInput: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    minHeight: 36,
+  },
+  replyBtn: { borderRadius: 8, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
+
+  replyErrorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginHorizontal: 16,
+    marginTop: -4,
+    marginBottom: 8,
+    borderRadius: 8,
+    padding: 8,
+  },
   replyErrorText: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
 });

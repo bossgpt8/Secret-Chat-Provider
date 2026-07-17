@@ -101,6 +101,7 @@ export default function SettingsScreen() {
     themeOverride, setThemeOverride,
     customApiUrl, setCustomApiUrl,
     readIncomingEnabled, setReadIncomingEnabled,
+    wakeWordEnabled, setWakeWordEnabled,
     customQuickChips, setCustomQuickChips,
     speechLanguage, setSpeechLanguage,
   } = useAssistant();
@@ -116,10 +117,11 @@ export default function SettingsScreen() {
   const [previewingPhoneId, setPreviewingPhoneId] = useState<string | null>(null);
 
   const [elVoices, setElVoices] = useState<ElVoice[]>([]);
+  const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
 
   const [permStatuses, setPermStatuses] = useState<Record<string, PermStatus>>(DEFAULT_PERM_STATUSES);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [loadingElVoices, setLoadingElVoices] = useState(true);
+  const [loadingElVoices, setLoadingElVoices] = useState(false);
   const [previewingElId, setPreviewingElId] = useState<string | null>(null);
 
   // Quick chips editing state
@@ -131,7 +133,6 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     loadPhoneVoices();
-    loadElVoices();
     refreshPermissions();
   }, []);
 
@@ -244,8 +245,9 @@ export default function SettingsScreen() {
   }
 
   async function loadElVoices() {
+    if (elVoices.length > 0) return; // already loaded
+    setLoadingElVoices(true);
     try {
-      // Priority: user-configured URL → build-time env var → web relative fallback
       let base: string;
       if (customApiUrl && customApiUrl.trim()) {
         const u = customApiUrl.trim();
@@ -259,7 +261,8 @@ export default function SettingsScreen() {
       const r = await fetch(`${base}tts/voices`);
       if (r.ok) {
         const data = await r.json() as { voices: ElVoice[] };
-        setElVoices(data.voices ?? []);
+        // Limit to 5 best voices
+        setElVoices((data.voices ?? []).slice(0, 5));
       }
     } catch { setElVoices([]); }
     finally { setLoadingElVoices(false); }
@@ -526,42 +529,69 @@ export default function SettingsScreen() {
             </View>
           )}
 
-          {/* ElevenLabs voices */}
+          {/* ElevenLabs voices — compact dropdown */}
           {ttsProvider === "elevenlabs" && (
-            <>
-              {loadingElVoices ? (
-                <View style={[styles.row, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Loading ElevenLabs voices…</Text>
+            <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "stretch", gap: 0, paddingBottom: 0 }]}>
+              <Pressable
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingHorizontal: 16 }}
+                onPress={() => {
+                  const next = !voiceDropdownOpen;
+                  setVoiceDropdownOpen(next);
+                  if (next && elVoices.length === 0) loadElVoices();
+                  Haptics.selectionAsync();
+                }}
+              >
+                <Ionicons name="mic-circle-outline" size={18} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>ElevenLabs Voice</Text>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+                    {elVoices.find((v) => v.id === elVoiceId)?.name ?? "Select a voice"}
+                  </Text>
                 </View>
-              ) : elVoices.length === 0 ? (
-                <View style={[styles.row, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Could not load voices. Check your API key.</Text>
+                <Ionicons name={voiceDropdownOpen ? "chevron-up" : "chevron-down"} size={14} color={colors.mutedForeground} />
+              </Pressable>
+
+              {voiceDropdownOpen && (
+                <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+                  {loadingElVoices ? (
+                    <View style={{ padding: 16, alignItems: "center" }}>
+                      <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Loading voices…</Text>
+                    </View>
+                  ) : elVoices.length === 0 ? (
+                    <View style={{ padding: 16 }}>
+                      <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Could not load voices. Check API key.</Text>
+                    </View>
+                  ) : (
+                    elVoices.map((v, i) => {
+                      const isSelected = elVoiceId === v.id;
+                      const isPreviewing = previewingElId === v.id;
+                      return (
+                        <Pressable key={v.id}
+                          style={[styles.voiceRow, {
+                            borderBottomColor: i < elVoices.length - 1 ? colors.border : "transparent",
+                            backgroundColor: isSelected ? colors.primary + "10" : "transparent",
+                            paddingLeft: 20,
+                          }]}
+                          onPress={() => { setElVoiceId(v.id); setVoiceDropdownOpen(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}>
+                          <View style={[styles.voiceRadio, { borderColor: isSelected ? colors.primary : colors.border, backgroundColor: isSelected ? colors.primary : "transparent" }]}>
+                            {isSelected && <View style={styles.voiceRadioDot} />}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.rowLabel, { color: colors.foreground }]}>{v.name}</Text>
+                            {v.description ? <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{v.description}</Text> : null}
+                          </View>
+                          <Pressable style={[styles.previewBtn, { backgroundColor: isPreviewing ? colors.accent + "20" : colors.muted }]}
+                            onPress={() => previewElVoice(v)} hitSlop={8}>
+                            <Ionicons name={isPreviewing ? "stop-circle-outline" : "play-outline"} size={16} color={isPreviewing ? colors.accent : colors.mutedForeground} />
+                            <Text style={[styles.previewText, { color: isPreviewing ? colors.accent : colors.mutedForeground }]}>{isPreviewing ? "Stop" : "Try"}</Text>
+                          </Pressable>
+                        </Pressable>
+                      );
+                    })
+                  )}
                 </View>
-              ) : (
-                elVoices.map((v) => {
-                  const isSelected = elVoiceId === v.id;
-                  const isPreviewing = previewingElId === v.id;
-                  return (
-                    <Pressable key={v.id}
-                      style={[styles.voiceRow, { borderBottomColor: colors.border, backgroundColor: isSelected ? colors.primary + "08" : "transparent" }]}
-                      onPress={() => { setElVoiceId(v.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}>
-                      <View style={[styles.voiceRadio, { borderColor: isSelected ? colors.primary : colors.border, backgroundColor: isSelected ? colors.primary : "transparent" }]}>
-                        {isSelected && <View style={styles.voiceRadioDot} />}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.rowLabel, { color: colors.foreground }]}>{v.name}</Text>
-                        {v.description ? <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{v.description}</Text> : null}
-                      </View>
-                      <Pressable style={[styles.previewBtn, { backgroundColor: isPreviewing ? colors.accent + "20" : colors.muted }]}
-                        onPress={() => previewElVoice(v)} hitSlop={8}>
-                        <Ionicons name={isPreviewing ? "stop-circle-outline" : "play-outline"} size={16} color={isPreviewing ? colors.accent : colors.mutedForeground} />
-                        <Text style={[styles.previewText, { color: isPreviewing ? colors.accent : colors.mutedForeground }]}>{isPreviewing ? "Stop" : "Try"}</Text>
-                      </Pressable>
-                    </Pressable>
-                  );
-                })
               )}
-            </>
+            </View>
           )}
 
           {/* Phone TTS voices */}
@@ -618,6 +648,38 @@ export default function SettingsScreen() {
                 })
               )}
             </>
+          )}
+        </Section>
+
+        {/* ── Hands-Free ── */}
+        <Section title="Hands-Free">
+          <View style={[styles.row, { borderBottomColor: colors.border }]}>
+            <Ionicons name="ear-outline" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>
+                {`"Hey ${assistantName}" Wake Word`}
+              </Text>
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+                Listens continuously and activates when it hears your name. Works while the app is open. Requires microphone.
+              </Text>
+            </View>
+            <Switch
+              value={wakeWordEnabled}
+              onValueChange={async (v) => {
+                await setWakeWordEnabled(v);
+                Haptics.selectionAsync();
+              }}
+              trackColor={{ false: colors.muted, true: colors.primary + "80" }}
+              thumbColor={wakeWordEnabled ? colors.primary : colors.mutedForeground}
+            />
+          </View>
+          {wakeWordEnabled && (
+            <View style={[styles.row, { borderBottomColor: "transparent" }]}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.accent} />
+              <Text style={[styles.rowValue, { color: colors.accent, flex: 1 }]}>
+                Active while app is open or minimized. For fully background listening (screen off), grant Battery Optimization exemption in Permissions below.
+              </Text>
+            </View>
           )}
         </Section>
 

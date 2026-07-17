@@ -238,7 +238,7 @@ export default function ControlsScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {cameraReady && Platform.OS !== "web" && (
         <CameraView
-          style={{ position: "absolute", width: 0, height: 0, opacity: 0 }}
+          style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
           facing="back"
           enableTorch={torchOn}
         />

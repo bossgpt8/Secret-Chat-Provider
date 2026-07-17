@@ -2333,7 +2333,7 @@ export default function ChatScreen() {
           style={
             visionMode
               ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, opacity: 0.01 }
-              : { position: "absolute", width: 0, height: 0, opacity: 0 }
+              : { position: "absolute", width: 1, height: 1, opacity: 0 }
           }
           facing="back"
           enableTorch={torchOn}

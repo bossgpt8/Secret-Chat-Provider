@@ -50,6 +50,7 @@ const KOTLIN_FILES = [
   "MediaControlPackage.kt",
   "CallScreeningModule.kt",
   "CallScreeningPackage.kt",
+  "VoxVoiceInteractionService.kt",
 ];
 
 /** Resolves the com.boss.assistant java source directory inside the android project. */
@@ -90,6 +91,10 @@ const withKotlinSources: ConfigPlugin = (config) =>
       fs.copyFileSync(
         path.join(XML_SRC_DIR, "accessibility_service_config.xml"),
         path.join(resDir, "accessibility_service_config.xml")
+      );
+      fs.copyFileSync(
+        path.join(XML_SRC_DIR, "voice_interaction_service.xml"),
+        path.join(resDir, "voice_interaction_service.xml")
       );
 
       return config;
@@ -164,6 +169,40 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
             $: {
               "android:name": "android.accessibilityservice",
               "android:resource": "@xml/accessibility_service_config",
+            },
+          },
+        ],
+      });
+    }
+
+    // ── VoiceInteractionService (digital assistant registration) ──────────
+    const voiceServiceExists = (app.service as Array<{ $?: Record<string, string> }>).some(
+      (s) => s.$?.["android:name"] === ".VoxVoiceInteractionService"
+    );
+    if (!voiceServiceExists) {
+      app.service.push({
+        $: {
+          "android:name": ".VoxVoiceInteractionService",
+          "android:label": "Vox",
+          "android:permission": "android.permission.BIND_VOICE_INTERACTION",
+          "android:exported": "true",
+        },
+        "intent-filter": [
+          {
+            action: [
+              {
+                $: {
+                  "android:name": "android.service.voice.VoiceInteractionService",
+                },
+              },
+            ],
+          },
+        ],
+        "meta-data": [
+          {
+            $: {
+              "android:name": "android.voice_interaction",
+              "android:resource": "@xml/voice_interaction_service",
             },
           },
         ],

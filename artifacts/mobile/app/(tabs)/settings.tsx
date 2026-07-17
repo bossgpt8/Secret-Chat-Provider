@@ -384,13 +384,14 @@ export default function SettingsScreen() {
       });
       if (resp.ok) {
         const { Audio } = await import("expo-av");
-        const blob = await resp.blob();
-        const reader = new FileReader();
-        const base64 = await new Promise<string>((resolve, reject) => {
-          reader.onloadend = () => { const r = reader.result as string; resolve(r.split(",")[1] ?? ""); };
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
+        const arrayBuffer = await resp.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = "";
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode(...Array.from(bytes.slice(i, i + chunkSize)));
+        }
+        const base64 = btoa(binary);
         const { sound } = await Audio.Sound.createAsync(
           { uri: `data:audio/mpeg;base64,${base64}` },
           { shouldPlay: true }

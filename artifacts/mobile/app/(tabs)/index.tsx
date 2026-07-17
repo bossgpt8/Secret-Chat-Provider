@@ -7,6 +7,7 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as Speech from "expo-speech";
 import { fetch } from "expo/fetch";
+import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -242,6 +243,7 @@ Notifications.setNotificationHandler({
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
   const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -257,6 +259,8 @@ export default function ChatScreen() {
   const [isCallMode, setIsCallMode] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [visionMode, setVisionMode] = useState(false);
+  const cameraRef = useRef<CameraView>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [notifPermGranted, setNotifPermGranted] = useState(false);
   const [lastNotification, setLastNotification] = useState<VoxNotification | null>(null);
@@ -553,6 +557,51 @@ export default function ChatScreen() {
     return id;
   }
 
+  // ── Floating bubble command handler ─────────────────────────────────────────
+  const lastBubbleCmdTs = useRef<string | null>(null);
+  useEffect(() => {
+    if (!bubbleCmd || !bubbleCmdTs) return;
+    if (bubbleCmdTs === lastBubbleCmdTs.current) return;
+    lastBubbleCmdTs.current = bubbleCmdTs;
+    // Small delay so the screen has focused
+    setTimeout(() => {
+      sendMessage(bubbleCmd);
+    }, 400);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bubbleCmd, bubbleCmdTs]);
+
+  // ── Vision AI — capture a photo and describe it ──────────────────────────────
+  async function captureAndDescribe(userQuestion?: string) {
+    if (!cameraRef.current) {
+      await respond("I need the camera to be active. Please open the camera first.");
+      return;
+    }
+    try {
+      setMessages((prev) => [
+        ...prev,
+        { id: generateMsgId(), role: "user", content: userQuestion ?? "What do you see?", timestamp: Date.now() },
+      ]);
+      setShowTyping(true);
+      const photo = await cameraRef.current.takePictureAsync({ base64: false, quality: 0.6, skipProcessing: true });
+      if (!photo?.uri) throw new Error("no photo uri");
+      const base = await getApiBase();
+      const fd = new FormData();
+      fd.append("image", { uri: photo.uri, type: "image/jpeg", name: "photo.jpg" } as unknown as Blob);
+      if (userQuestion) fd.append("prompt", userQuestion);
+      const r = await globalThis.fetch(`${base}vision`, { method: "POST", body: fd });
+      const { description = "I couldn't describe the image." } = await r.json() as { description?: string };
+      setShowTyping(false);
+      setMessages((prev) => [
+        ...prev,
+        { id: generateMsgId(), role: "assistant", content: description, timestamp: Date.now() },
+      ]);
+      await speakText(description);
+    } catch {
+      setShowTyping(false);
+      await respond("I couldn't capture or describe the image. Make sure the camera is active.");
+    }
+  }
+
   async function getApiBase(): Promise<string> {
     if (customApiUrl && customApiUrl.trim()) {
       const u = customApiUrl.trim();
@@ -603,8 +652,8 @@ export default function ChatScreen() {
       rec = recording;
       isWakeListeningRef.current = true;
       setIsWakeListening(true);
-      // Listen for 3 seconds
-      await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+      // Listen for 1.5 seconds — faster wake word detection
+      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
       isWakeListeningRef.current = false;
       setIsWakeListening(false);
       if (!wakeWordLoopRef.current) { rec.stopAndUnloadAsync().catch(() => {}); return; }
@@ -928,6 +977,8 @@ export default function ChatScreen() {
     language?: string;
     // For contact favorite
     alias?: string;
+    // For vision AI — the full user question to pass as prompt
+    extra?: string;
   }
 
   function extractPhoneNumber(text: string): string | undefined {
@@ -1264,7 +1315,14 @@ export default function ChatScreen() {
       return { type: "language_switch", language: langMatch[1].toLowerCase() };
     }
 
-    // ── Photo capture ───────────────────────────────────────────────────────────
+    // ── Vision AI / Photo capture ────────────────────────────────────────────────
+    // "what do you see?" / "describe what's in front of you" / "take a picture and tell me"
+    const visionMatch = t.match(
+      /\b(?:what(?:'s|\s+is|\s+can\s+you)?\s+(?:do\s+you\s+see|you\s+see|around|in\s+front)|describe\s+(?:what(?:'s|\s+around|(?:\s+in)?\s+front)|(?:the\s+)?(?:image|photo|picture|scene|room|surroundings?))|look\s+(?:at|around)|what\s+am\s+i\s+(?:looking\s+at|holding|pointing\s+at)|read\s+(?:this|what(?:'s|\s+in\s+front)|the\s+(?:text|sign|label|screen|page|book))|scan\s+(?:this|the\s+(?:barcode|qr|code|label)))\b/i
+    );
+    if (visionMatch) {
+      return { type: "photo_capture", extra: t };
+    }
     // "take a photo" / "take a picture" / "capture a photo"
     if (/\b(take\s+(?:a\s+)?(?:photo|picture|selfie|screenshot?|snap)|capture\s+(?:a\s+)?(?:photo|image|picture))\b/.test(t)) {
       if (/\bscreenshot?\b/.test(t)) return { type: "open_app", app: "Screenshot" };
@@ -2025,19 +2083,20 @@ export default function ChatScreen() {
       // ── Photo capture ───────────────────────────────────────────────────────
 
       case "photo_capture": {
-        try {
-          const cameraUri = "android.media.action.IMAGE_CAPTURE";
-          const canOpen = await Linking.canOpenURL(cameraUri).catch(() => false);
-          if (canOpen) {
-            await Linking.openURL(cameraUri);
-            await respond("Opening the camera. Take your photo!");
-          } else {
-            await Linking.openURL("https://camera").catch(() => {});
-            await respond("Opening the camera app.");
+        const question = intent.extra ?? undefined;
+        if (!cameraPermission?.granted) {
+          const { granted } = await requestCameraPermission();
+          if (!granted) {
+            await respond("I need camera permission to see what's around you. Please grant it in Settings.");
+            break;
           }
-        } catch {
-          await respond("I couldn't open the camera. Please open it manually.");
         }
+        setCameraReady(true);
+        setVisionMode(true);
+        // Small delay so camera warms up before capture
+        await new Promise<void>((r) => setTimeout(r, 800));
+        await captureAndDescribe(question);
+        setVisionMode(false);
         break;
       }
 
@@ -2267,10 +2326,15 @@ export default function ChatScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Hidden camera view used purely for torch/flashlight control */}
+      {/* Camera view — used for torch control AND vision AI capture */}
       {cameraReady && Platform.OS !== "web" && (
         <CameraView
-          style={{ position: "absolute", width: 0, height: 0, opacity: 0 }}
+          ref={cameraRef}
+          style={
+            visionMode
+              ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, opacity: 0.01 }
+              : { position: "absolute", width: 0, height: 0, opacity: 0 }
+          }
           facing="back"
           enableTorch={torchOn}
         />

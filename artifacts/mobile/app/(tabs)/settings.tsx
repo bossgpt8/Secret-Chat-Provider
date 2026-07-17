@@ -102,6 +102,7 @@ export default function SettingsScreen() {
     customApiUrl, setCustomApiUrl,
     readIncomingEnabled, setReadIncomingEnabled,
     wakeWordEnabled, setWakeWordEnabled,
+    floatingBubbleEnabled, setFloatingBubbleEnabled,
     customQuickChips, setCustomQuickChips,
     speechLanguage, setSpeechLanguage,
   } = useAssistant();
@@ -648,6 +649,36 @@ export default function SettingsScreen() {
                 })
               )}
             </>
+          )}
+        </Section>
+
+        {/* ── Floating Bubble ── */}
+        <Section title="Floating Bubble">
+          <View style={[styles.row, { borderBottomColor: colors.border }]}>
+            <Ionicons name="radio-button-on-outline" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Floating Mic Button</Text>
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+                Shows a draggable mic button that floats over every screen. Tap it for quick commands — no need to open the app.
+              </Text>
+            </View>
+            <Switch
+              value={floatingBubbleEnabled}
+              onValueChange={async (v) => {
+                await setFloatingBubbleEnabled(v);
+                Haptics.selectionAsync();
+              }}
+              trackColor={{ false: colors.muted, true: colors.primary + "80" }}
+              thumbColor={floatingBubbleEnabled ? colors.primary : colors.mutedForeground}
+            />
+          </View>
+          {floatingBubbleEnabled && (
+            <View style={[styles.row, { borderBottomColor: "transparent" }]}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.accent} />
+              <Text style={[styles.rowValue, { color: colors.accent, flex: 1 }]}>
+                Drag it anywhere on screen. Long-press to see quick commands: search, flashlight, music, and more.
+              </Text>
+            </View>
           )}
         </Section>
 

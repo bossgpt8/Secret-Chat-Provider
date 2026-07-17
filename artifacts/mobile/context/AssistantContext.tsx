@@ -18,6 +18,7 @@ const TODOS_KEY = "@vox_todos";
 const FAVORITES_KEY = "@vox_favorites";
 const QUICK_CHIPS_KEY = "@vox_quick_chips";
 const SPEECH_LANGUAGE_KEY = "@vox_speech_language";
+const FLOATING_BUBBLE_KEY = "@vox_floating_bubble";
 
 // Migration map: old @zeno_* key → new @vox_* key
 const LEGACY_KEY_MAP: Record<string, string> = {
@@ -166,6 +167,8 @@ interface AssistantContextType {
   setCustomQuickChips: (chips: string[]) => Promise<void>;
   speechLanguage: string;
   setSpeechLanguage: (lang: string) => Promise<void>;
+  floatingBubbleEnabled: boolean;
+  setFloatingBubbleEnabled: (v: boolean) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -197,6 +200,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [contactFavorites, setContactFavoritesState] = useState<ContactFavorite[]>([]);
   const [customQuickChips, setCustomQuickChipsState] = useState<string[]>(DEFAULT_QUICK_CHIPS);
   const [speechLanguage, setSpeechLanguageState] = useState("en-US");
+  const [floatingBubbleEnabled, setFloatingBubbleEnabledState] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -213,7 +217,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     await migrateZenoToVox();
     try {
       const startTime = Date.now();
-      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang] = await Promise.all([
+      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
@@ -231,6 +235,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(FAVORITES_KEY),
         AsyncStorage.getItem(QUICK_CHIPS_KEY),
         AsyncStorage.getItem(SPEECH_LANGUAGE_KEY),
+        AsyncStorage.getItem(FLOATING_BUBBLE_KEY),
       ]);
       console.log(`[AssistantContext] Loaded from AsyncStorage in ${Date.now() - startTime}ms, onboarded=${!!name}`);
       if (name) { setAssistantNameState(name); setIsOnboarded(true); }
@@ -250,6 +255,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (favoritesRaw) { try { setContactFavoritesState(JSON.parse(favoritesRaw)); } catch { /* ignore */ } }
       if (quickChipsRaw) { try { const chips = JSON.parse(quickChipsRaw); if (Array.isArray(chips) && chips.length > 0) setCustomQuickChipsState(chips); } catch { /* ignore */ } }
       if (speechLang) setSpeechLanguageState(speechLang);
+      if (floatingBubble === "true") setFloatingBubbleEnabledState(true);
     } catch (e) {
       console.error("[AssistantContext] Error loading data:", e);
     } finally {
@@ -320,6 +326,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   async function setReadIncomingEnabled(v: boolean) {
     await AsyncStorage.setItem(READ_INCOMING_KEY, String(v));
     setReadIncomingEnabledState(v);
+  }
+
+  async function setFloatingBubbleEnabled(v: boolean) {
+    await AsyncStorage.setItem(FLOATING_BUBBLE_KEY, String(v));
+    setFloatingBubbleEnabledState(v);
   }
 
   async function saveNote(text: string): Promise<VoiceNote> {
@@ -450,6 +461,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         contactFavorites, setContactFavorite, getContactFavorite,
         customQuickChips, setCustomQuickChips,
         speechLanguage, setSpeechLanguage,
+        floatingBubbleEnabled, setFloatingBubbleEnabled,
       }}
     >
       {children}

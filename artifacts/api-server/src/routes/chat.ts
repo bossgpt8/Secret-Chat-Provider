@@ -275,4 +275,64 @@ router.post("/transcribe", upload.single("audio"), async (req, res) => {
   }
 });
 
+// ─── /vision  (describe an image — OpenRouter vision model) ──────────────────
+
+router.post("/vision", upload.single("image"), async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: "image file is required" });
+    return;
+  }
+
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (!orKey) {
+    res.status(500).json({ error: "No vision API key configured" });
+    return;
+  }
+
+  const { prompt = "Describe what you see in this image in 2-3 sentences, as if you are a voice assistant. Be concise and natural." } = req.body;
+
+  try {
+    const base64 = req.file.buffer.toString("base64");
+    const mimeType = req.file.mimetype || "image/jpeg";
+
+    const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${orKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://replit.com",
+        "X-Title": "Zeno Voice Assistant",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.0-flash-001",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+            ],
+          },
+        ],
+        max_tokens: 256,
+        temperature: 0.4,
+      }),
+    });
+
+    if (!r.ok) {
+      const err = await r.text().catch(() => "unknown");
+      req.log.error({ status: r.status, err }, "Vision API error");
+      res.status(500).json({ error: "Vision API failed" });
+      return;
+    }
+
+    const d = await r.json() as { choices?: { message?: { content?: string } }[] };
+    const description = d.choices?.[0]?.message?.content ?? "I couldn't describe the image.";
+    res.json({ description });
+  } catch (err) {
+    req.log.error({ err }, "Vision error");
+    res.status(500).json({ error: "Vision failed" });
+  }
+});
+
 export default router;

@@ -32,6 +32,7 @@ import { NativeAccessibility, type VoxAccessibilityNotification } from "@/module
 import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallScreening";
 import { NativeMediaControl } from "@/modules/NativeMediaControl";
 import { NativeNotifications, type VoxNotification } from "@/modules/NativeNotifications";
+import { NativeOverlay } from "@/modules/NativeOverlay";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 
 // ─── Typing indicator ────────────────────────────────────────────────────────
@@ -276,6 +277,8 @@ export default function ChatScreen() {
 
   // Call screening
   const [incomingCallNumber, setIncomingCallNumber] = useState<string | null>(null);
+  // Command received from native overlay while app is backgrounded
+  const [pendingOverlayCmd, setPendingOverlayCmd] = useState<string | null>(null);
 
   const inputRef = useRef<TextInput>(null);
   const activeConvId = useRef<string | null>(null);
@@ -315,6 +318,48 @@ export default function ChatScreen() {
     const escaped = assistantName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     wakeWordRegexRef.current = new RegExp(`(?:hey[\\s,!]+)?${escaped}`, "i");
   }, [assistantName]);
+
+  // ── Native overlay event listeners (Android only) ─────────────────────────
+  // These fire even when the app is backgrounded because the JS thread keeps
+  // running. The service handles wake-word detection and hands us the command.
+  useEffect(() => {
+    if (!NativeOverlay.isAvailable) return;
+
+    const unsubWake = NativeOverlay.onWakeWord(() => {
+      // Service already transitioned bubble to "wake" state — nothing extra needed
+    });
+
+    const unsubCmd = NativeOverlay.onCommand((text) => {
+      if (text.trim()) {
+        // Set the overlay to processing so the bubble pulses orange
+        NativeOverlay.setState("processing").catch(() => {});
+        setPendingOverlayCmd(text.trim());
+      }
+    });
+
+    const unsubTap = NativeOverlay.onTap(() => {
+      // User tapped the bubble — navigate to chat tab and start listening
+      router.navigate("/(tabs)/");
+    });
+
+    return () => {
+      unsubWake();
+      unsubCmd();
+      unsubTap();
+    };
+  }, []);
+
+  // Process a command that arrived from the native overlay while backgrounded.
+  // We capture `cmd` in a local variable before clearing the state so the
+  // setTimeout closure always gets the non-null value.
+  useEffect(() => {
+    if (!pendingOverlayCmd) return;
+    const cmd = pendingOverlayCmd;
+    setPendingOverlayCmd(null);
+    const timer = setTimeout(() => { handleSend(cmd); }, 50);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOverlayCmd]);
 
   // Start / stop wake word loop whenever enabled state or call mode changes
   useEffect(() => {
@@ -704,6 +749,8 @@ export default function ChatScreen() {
 
   function onTtsDone() {
     setIsSpeaking(false);
+    // Reset native overlay bubble back to idle state
+    if (Platform.OS === "android") NativeOverlay.setState("idle").catch(() => {});
     if (pendingCallModeAfterTtsRef.current && !isStreamingRef.current) {
       pendingCallModeAfterTtsRef.current = false;
       startCallMode();
@@ -733,6 +780,8 @@ export default function ChatScreen() {
     }
     await stopSpeaking();
     setIsSpeaking(true);
+    // Update native overlay bubble to "speaking" state while TTS plays
+    if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
 
     if (ttsProvider === "elevenlabs" && Platform.OS !== "web") {
       try {

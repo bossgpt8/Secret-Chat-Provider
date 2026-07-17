@@ -51,6 +51,9 @@ const KOTLIN_FILES = [
   "CallScreeningModule.kt",
   "CallScreeningPackage.kt",
   "VoxVoiceInteractionService.kt",
+  "VoxOverlayService.kt",
+  "VoxOverlayModule.kt",
+  "VoxOverlayPackage.kt",
 ];
 
 /** Resolves the com.boss.assistant java source directory inside the android project. */
@@ -209,6 +212,34 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
       });
     }
 
+    // ── VoxOverlayService (persistent floating bubble + bg wake word) ─────
+    const overlayServiceExists = (app.service as Array<{ $?: Record<string, string> }>).some(
+      (s) => s.$?.["android:name"] === ".VoxOverlayService"
+    );
+    if (!overlayServiceExists) {
+      app.service.push({
+        $: {
+          "android:name": ".VoxOverlayService",
+          "android:label": "Vox Overlay",
+          "android:exported": "false",
+          // Android 10+ requires foreground service type for mic access
+          "android:foregroundServiceType": "microphone",
+        },
+      });
+    }
+
+    // ── Permissions ───────────────────────────────────────────────────────
+    if (!manifest.manifest["uses-permission"]) manifest.manifest["uses-permission"] = [];
+    const perms = manifest.manifest["uses-permission"] as Array<{ $: Record<string, string> }>;
+    const ensurePerm = (name: string) => {
+      if (!perms.some((p) => p.$["android:name"] === name))
+        perms.push({ $: { "android:name": name } });
+    };
+    ensurePerm("android.permission.SYSTEM_ALERT_WINDOW");
+    ensurePerm("android.permission.FOREGROUND_SERVICE");
+    ensurePerm("android.permission.FOREGROUND_SERVICE_MICROPHONE");
+    ensurePerm("android.permission.RECORD_AUDIO");
+
     // ── DeviceAdminReceiver ───────────────────────────────────────────────
     if (!app.receiver) app.receiver = [];
     const receiverExists = (
@@ -260,6 +291,7 @@ const PACKAGES = [
   "AccessibilityPackage()",
   "MediaControlPackage()",
   "CallScreeningPackage()",
+  "VoxOverlayPackage()",
 ];
 
 /** Marker inserted to detect that our packages have already been added (idempotency). */

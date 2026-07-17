@@ -1,12 +1,13 @@
 import { Feather, Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { router, Tabs } from "expo-router";
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { FloatingBubble } from "@/components/FloatingBubble";
 import { useAssistant } from "@/context/AssistantContext";
 import { useAppColorScheme } from "@/hooks/useAppColorScheme";
 import { useColors } from "@/hooks/useColors";
+import { NativeOverlay } from "@/modules/NativeOverlay";
 
 export default function TabLayout() {
   const colors = useColors();
@@ -23,6 +24,29 @@ export default function TabLayout() {
   const handleCommandPress = useCallback((cmd: string) => {
     router.navigate({ pathname: "/(tabs)/", params: { bubbleCmd: cmd, bubbleCmdTs: String(Date.now()) } });
   }, []);
+
+  // On Android the floating bubble is a native WindowManager overlay so it
+  // persists when the app is backgrounded. Start / stop the foreground service
+  // here so the lifecycle is tied to the tab layout (always-mounted root).
+  useEffect(() => {
+    if (Platform.OS !== "android" || !NativeOverlay.isAvailable) return;
+    if (floatingBubbleEnabled) {
+      NativeOverlay.hasPermission().then(async (hasPerm) => {
+        if (hasPerm) {
+          await NativeOverlay.start();
+        } else {
+          // Send user to system settings; they need to toggle "Display over other apps"
+          await NativeOverlay.requestPermission();
+        }
+      }).catch(() => {});
+    } else {
+      NativeOverlay.stop().catch(() => {});
+    }
+    return () => {
+      // Do NOT stop the service on unmount — layout remounts on navigation.
+      // Service lifecycle is intentionally controlled only by the setting toggle.
+    };
+  }, [floatingBubbleEnabled]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -99,8 +123,10 @@ export default function TabLayout() {
         />
       </Tabs>
 
-      {/* Floating bubble — rendered over all tabs */}
-      {floatingBubbleEnabled && Platform.OS !== "web" && (
+      {/* Floating bubble — React Native component only on iOS/web.
+          On Android the native WindowManager overlay (VoxOverlayService) is
+          used instead so the bubble persists when the app is backgrounded. */}
+      {floatingBubbleEnabled && Platform.OS === "ios" && (
         <FloatingBubble
           assistantName={assistantName}
           onMicPress={handleMicPress}

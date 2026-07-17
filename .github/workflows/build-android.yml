@@ -57,17 +57,32 @@ jobs:
           EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://replit.com/@B-oss/Secret-Chat-Provider/api' }}
         run: CI=1 pnpm exec expo prebuild --platform android --clean --no-install
 
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('artifacts/mobile/android/**/*.gradle*', 'artifacts/mobile/android/**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
       - name: Configure ABI filter
         env:
           TARGET_ABI: ${{ github.event.inputs.architecture }}
         run: |
           if [ "$TARGET_ABI" = "all" ] || [ -z "$TARGET_ABI" ] || [ "$TARGET_ABI" = "null" ]; then
-            echo "Building universal APK (all architectures)"
-          else
-            python3 - <<'PYEOF'
+            TARGET_ABI="armeabi-v7a"
+            echo "No architecture specified, defaulting to armeabi-v7a"
+          fi
+          
+          python3 - <<'PYEOF'
           import re, os
           abi = os.environ['TARGET_ABI']
-          abi_filters = ', '.join(f'"{a}"' for a in abi.split('+'))
+          if '+' in abi:
+              abi_filters = ', '.join(f'"{a}"' for a in abi.split('+'))
+          else:
+              abi_filters = f'"{abi}"'
+          
           f = 'artifacts/mobile/android/app/build.gradle'
           content = open(f).read()
           content = re.sub(
@@ -79,16 +94,6 @@ jobs:
           open(f, 'w').write(content)
           print(f'ABI filter set to: {abi_filters}')
           PYEOF
-          fi
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('artifacts/mobile/android/**/*.gradle*', 'artifacts/mobile/android/**/gradle-wrapper.properties') }}
-          restore-keys: ${{ runner.os }}-gradle-
 
       - name: Make gradlew executable
         working-directory: artifacts/mobile/android
@@ -98,10 +103,24 @@ jobs:
         working-directory: artifacts/mobile/android
         run: ./gradlew assembleRelease --no-daemon
 
+      - name: Rename APK file
+        run: |
+          # Get architecture
+          ARCH="${{ github.event.inputs.architecture || 'armeabi-v7a' }}"
+          
+          # Get version from package.json
+          VERSION=$(node -p "require('./package.json').version")
+          
+          # Rename the APK
+          cd artifacts/mobile/android/app/build/outputs/apk/release/
+          mv app-release.apk "Vox-${VERSION}-${ARCH}.apk"
+          
+          echo "✅ APK renamed to: Vox-${VERSION}-${ARCH}.apk"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: secret-chat-release-${{ github.event.inputs.architecture || 'armeabi-v7a' }}-apk
+          name: secret-chat-${{ github.event.inputs.architecture || 'armeabi-v7a' }}-apk
           path: artifacts/mobile/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30

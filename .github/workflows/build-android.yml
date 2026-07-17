@@ -55,7 +55,7 @@ jobs:
         working-directory: artifacts/mobile
         env:
           EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || 'https://secret-chat-provider--israelifeoluwa.replit.app/api' }}
-        run: CI=1 pnpm exec expo prebuild --platform android --clean
+        run: CI=1 pnpm exec expo prebuild --platform android --clean --no-install
 
       - name: Configure ABI filter
         env:

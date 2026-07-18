@@ -1,8 +1,8 @@
 import { Feather, Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { router, Tabs } from "expo-router";
-import React, { useCallback, useEffect } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useRef } from "react";
+import { AppState, type AppStateStatus, Platform, StyleSheet, View } from "react-native";
 import { FloatingBubble } from "@/components/FloatingBubble";
 import { useAssistant } from "@/context/AssistantContext";
 import { useAppColorScheme } from "@/hooks/useAppColorScheme";
@@ -28,25 +28,52 @@ export default function TabLayout() {
   // On Android the floating bubble is a native WindowManager overlay so it
   // persists when the app is backgrounded. Start / stop the foreground service
   // here so the lifecycle is tied to the tab layout (always-mounted root).
+  const waitingForOverlayPerm = useRef(false);
+  const floatingBubbleEnabledRef = useRef(floatingBubbleEnabled);
+  useEffect(() => { floatingBubbleEnabledRef.current = floatingBubbleEnabled; }, [floatingBubbleEnabled]);
+
+  // Attempt to start the overlay service if permission is granted.
+  const tryStartOverlay = useCallback(async () => {
+    if (Platform.OS !== "android" || !NativeOverlay.isAvailable) return;
+    const hasPerm = await NativeOverlay.hasPermission().catch(() => false);
+    if (hasPerm) {
+      waitingForOverlayPerm.current = false;
+      await NativeOverlay.start().catch(() => {});
+    }
+  }, []);
+
+  // When the app returns to foreground after the user visited the system
+  // permission screen, check if they granted it and start the service.
+  useEffect(() => {
+    if (Platform.OS !== "android" || !NativeOverlay.isAvailable) return;
+    const sub = AppState.addEventListener("change", (next: AppStateStatus) => {
+      if (next === "active" && waitingForOverlayPerm.current && floatingBubbleEnabledRef.current) {
+        tryStartOverlay();
+      }
+    });
+    return () => sub.remove();
+  }, [tryStartOverlay]);
+
+  // React to the setting toggle turning on or off.
   useEffect(() => {
     if (Platform.OS !== "android" || !NativeOverlay.isAvailable) return;
     if (floatingBubbleEnabled) {
       NativeOverlay.hasPermission().then(async (hasPerm) => {
         if (hasPerm) {
-          await NativeOverlay.start();
+          await NativeOverlay.start().catch(() => {});
         } else {
-          // Send user to system settings; they need to toggle "Display over other apps"
-          await NativeOverlay.requestPermission();
+          // Open "Display over other apps" settings.
+          // AppState listener above will call tryStartOverlay() when user returns.
+          waitingForOverlayPerm.current = true;
+          await NativeOverlay.requestPermission().catch(() => {});
         }
       }).catch(() => {});
     } else {
+      waitingForOverlayPerm.current = false;
       NativeOverlay.stop().catch(() => {});
     }
-    return () => {
-      // Do NOT stop the service on unmount — layout remounts on navigation.
-      // Service lifecycle is intentionally controlled only by the setting toggle.
-    };
-  }, [floatingBubbleEnabled]);
+    // Do NOT stop on unmount — layout remounts on navigation but service must persist.
+  }, [floatingBubbleEnabled, tryStartOverlay]);
 
   return (
     <View style={{ flex: 1 }}>

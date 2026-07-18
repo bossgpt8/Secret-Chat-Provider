@@ -53,3 +53,19 @@ EXPO_PUBLIC_API_URL = "https://secret-chat-provider--b-oss.replit.app/api"
 
 [nix]
 channel = "stable-25_05"
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 80
+
+[[ports]]
+localPort = 18115
+externalPort = 3001

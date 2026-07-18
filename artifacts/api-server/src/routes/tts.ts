@@ -4,6 +4,22 @@ const router: IRouter = Router();
 
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 
+// Kokoro FastAPI server (self-hosted, OpenAI-compatible)
+const KOKORO_URL = process.env.KOKORO_URL ?? "";
+
+// Curated Kokoro voices — fallback when server is unreachable
+const KOKORO_VOICES = [
+  { id: "af_bella",   name: "Bella",   description: "American female — warm & smooth (recommended)" },
+  { id: "af_sky",     name: "Sky",     description: "American female — bright & energetic" },
+  { id: "af_sarah",   name: "Sarah",   description: "American female — professional" },
+  { id: "af_nicole",  name: "Nicole",  description: "American female — soft & intimate" },
+  { id: "am_adam",    name: "Adam",    description: "American male — deep & authoritative" },
+  { id: "am_michael", name: "Michael", description: "American male — neutral & clear" },
+  { id: "bf_emma",    name: "Emma",    description: "British female — warm" },
+  { id: "bm_george",  name: "George",  description: "British male — distinguished" },
+  { id: "bm_lewis",   name: "Lewis",   description: "British male — conversational" },
+];
+
 // Popular high-quality ElevenLabs voices
 const ELEVENLABS_VOICES = [
   { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", description: "Calm, American female" },
@@ -44,8 +60,33 @@ const ELEVENLABS_VOICES = [
   { id: "zrHiDhphv9ZnVXBqCLjz", name: "Glinda", description: "Witch, American female" },
 ];
 
-// GET /tts/voices — list available ElevenLabs voices
+// GET /tts/voices?provider=kokoro|elevenlabs
 router.get("/tts/voices", async (req, res) => {
+  const provider = (req.query.provider as string) || "elevenlabs";
+
+  // ── Kokoro voices ──────────────────────────────────────────────────────────
+  if (provider === "kokoro") {
+    if (!KOKORO_URL) {
+      res.json({ voices: KOKORO_VOICES, source: "static" });
+      return;
+    }
+    try {
+      const r = await fetch(`${KOKORO_URL}/v1/voices`);
+      if (!r.ok) throw new Error("non-ok");
+      const data = await r.json() as { voices?: { voice_id?: string; id?: string; name?: string }[] };
+      const voices = (data.voices ?? []).map((v) => ({
+        id: v.voice_id ?? v.id ?? "",
+        name: v.name ?? v.voice_id ?? v.id ?? "",
+        description: "",
+      })).filter((v) => v.id);
+      res.json({ voices: voices.length > 0 ? voices : KOKORO_VOICES, source: voices.length > 0 ? "api" : "static" });
+    } catch {
+      res.json({ voices: KOKORO_VOICES, source: "static" });
+    }
+    return;
+  }
+
+  // ── ElevenLabs voices ──────────────────────────────────────────────────────
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
     res.json({ voices: ELEVENLABS_VOICES, source: "static" });
@@ -76,9 +117,11 @@ router.get("/tts/voices", async (req, res) => {
 });
 
 // POST /tts — synthesize speech, stream back mp3
+// Body: { text, provider?, voiceId?, stability?, similarityBoost? }
 router.post("/tts", async (req, res) => {
-  const { text, voiceId, stability, similarityBoost } = req.body as {
+  const { text, provider, voiceId, stability, similarityBoost } = req.body as {
     text?: string;
+    provider?: string;
     voiceId?: string;
     stability?: number;
     similarityBoost?: number;
@@ -89,6 +132,54 @@ router.post("/tts", async (req, res) => {
     return;
   }
 
+  const truncated = text.slice(0, 1000);
+
+  // ── Kokoro (self-hosted) ───────────────────────────────────────────────────
+  if (provider === "kokoro") {
+    if (!KOKORO_URL) {
+      res.status(503).json({ error: "Kokoro not configured (KOKORO_URL missing)" });
+      return;
+    }
+    const voice = voiceId || "af_bella";
+    try {
+      const r = await fetch(`${KOKORO_URL}/v1/audio/speech`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "kokoro",
+          input: truncated,
+          voice,
+          response_format: "mp3",
+          speed: 1.0,
+        }),
+      });
+
+      if (!r.ok) {
+        const errText = await r.text();
+        res.status(r.status).json({ error: `Kokoro error: ${errText}` });
+        return;
+      }
+
+      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Transfer-Encoding", "chunked");
+
+      const reader = r.body?.getReader();
+      if (!reader) { res.status(500).json({ error: "No audio stream" }); return; }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: `Kokoro TTS failed: ${msg}` });
+    }
+    return;
+  }
+
+  // ── ElevenLabs (cloud) ────────────────────────────────────────────────────
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
     res.status(503).json({ error: "ElevenLabs not configured" });
@@ -96,7 +187,6 @@ router.post("/tts", async (req, res) => {
   }
 
   const voice = voiceId || "21m00Tcm4TlvDq8ikWAM"; // Rachel default
-  const truncated = text.slice(0, 1000);
 
   try {
     const r = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${voice}/stream`, {

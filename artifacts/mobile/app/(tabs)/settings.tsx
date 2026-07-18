@@ -96,6 +96,7 @@ export default function SettingsScreen() {
     conversations, clearAllConversations,
     phoneVoiceId, setPhoneVoiceId,
     elVoiceId, setElVoiceId,
+    kokoroVoiceId, setKokoroVoiceId,
     speechRate, setSpeechRate,
     ttsProvider, setTtsProvider,
     themeOverride, setThemeOverride,
@@ -119,6 +120,11 @@ export default function SettingsScreen() {
 
   const [elVoices, setElVoices] = useState<ElVoice[]>([]);
   const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
+
+  const [kokoroVoices, setKokoroVoices] = useState<ElVoice[]>([]);
+  const [kokoroDropdownOpen, setKokoroDropdownOpen] = useState(false);
+  const [loadingKokoroVoices, setLoadingKokoroVoices] = useState(false);
+  const [previewingKokoroId, setPreviewingKokoroId] = useState<string | null>(null);
 
   const [permStatuses, setPermStatuses] = useState<Record<string, PermStatus>>(DEFAULT_PERM_STATUSES);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -245,28 +251,75 @@ export default function SettingsScreen() {
     finally { setLoadingPhoneVoices(false); }
   }
 
+  function resolveBase() {
+    if (customApiUrl && customApiUrl.trim()) {
+      const u = customApiUrl.trim();
+      return u.endsWith("/") ? u : `${u}/`;
+    }
+    const envUrl = process.env.EXPO_PUBLIC_API_URL;
+    if (envUrl) return envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
+    if (Platform.OS === "web") return "/api/";
+    return "https://secret-chat-provider--b-oss.replit.app/api/";
+  }
+
   async function loadElVoices() {
     if (elVoices.length > 0) return; // already loaded
     setLoadingElVoices(true);
     try {
-      let base: string;
-      if (customApiUrl && customApiUrl.trim()) {
-        const u = customApiUrl.trim();
-        base = u.endsWith("/") ? u : `${u}/`;
-      } else {
-        const envUrl = process.env.EXPO_PUBLIC_API_URL;
-        if (envUrl) base = envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
-        else if (Platform.OS === "web") base = "/api/";
-        else base = "https://secret-chat-provider--b-oss.replit.app/api/";
-      }
-      const r = await fetch(`${base}tts/voices`);
+      const base = resolveBase();
+      const r = await fetch(`${base}tts/voices?provider=elevenlabs`);
       if (r.ok) {
         const data = await r.json() as { voices: ElVoice[] };
-        // Limit to 5 best voices
         setElVoices((data.voices ?? []).slice(0, 5));
       }
     } catch { setElVoices([]); }
     finally { setLoadingElVoices(false); }
+  }
+
+  async function loadKokoroVoices() {
+    if (kokoroVoices.length > 0) return; // already loaded
+    setLoadingKokoroVoices(true);
+    try {
+      const base = resolveBase();
+      const r = await fetch(`${base}tts/voices?provider=kokoro`);
+      if (r.ok) {
+        const data = await r.json() as { voices: ElVoice[] };
+        setKokoroVoices(data.voices ?? []);
+      }
+    } catch { setKokoroVoices([]); }
+    finally { setLoadingKokoroVoices(false); }
+  }
+
+  async function previewKokoroVoice(v: ElVoice) {
+    if (previewingKokoroId === v.id) { setPreviewingKokoroId(null); return; }
+    setPreviewingKokoroId(v.id);
+    Haptics.selectionAsync();
+    try {
+      const base = resolveBase();
+      const resp = await fetch(`${base}tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `Hi, I'm ${assistantName}. This is the ${v.name} voice.`, provider: "kokoro", voiceId: v.id }),
+      });
+      if (resp.ok) {
+        const { Audio } = await import("expo-av");
+        const arrayBuffer = await resp.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = "";
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode(...Array.from(bytes.slice(i, i + chunkSize)));
+        }
+        const base64 = btoa(binary);
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: `data:audio/mpeg;base64,${base64}` },
+          { shouldPlay: true }
+        );
+        sound.setOnPlaybackStatusUpdate((s) => {
+          if (s.isLoaded && s.didJustFinish) { setPreviewingKokoroId(null); sound.unloadAsync().catch(() => {}); }
+        });
+      } else { setPreviewingKokoroId(null); }
+    } catch { setPreviewingKokoroId(null); }
   }
 
   async function saveName() {
@@ -499,11 +552,14 @@ export default function SettingsScreen() {
               <Text style={[styles.rowLabel, { color: colors.foreground }]}>Voice Engine</Text>
             </View>
             <View style={styles.provRow}>
+              <ProviderTab p="kokoro" label="Kokoro" icon="server-outline" />
               <ProviderTab p="elevenlabs" label="ElevenLabs" icon="sparkles" />
-              <ProviderTab p="phone" label="Phone TTS" icon="phone-portrait-outline" />
+              <ProviderTab p="phone" label="Phone" icon="phone-portrait-outline" />
             </View>
             <Text style={[styles.rowValue, { color: colors.mutedForeground, paddingLeft: 0 }]}>
-              {ttsProvider === "elevenlabs"
+              {ttsProvider === "kokoro"
+                ? "Self-hosted Kokoro AI voices — unlimited & free. Runs on your own server."
+                : ttsProvider === "elevenlabs"
                 ? "High-quality AI voices via ElevenLabs. Phone TTS used as fallback."
                 : "Uses your device's built-in text-to-speech engine."}
             </Text>
@@ -528,6 +584,71 @@ export default function SettingsScreen() {
                   );
                 })}
               </View>
+            </View>
+          )}
+
+          {/* Kokoro voices — compact dropdown */}
+          {ttsProvider === "kokoro" && (
+            <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "stretch", gap: 0, paddingBottom: 0 }]}>
+              <Pressable
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingHorizontal: 16 }}
+                onPress={() => {
+                  const next = !kokoroDropdownOpen;
+                  setKokoroDropdownOpen(next);
+                  if (next && kokoroVoices.length === 0) loadKokoroVoices();
+                  Haptics.selectionAsync();
+                }}
+              >
+                <Ionicons name="server-outline" size={18} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>Kokoro Voice</Text>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+                    {(kokoroVoices.find((v) => v.id === kokoroVoiceId) ?? kokoroVoices[0])?.name ?? kokoroVoiceId}
+                  </Text>
+                </View>
+                <Ionicons name={kokoroDropdownOpen ? "chevron-up" : "chevron-down"} size={14} color={colors.mutedForeground} />
+              </Pressable>
+
+              {kokoroDropdownOpen && (
+                <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+                  {loadingKokoroVoices ? (
+                    <View style={{ padding: 16, alignItems: "center" }}>
+                      <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Loading voices…</Text>
+                    </View>
+                  ) : kokoroVoices.length === 0 ? (
+                    <View style={{ padding: 16 }}>
+                      <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Could not load voices from Kokoro server.</Text>
+                    </View>
+                  ) : (
+                    kokoroVoices.map((v, i) => {
+                      const isSelected = kokoroVoiceId === v.id;
+                      const isPreviewing = previewingKokoroId === v.id;
+                      return (
+                        <Pressable key={v.id}
+                          style={[styles.voiceRow, {
+                            borderBottomColor: i < kokoroVoices.length - 1 ? colors.border : "transparent",
+                            backgroundColor: isSelected ? colors.primary + "10" : "transparent",
+                            paddingLeft: 20,
+                          }]}
+                          onPress={() => { setKokoroVoiceId(v.id); setKokoroDropdownOpen(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}>
+                          <View style={[styles.voiceRadio, { borderColor: isSelected ? colors.primary : colors.border, backgroundColor: isSelected ? colors.primary : "transparent" }]}>
+                            {isSelected && <View style={styles.voiceRadioDot} />}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.rowLabel, { color: colors.foreground }]}>{v.name}</Text>
+                            {v.description ? <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{v.description}</Text> : null}
+                          </View>
+                          <Pressable style={[styles.previewBtn, { backgroundColor: isPreviewing ? colors.accent + "20" : colors.muted }]}
+                            onPress={() => previewKokoroVoice(v)} hitSlop={8}>
+                            <Ionicons name={isPreviewing ? "stop-circle-outline" : "play-outline"} size={16} color={isPreviewing ? colors.accent : colors.mutedForeground} />
+                            <Text style={[styles.previewText, { color: isPreviewing ? colors.accent : colors.mutedForeground }]}>{isPreviewing ? "Stop" : "Try"}</Text>
+                          </Pressable>
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </View>
+              )}
             </View>
           )}
 

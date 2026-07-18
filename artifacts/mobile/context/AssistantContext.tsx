@@ -5,6 +5,7 @@ const ASSISTANT_NAME_KEY = "@vox_assistant_name";
 const CONVERSATIONS_KEY = "@vox_conversations";
 const PHONE_VOICE_ID_KEY = "@vox_phone_voice_id";
 const EL_VOICE_ID_KEY = "@vox_el_voice_id";
+const KOKORO_VOICE_ID_KEY = "@vox_kokoro_voice_id";
 const SPEECH_RATE_KEY = "@vox_speech_rate";
 const TTS_PROVIDER_KEY = "@vox_tts_provider";
 const THEME_KEY = "@vox_theme";
@@ -73,7 +74,7 @@ async function migrateZenoToVox(): Promise<void> {
   }
 }
 
-export type TtsProvider = "elevenlabs" | "phone";
+export type TtsProvider = "elevenlabs" | "kokoro" | "phone";
 export type ThemeOverride = "system" | "dark" | "light";
 export type AssistantPersonality = "friendly" | "casual" | "professional" | "witty" | "caring";
 
@@ -137,6 +138,8 @@ interface AssistantContextType {
   setPhoneVoiceId: (id: string | null) => Promise<void>;
   elVoiceId: string | null;
   setElVoiceId: (id: string | null) => Promise<void>;
+  kokoroVoiceId: string;
+  setKokoroVoiceId: (id: string) => Promise<void>;
   speechRate: number;
   setSpeechRate: (rate: number) => Promise<void>;
   ttsProvider: TtsProvider;
@@ -187,8 +190,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [phoneVoiceId, setPhoneVoiceIdState] = useState<string | null>(null);
   const [elVoiceId, setElVoiceIdState] = useState<string | null>("21m00Tcm4TlvDq8ikWAM");
+  const [kokoroVoiceId, setKokoroVoiceIdState] = useState<string>("af_bella");
   const [speechRate, setSpeechRateState] = useState(0.9);
-  const [ttsProvider, setTtsProviderState] = useState<TtsProvider>("elevenlabs");
+  const [ttsProvider, setTtsProviderState] = useState<TtsProvider>("kokoro");
   const [themeOverride, setThemeOverrideState] = useState<ThemeOverride>("system");
   const [customApiUrl, setCustomApiUrlState] = useState<string | null>(null);
   const [userProfile, setUserProfileState] = useState<UserProfile>(DEFAULT_USER_PROFILE);
@@ -217,11 +221,12 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     await migrateZenoToVox();
     try {
       const startTime = Date.now();
-      const [name, convsRaw, pvid, evid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble] = await Promise.all([
+      const [name, convsRaw, pvid, evid, kvid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
         AsyncStorage.getItem(EL_VOICE_ID_KEY),
+        AsyncStorage.getItem(KOKORO_VOICE_ID_KEY),
         AsyncStorage.getItem(SPEECH_RATE_KEY),
         AsyncStorage.getItem(TTS_PROVIDER_KEY),
         AsyncStorage.getItem(THEME_KEY),
@@ -242,8 +247,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (convsRaw) setConversations(JSON.parse(convsRaw));
       if (pvid) setPhoneVoiceIdState(pvid);
       if (evid) setElVoiceIdState(evid);
+      if (kvid) setKokoroVoiceIdState(kvid);
       if (rate) setSpeechRateState(parseFloat(rate));
-      if (prov === "phone" || prov === "elevenlabs") setTtsProviderState(prov);
+      if (prov === "phone" || prov === "elevenlabs" || prov === "kokoro") setTtsProviderState(prov);
       if (theme === "dark" || theme === "light" || theme === "system") setThemeOverrideState(theme);
       if (apiUrl) setCustomApiUrlState(apiUrl);
       if (profileRaw) { try { setUserProfileState(JSON.parse(profileRaw)); } catch { /* ignore */ } }
@@ -281,6 +287,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     if (id) await AsyncStorage.setItem(EL_VOICE_ID_KEY, id);
     else await AsyncStorage.removeItem(EL_VOICE_ID_KEY);
     setElVoiceIdState(id);
+  }
+
+  async function setKokoroVoiceId(id: string) {
+    await AsyncStorage.setItem(KOKORO_VOICE_ID_KEY, id);
+    setKokoroVoiceIdState(id);
   }
 
   async function setSpeechRate(rate: number) {
@@ -448,6 +459,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         phoneVoiceId, setPhoneVoiceId,
         elVoiceId, setElVoiceId,
+        kokoroVoiceId, setKokoroVoiceId,
         speechRate, setSpeechRate,
         ttsProvider, setTtsProvider,
         themeOverride, setThemeOverride,

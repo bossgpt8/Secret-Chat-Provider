@@ -247,7 +247,7 @@ export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
+  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -788,13 +788,17 @@ export default function ChatScreen() {
     // Update native overlay bubble to "speaking" state while TTS plays
     if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
 
-    if (ttsProvider === "elevenlabs" && Platform.OS !== "web") {
+    // Cloud/self-hosted TTS providers (kokoro + elevenlabs share the same audio playback path)
+    if ((ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && Platform.OS !== "web") {
       try {
         const base = await getApiBase();
+        const body = ttsProvider === "kokoro"
+          ? { text: text.slice(0, 800), provider: "kokoro", voiceId: kokoroVoiceId }
+          : { text: text.slice(0, 800), voiceId: elVoiceId };
         const resp = await fetch(`${base}tts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: text.slice(0, 800), voiceId: elVoiceId }),
+          body: JSON.stringify(body),
         });
 
         if (resp.ok) {

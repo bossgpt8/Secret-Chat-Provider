@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import chatRouter from "./chat";
 import ttsRouter from "./tts";
 import conversationsRouter from "./conversations";
+import gameAssistRouter from "./game-assist";
 
 const router: IRouter = Router();
 
@@ -10,5 +11,6 @@ router.use(healthRouter);
 router.use(chatRouter);
 router.use(ttsRouter);
 router.use(conversationsRouter);
+router.use(gameAssistRouter);
 
 export default router;

@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
   Easing,
   FlatList,
   Linking,
@@ -33,6 +34,7 @@ import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallSc
 import { NativeMediaControl } from "@/modules/NativeMediaControl";
 import { NativeNotifications, type VoxNotification } from "@/modules/NativeNotifications";
 import { NativeOverlay } from "@/modules/NativeOverlay";
+import { NativeScreenCapture } from "@/modules/NativeScreenCapture";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 
 // ─── Typing indicator ────────────────────────────────────────────────────────
@@ -279,6 +281,9 @@ export default function ChatScreen() {
   const [incomingCallNumber, setIncomingCallNumber] = useState<string | null>(null);
   // Command received from native overlay while app is backgrounded
   const [pendingOverlayCmd, setPendingOverlayCmd] = useState<string | null>(null);
+  // Screen share / game assist
+  const [screenShareActive, setScreenShareActive] = useState(false);
+  const screenShareActiveRef = useRef(false);
 
   const inputRef = useRef<TextInput>(null);
   const activeConvId = useRef<string | null>(null);
@@ -2222,6 +2227,13 @@ export default function ChatScreen() {
     const text = (overrideText ?? input).trim();
     if (!text || isStreaming) return;
 
+    // If screen share is active route to AI game assist instead of chat
+    if (screenShareActiveRef.current && !isSearchMode) {
+      setInput("");
+      handleGameAssist(text);
+      return;
+    }
+
     // Check for device commands first
     const deviceIntent = detectDeviceIntent(text);
     if (deviceIntent) { handleDeviceCommand(deviceIntent, text); return; }
@@ -2357,6 +2369,100 @@ export default function ChatScreen() {
       setShowTyping(false);
     }
   }, [input, isStreaming, isSearchMode, messages, assistantName, userProfile, assistantPersonality]);
+
+  // ── Screen share / game assist ────────────────────────────────────────────
+
+  const toggleScreenShare = async () => {
+    if (!NativeScreenCapture.isAvailable) return;
+    if (screenShareActive) {
+      setScreenShareActive(false);
+      screenShareActiveRef.current = false;
+      await NativeScreenCapture.stopCapture().catch(() => {});
+    } else {
+      try {
+        const ok = await NativeScreenCapture.startCapture();
+        setScreenShareActive(ok);
+        screenShareActiveRef.current = ok;
+      } catch {
+        setScreenShareActive(false);
+        screenShareActiveRef.current = false;
+      }
+    }
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const handleGameAssist = useCallback(async (text: string) => {
+    if (isStreaming) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const convId = getOrCreateConvId();
+    const snapshot = [...messages];
+    const userMsg: Message = { id: generateMsgId(), role: "user", content: text, timestamp: Date.now() };
+    const withUser = [...snapshot, userMsg];
+    setMessages(withUser);
+    setIsStreaming(true);
+    setShowTyping(true);
+
+    try {
+      const baseUrl = await getApiBase();
+      const { width: screenW, height: screenH } = Dimensions.get("screen");
+
+      const screenshot = await NativeScreenCapture.captureFrame();
+      if (!screenshot) throw new Error("No screen frame available — try toggling Screen Share off and on.");
+
+      const resp = await fetch(`${baseUrl}game-assist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          screenshot,
+          query: text,
+          screenWidth: Math.round(screenW),
+          screenHeight: Math.round(screenH),
+        }),
+      });
+      if (!resp.ok) throw new Error("Game assist request failed");
+
+      const data = await resp.json() as {
+        gameType: string;
+        description: string;
+        solutions: Array<{ word: string; taps: Array<{ x: number; y: number }> }>;
+        message: string;
+      };
+
+      setShowTyping(false);
+      const reply = data.message || data.description || "Done!";
+      const assistantMsg: Message = { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() };
+      const final = [...withUser, assistantMsg];
+      setMessages(final);
+      await saveMessages(convId, final);
+      speakText(reply);
+
+      // Execute swipe gestures for each word solution
+      if (data.solutions?.length && NativeScreenCapture.isAvailable) {
+        const sw = Math.round(screenW);
+        const sh = Math.round(screenH);
+        for (const sol of data.solutions) {
+          if (!sol.taps || sol.taps.length < 2) continue;
+          // Duration: ~60 ms per letter, minimum 250 ms
+          const dur = Math.max(250, sol.taps.length * 60);
+          try {
+            await NativeScreenCapture.performGesture(sol.taps, dur, sw, sh);
+            await new Promise<void>((r) => setTimeout(r, 650)); // gap between words
+          } catch {
+            break; // Accessibility not enabled — stop silently
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("Game assist failed", error);
+      const errMsg = error instanceof Error ? error.message : "Sorry, something went wrong with game assist.";
+      setShowTyping(false);
+      setMessages((prev) => [...prev, { id: generateMsgId(), role: "assistant", content: errMsg, timestamp: Date.now() }]);
+      speakText(errMsg);
+    } finally {
+      setIsStreaming(false);
+      setShowTyping(false);
+    }
+  }, [isStreaming, messages]);
 
   function handleNewChat() {
     endCallMode();
@@ -2506,6 +2612,37 @@ export default function ChatScreen() {
                   <Ionicons name="call" size={20} color="#fff" />
                   <Text style={styles.voiceCallBtnText}>Start Voice Call</Text>
                 </Pressable>
+
+                {/* Screen Share / Game Assist toggle — Android only */}
+                {Platform.OS === "android" && NativeScreenCapture.isAvailable && (
+                  <Pressable
+                    style={[
+                      styles.screenShareBtn,
+                      {
+                        backgroundColor: screenShareActive ? "#16a34a" : colors.card,
+                        borderColor: screenShareActive ? "#16a34a" : colors.border,
+                        shadowColor: screenShareActive ? "#16a34a" : "transparent",
+                      },
+                    ]}
+                    onPress={toggleScreenShare}
+                    disabled={isStreaming}
+                  >
+                    <Ionicons
+                      name={screenShareActive ? "tv" : "tv-outline"}
+                      size={18}
+                      color={screenShareActive ? "#fff" : colors.mutedForeground}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.screenShareTitle, { color: screenShareActive ? "#fff" : colors.foreground }]}>
+                        {screenShareActive ? "Screen Share On" : "Start Screen Share"}
+                      </Text>
+                      <Text style={[styles.screenShareSub, { color: screenShareActive ? "#d1fae5" : colors.mutedForeground }]}>
+                        {screenShareActive ? `Say anything — ${assistantName} sees your screen` : "Let Vox see & play games"}
+                      </Text>
+                    </View>
+                    <View style={[styles.screenShareDot, { backgroundColor: screenShareActive ? "#86efac" : colors.muted }]} />
+                  </Pressable>
+                )}
                 <View style={styles.quickChips}>
                   {customQuickChips.map((q) => (
                     <Pressable key={q} style={[styles.chip, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -2660,4 +2797,14 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     shadowOffset: { width: 0, height: 2 },
   },
+
+  screenShareBtn: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 16, paddingVertical: 13,
+    borderRadius: 16, borderWidth: 1, width: "100%",
+    shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
+  },
+  screenShareTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  screenShareSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 1 },
+  screenShareDot: { width: 8, height: 8, borderRadius: 4 },
 });

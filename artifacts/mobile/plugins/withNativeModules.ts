@@ -55,6 +55,9 @@ const KOTLIN_FILES = [
   "VoxOverlayService.kt",
   "VoxOverlayModule.kt",
   "VoxOverlayPackage.kt",
+  "VoxScreenCaptureService.kt",
+  "VoxScreenCaptureModule.kt",
+  "VoxScreenCapturePackage.kt",
 ];
 
 /** Resolves the com.boss.assistant java source directory inside the android project. */
@@ -235,8 +238,23 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
           "android:name": ".VoxOverlayService",
           "android:label": "Vox Overlay",
           "android:exported": "false",
-          // Android 10+ requires foreground service type for mic access
           "android:foregroundServiceType": "microphone",
+        },
+      });
+    }
+
+    // ── VoxScreenCaptureService (MediaProjection screen capture) ──────────
+    const screenCaptureServiceExists = (app.service as Array<{ $?: Record<string, string> }>).some(
+      (s) => s.$?.["android:name"] === ".VoxScreenCaptureService"
+    );
+    if (!screenCaptureServiceExists) {
+      app.service.push({
+        $: {
+          "android:name": ".VoxScreenCaptureService",
+          "android:label": "Vox Screen Share",
+          "android:exported": "false",
+          // Android 10+ requires declaring mediaProjection foreground service type
+          "android:foregroundServiceType": "mediaProjection",
         },
       });
     }
@@ -251,7 +269,9 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
     ensurePerm("android.permission.SYSTEM_ALERT_WINDOW");
     ensurePerm("android.permission.FOREGROUND_SERVICE");
     ensurePerm("android.permission.FOREGROUND_SERVICE_MICROPHONE");
+    ensurePerm("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION");
     ensurePerm("android.permission.RECORD_AUDIO");
+    ensurePerm("android.permission.FOREGROUND_SERVICE_CAMERA");
 
     // ── DeviceAdminReceiver ───────────────────────────────────────────────
     if (!app.receiver) app.receiver = [];
@@ -305,6 +325,7 @@ const PACKAGES = [
   "MediaControlPackage()",
   "CallScreeningPackage()",
   "VoxOverlayPackage()",
+  "VoxScreenCapturePackage()",
 ];
 
 /** Marker inserted to detect that our packages have already been added (idempotency). */

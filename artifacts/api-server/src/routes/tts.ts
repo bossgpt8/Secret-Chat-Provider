@@ -6,6 +6,7 @@ const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 
 // Kokoro FastAPI server (self-hosted, OpenAI-compatible)
 const KOKORO_URL = process.env.KOKORO_URL ?? "";
+const KOKORO_API_KEY = process.env.KOKORO_API_KEY ?? "";
 
 // Curated Kokoro voices — fallback when server is unreachable
 const KOKORO_VOICES = [
@@ -71,7 +72,9 @@ router.get("/tts/voices", async (req, res) => {
       return;
     }
     try {
-      const r = await fetch(`${KOKORO_URL}/v1/voices`);
+      const kokoroHeaders: Record<string, string> = {};
+      if (KOKORO_API_KEY) kokoroHeaders["Authorization"] = `Bearer ${KOKORO_API_KEY}`;
+      const r = await fetch(`${KOKORO_URL}/v1/voices`, { headers: kokoroHeaders });
       if (!r.ok) throw new Error("non-ok");
       const data = await r.json() as { voices?: { voice_id?: string; id?: string; name?: string }[] };
       const voices = (data.voices ?? []).map((v) => ({
@@ -142,9 +145,11 @@ router.post("/tts", async (req, res) => {
     }
     const voice = voiceId || "af_bella";
     try {
+      const kokoroHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      if (KOKORO_API_KEY) kokoroHeaders["Authorization"] = `Bearer ${KOKORO_API_KEY}`;
       const r = await fetch(`${KOKORO_URL}/v1/audio/speech`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: kokoroHeaders,
         body: JSON.stringify({
           model: "kokoro",
           input: truncated,

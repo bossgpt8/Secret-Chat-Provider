@@ -11,6 +11,8 @@ const GROQ_CHAT_MODEL = "llama-3.3-70b-versatile";
 const GROQ_WHISPER_MODEL = "whisper-large-v3";
 const OR_CHAT_MODEL = "meta-llama/llama-3.3-70b-instruct";
 const OR_WHISPER_MODEL = "openai/whisper-large-v3";
+const OLLAMA_BASE = process.env.OLLAMA_URL ? `${process.env.OLLAMA_URL}/v1` : "";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1:8b";
 
 // ─── /chat  (streaming) ───────────────────────────────────────────────────────
 
@@ -105,6 +107,7 @@ router.post("/chat", async (req, res) => {
     let ok = false;
     if (groqKey) ok = await streamFrom(GROQ_BASE, groqKey, GROQ_CHAT_MODEL);
     if (!ok && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
+    if (!ok && OLLAMA_BASE) ok = await streamFrom(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
     if (!ok) res.write(`data: ${JSON.stringify({ error: "All AI providers failed" })}\n\n`);
   } catch (err) {
     req.log.error({ err }, "Chat streaming error");
@@ -206,6 +209,7 @@ router.post("/search", async (req, res) => {
     let result: string | null = null;
     if (groqKey) result = await fetchSummary(GROQ_BASE, groqKey, GROQ_CHAT_MODEL);
     if (!result && orKey) result = await fetchSummary(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
+    if (!result && OLLAMA_BASE) result = await fetchSummary(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
 
     res.json({ result: result ?? (searchContext || "Sorry, I couldn't find an answer to that.") });
   } catch (err) {

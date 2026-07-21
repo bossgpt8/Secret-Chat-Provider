@@ -137,50 +137,80 @@ router.post("/tts", async (req, res) => {
 
   const truncated = text.slice(0, 1000);
 
-  // ── Kokoro (self-hosted) ───────────────────────────────────────────────────
-  if (provider === "kokoro") {
-    if (!KOKORO_URL) {
-      res.status(503).json({ error: "Kokoro not configured (KOKORO_URL missing)" });
-      return;
-    }
-    const voice = voiceId || "af_bella";
+  // ── ElevenLabs helper ─────────────────────────────────────────────────────
+  async function tryElevenLabs(elVoiceId?: string): Promise<boolean> {
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) return false;
+    const elVoice = elVoiceId || "21m00Tcm4TlvDq8ikWAM";
     try {
-      const kokoroHeaders: Record<string, string> = { "Content-Type": "application/json" };
-      if (KOKORO_API_KEY) kokoroHeaders["Authorization"] = `Bearer ${KOKORO_API_KEY}`;
-      const r = await fetch(`${KOKORO_URL}/v1/audio/speech`, {
+      const r = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${elVoice}/stream`, {
         method: "POST",
-        headers: kokoroHeaders,
+        headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
         body: JSON.stringify({
-          model: "kokoro",
-          input: truncated,
-          voice,
-          response_format: "mp3",
-          speed: 1.0,
+          text: truncated,
+          model_id: "eleven_turbo_v2_5",
+          voice_settings: {
+            stability: stability ?? 0.5,
+            similarity_boost: similarityBoost ?? 0.75,
+            style: 0.3,
+            use_speaker_boost: true,
+          },
         }),
       });
-
-      if (!r.ok) {
-        const errText = await r.text();
-        res.status(r.status).json({ error: `Kokoro error: ${errText}` });
-        return;
-      }
-
+      if (!r.ok) return false;
       res.setHeader("Content-Type", "audio/mpeg");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Transfer-Encoding", "chunked");
-
       const reader = r.body?.getReader();
-      if (!reader) { res.status(500).json({ error: "No audio stream" }); return; }
+      if (!reader) return false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         res.write(Buffer.from(value));
       }
       res.end();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: `Kokoro TTS failed: ${msg}` });
+      return true;
+    } catch {
+      return false;
     }
+  }
+
+  // ── Kokoro (self-hosted) → fallback to ElevenLabs ─────────────────────────
+  if (provider === "kokoro") {
+    if (KOKORO_URL) {
+      const voice = voiceId || "af_bella";
+      try {
+        const kokoroHeaders: Record<string, string> = { "Content-Type": "application/json" };
+        if (KOKORO_API_KEY) kokoroHeaders["Authorization"] = `Bearer ${KOKORO_API_KEY}`;
+        const r = await fetch(`${KOKORO_URL}/v1/audio/speech`, {
+          method: "POST",
+          headers: kokoroHeaders,
+          body: JSON.stringify({ model: "kokoro", input: truncated, voice, response_format: "mp3", speed: 1.0 }),
+        });
+
+        if (r.ok) {
+          res.setHeader("Content-Type", "audio/mpeg");
+          res.setHeader("Cache-Control", "no-cache");
+          res.setHeader("Transfer-Encoding", "chunked");
+          const reader = r.body?.getReader();
+          if (reader) {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(Buffer.from(value));
+            }
+            res.end();
+            return;
+          }
+        }
+      } catch {
+        // fall through to ElevenLabs
+      }
+    }
+
+    // Kokoro unavailable — try ElevenLabs as fallback
+    const ok = await tryElevenLabs();
+    if (!ok) res.status(503).json({ error: "All TTS providers unavailable" });
     return;
   }
 
@@ -191,55 +221,8 @@ router.post("/tts", async (req, res) => {
     return;
   }
 
-  const voice = voiceId || "21m00Tcm4TlvDq8ikWAM"; // Rachel default
-
-  try {
-    const r = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${voice}/stream`, {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
-      },
-      body: JSON.stringify({
-        text: truncated,
-        model_id: "eleven_turbo_v2_5",
-        voice_settings: {
-          stability: stability ?? 0.5,
-          similarity_boost: similarityBoost ?? 0.75,
-          style: 0.3,
-          use_speaker_boost: true,
-        },
-      }),
-    });
-
-    if (!r.ok) {
-      const errText = await r.text();
-      res.status(r.status).json({ error: `ElevenLabs error: ${errText}` });
-      return;
-    }
-
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Transfer-Encoding", "chunked");
-
-    const reader = r.body?.getReader();
-    if (!reader) {
-      res.status(500).json({ error: "No audio stream" });
-      return;
-    }
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
-    }
-
-    res.end();
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: `TTS failed: ${msg}` });
-  }
+  const ok = await tryElevenLabs(voiceId);
+  if (!ok) res.status(503).json({ error: "ElevenLabs TTS failed" });
 });
 
 export default router;

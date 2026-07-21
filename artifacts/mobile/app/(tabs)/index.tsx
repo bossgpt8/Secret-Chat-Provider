@@ -11,6 +11,7 @@ import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -828,11 +829,35 @@ export default function ChatScreen() {
           return;
         }
       } catch {
-        // fall through to phone TTS
+        // cloud TTS failed — ask user about phone TTS below
       }
+
+      // Cloud TTS failed — ask the user if they want to fall back to phone TTS
+      setIsSpeaking(false);
+      if (Platform.OS === "android") NativeOverlay.setState("idle").catch(() => {});
+      Alert.alert(
+        "Voice Unavailable",
+        "Cloud voice (Kokoro & ElevenLabs) couldn't be reached. Would you like to use your phone's built-in voice instead?",
+        [
+          {
+            text: "No",
+            style: "cancel",
+            onPress: () => { if (isCallModeRef.current) onTtsDone(); },
+          },
+          {
+            text: "Use Phone Voice",
+            onPress: async () => {
+              setIsSpeaking(true);
+              if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
+              try { await speakWithPhone(text); } catch { onTtsDone(); }
+            },
+          },
+        ]
+      );
+      return;
     }
 
-    // Phone TTS (default or fallback)
+    // Phone TTS (user-selected provider)
     try {
       await speakWithPhone(text);
     } catch {

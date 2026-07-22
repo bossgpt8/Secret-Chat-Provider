@@ -298,6 +298,10 @@ export default function ChatScreen() {
   // LLM is still generating the rest of the response
   const ttsQueueRef = useRef<string[]>([]);
   const ttsPlayingRef = useRef(false);
+  // Incremented every time stopSpeaking() is called — used to cancel stale in-flight TTS fetches
+  const ttsGenerationRef = useRef(0);
+  // Notification announcements queued while TTS is already playing (played after current speech ends)
+  const pendingNotifSpeechRef = useRef<string[]>([]);
   // VAD polling interval (replaces fixed silence timer)
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -449,13 +453,19 @@ export default function ChatScreen() {
     setNotifPermGranted(true);
     const spoken = buildIncomingSpeechText(n);
     if (isCallModeRef.current && !isStreamingRef.current) {
+      // Call mode: interrupt immediately (stop → speak notification)
       stopSpeaking().then(() => {
         stopRecordingCleanup();
         setIsRecording(false);
         speakText(spoken);
       });
     } else if (readIncomingEnabledRef.current && !isStreamingRef.current) {
-      speakText(spoken);
+      if (ttsPlayingRef.current) {
+        // Assistant is currently speaking — queue the notification so it plays right after
+        pendingNotifSpeechRef.current.push(spoken);
+      } else {
+        speakText(spoken);
+      }
     }
   }
 
@@ -750,6 +760,8 @@ export default function ChatScreen() {
   // ── TTS ────────────────────────────────────────────────────────────────────
 
   async function stopSpeaking() {
+    ttsGenerationRef.current++;          // invalidate any in-flight TTS fetches
+    pendingNotifSpeechRef.current = [];  // also clear queued notification announcements
     ttsQueueRef.current = [];
     ttsPlayingRef.current = false;
     if (Platform.OS !== "web") Speech.stop().catch(() => {});
@@ -768,7 +780,13 @@ export default function ChatScreen() {
       playSentenceNow(next).catch(() => onTtsDone());
       return;
     }
-    // Nothing left — fully done
+    // Nothing left in sentence queue — check for queued notification announcements
+    const pendingNotif = pendingNotifSpeechRef.current.shift();
+    if (pendingNotif) {
+      speakText(pendingNotif);
+      return;
+    }
+    // Fully done
     ttsPlayingRef.current = false;
     setIsSpeaking(false);
     // Reset native overlay bubble back to idle state
@@ -803,6 +821,7 @@ export default function ChatScreen() {
   // Used for queue draining — no Alert fallback dialog (would be jarring mid-response).
   async function playSentenceNow(text: string): Promise<void> {
     if (!text.trim()) { onTtsDone(); return; }
+    const gen = ttsGenerationRef.current;
     if ((ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && Platform.OS !== "web") {
       try {
         const base = await getApiBase();
@@ -814,6 +833,8 @@ export default function ChatScreen() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
+        // Bail out if stopSpeaking() was called while we were fetching
+        if (gen !== ttsGenerationRef.current) return;
         if (resp.ok) {
           await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
           const arrayBuffer = await resp.arrayBuffer();
@@ -824,10 +845,15 @@ export default function ChatScreen() {
             binary += String.fromCharCode(...Array.from(bytes.slice(i, i + chunkSize)));
           }
           const base64 = btoa(binary);
+          if (gen !== ttsGenerationRef.current) return;
           const { sound } = await Audio.Sound.createAsync(
             { uri: `data:audio/mpeg;base64,${base64}` },
             { shouldPlay: true, volume: 1.0 }
           );
+          if (gen !== ttsGenerationRef.current) {
+            sound.unloadAsync().catch(() => {});
+            return;
+          }
           elSoundRef.current = sound;
           sound.setOnPlaybackStatusUpdate((status) => {
             if (!status.isLoaded) return;
@@ -840,6 +866,7 @@ export default function ChatScreen() {
           return;
         }
       } catch { /* fall through to phone TTS */ }
+      if (gen !== ttsGenerationRef.current) return;
       // Cloud TTS unavailable — silently fall back to phone voice
       speakWithPhone(text);
       return;
@@ -881,6 +908,7 @@ export default function ChatScreen() {
       return;
     }
     await stopSpeaking();
+    const gen = ttsGenerationRef.current;
     ttsPlayingRef.current = true;
     setIsSpeaking(true);
     // Update native overlay bubble to "speaking" state while TTS plays
@@ -899,6 +927,8 @@ export default function ChatScreen() {
           body: JSON.stringify(body),
         });
 
+        // Bail out if stopSpeaking() was called while we were fetching
+        if (gen !== ttsGenerationRef.current) return;
         if (resp.ok) {
           await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
           const arrayBuffer = await resp.arrayBuffer();
@@ -910,10 +940,15 @@ export default function ChatScreen() {
           }
           const base64 = btoa(binary);
 
+          if (gen !== ttsGenerationRef.current) return;
           const { sound } = await Audio.Sound.createAsync(
             { uri: `data:audio/mpeg;base64,${base64}` },
             { shouldPlay: true, volume: 1.0 }
           );
+          if (gen !== ttsGenerationRef.current) {
+            sound.unloadAsync().catch(() => {});
+            return;
+          }
           elSoundRef.current = sound;
           sound.setOnPlaybackStatusUpdate((status) => {
             if (!status.isLoaded) return;
@@ -928,6 +963,7 @@ export default function ChatScreen() {
       } catch {
         // cloud TTS failed — ask user about phone TTS below
       }
+      if (gen !== ttsGenerationRef.current) return;
 
       // Cloud TTS failed — ask the user if they want to fall back to phone TTS
       setIsSpeaking(false);

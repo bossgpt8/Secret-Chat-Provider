@@ -25,6 +25,16 @@
     },
     "android": {
       "package": "com.boss.assistant",
+      "intentFilters": [
+        {
+          "action": "android.intent.action.ASSIST",
+          "category": ["android.intent.category.DEFAULT"]
+        },
+        {
+          "action": "android.intent.action.VOICE_COMMAND",
+          "category": ["android.intent.category.DEFAULT"]
+        }
+      ],
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.FLASHLIGHT",

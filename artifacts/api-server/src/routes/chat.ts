@@ -106,8 +106,8 @@ router.post("/chat", async (req, res) => {
   try {
     let ok = false;
     if (groqKey) ok = await streamFrom(GROQ_BASE, groqKey, GROQ_CHAT_MODEL);
-    if (!ok && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
     if (!ok && OLLAMA_BASE) ok = await streamFrom(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
+    if (!ok && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
     if (!ok) res.write(`data: ${JSON.stringify({ error: "All AI providers failed" })}\n\n`);
   } catch (err) {
     req.log.error({ err }, "Chat streaming error");

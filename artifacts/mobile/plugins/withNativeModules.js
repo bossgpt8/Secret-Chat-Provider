@@ -31,6 +31,9 @@ const KOTLIN_FILES = [
   "MediaControlPackage.kt",
   "CallScreeningModule.kt",
   "CallScreeningPackage.kt",
+  "VoxOverlayModule.kt",
+  "VoxOverlayPackage.kt",
+  "VoxOverlayService.kt",
 ];
 
 function javaDir(projectRoot) {
@@ -74,6 +77,22 @@ const withAndroidManifestEntries = (config) =>
     const app = AndroidConfig.Manifest.getMainApplicationOrThrow(manifest);
 
     if (!app.service) app.service = [];
+
+    // ── VoxOverlayService (floating bubble) ──────────────────────────────────
+    const overlayServiceExists = app.service.some(
+      (s) => s.$ && s.$["android:name"] === ".VoxOverlayService"
+    );
+    if (!overlayServiceExists) {
+      app.service.push({
+        $: {
+          "android:name": ".VoxOverlayService",
+          "android:label": "Vox Floating Bubble",
+          "android:exported": "false",
+          "android:foregroundServiceType": "microphone",
+        },
+      });
+    }
+
     const serviceExists = app.service.some(
       (s) => s.$ && s.$["android:name"] === ".VoxNotificationService"
     );
@@ -180,6 +199,7 @@ const PACKAGES = [
   "AccessibilityPackage()",
   "MediaControlPackage()",
   "CallScreeningPackage()",
+  "VoxOverlayPackage()",
 ];
 
 const MARKER = "// [VoxNativePackages]";

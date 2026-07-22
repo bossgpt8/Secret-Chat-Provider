@@ -294,6 +294,12 @@ export default function ChatScreen() {
   const isCallModeRef = useRef(false);
   const isStreamingRef = useRef(false);
   const isTranscribingRef = useRef(false);
+  // TTS sentence queue — lets us start speaking the first sentence while the
+  // LLM is still generating the rest of the response
+  const ttsQueueRef = useRef<string[]>([]);
+  const ttsPlayingRef = useRef(false);
+  // VAD polling interval (replaces fixed silence timer)
+  const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Wake word refs
   const wakeWordLoopRef = useRef(false);
@@ -744,6 +750,8 @@ export default function ChatScreen() {
   // ── TTS ────────────────────────────────────────────────────────────────────
 
   async function stopSpeaking() {
+    ttsQueueRef.current = [];
+    ttsPlayingRef.current = false;
     if (Platform.OS !== "web") Speech.stop().catch(() => {});
     if (elSoundRef.current) {
       await elSoundRef.current.stopAsync().catch(() => {});
@@ -754,6 +762,14 @@ export default function ChatScreen() {
   }
 
   function onTtsDone() {
+    // Drain the sentence queue — play next sentence if one is waiting
+    const next = ttsQueueRef.current.shift();
+    if (next) {
+      playSentenceNow(next).catch(() => onTtsDone());
+      return;
+    }
+    // Nothing left — fully done
+    ttsPlayingRef.current = false;
     setIsSpeaking(false);
     // Reset native overlay bubble back to idle state
     if (Platform.OS === "android") NativeOverlay.setState("idle").catch(() => {});
@@ -762,6 +778,86 @@ export default function ChatScreen() {
       startCallMode();
     } else if (isCallModeRef.current && !isStreamingRef.current) {
       setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+    }
+  }
+
+  // ── Sentence helpers ──────────────────────────────────────────────────────
+
+  // Split a text buffer on sentence-ending punctuation followed by whitespace.
+  // Returns completed sentences + whatever remains in the buffer.
+  function extractSentences(buf: string): { sentences: string[]; remainder: string } {
+    const sentences: string[] = [];
+    let last = 0;
+    for (let i = 0; i < buf.length - 1; i++) {
+      if ('.!?'.includes(buf[i]) && (buf[i + 1] === ' ' || buf[i + 1] === '\n')) {
+        const s = buf.slice(last, i + 1).trim();
+        if (s) sentences.push(s);
+        last = i + 2;
+        i++; // skip the space
+      }
+    }
+    return { sentences, remainder: buf.slice(last) };
+  }
+
+  // Play one sentence immediately via cloud or phone TTS, then call onTtsDone.
+  // Used for queue draining — no Alert fallback dialog (would be jarring mid-response).
+  async function playSentenceNow(text: string): Promise<void> {
+    if (!text.trim()) { onTtsDone(); return; }
+    if ((ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && Platform.OS !== "web") {
+      try {
+        const base = await getApiBase();
+        const body = ttsProvider === "kokoro"
+          ? { text: text.slice(0, 800), provider: "kokoro", voiceId: kokoroVoiceId }
+          : { text: text.slice(0, 800), voiceId: elVoiceId };
+        const resp = await fetch(`${base}tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (resp.ok) {
+          await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+          const arrayBuffer = await resp.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          let binary = "";
+          const chunkSize = 0x8000;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode(...Array.from(bytes.slice(i, i + chunkSize)));
+          }
+          const base64 = btoa(binary);
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: `data:audio/mpeg;base64,${base64}` },
+            { shouldPlay: true, volume: 1.0 }
+          );
+          elSoundRef.current = sound;
+          sound.setOnPlaybackStatusUpdate((status) => {
+            if (!status.isLoaded) return;
+            if (status.didJustFinish) {
+              sound.unloadAsync().catch(() => {});
+              elSoundRef.current = null;
+              onTtsDone();
+            }
+          });
+          return;
+        }
+      } catch { /* fall through to phone TTS */ }
+      // Cloud TTS unavailable — silently fall back to phone voice
+      speakWithPhone(text);
+      return;
+    }
+    try { await speakWithPhone(text); } catch { onTtsDone(); }
+  }
+
+  // Enqueue a sentence from the streaming loop. Starts playback immediately
+  // if nothing is playing; queues otherwise.
+  async function enqueueSentence(text: string) {
+    if (!isTtsEnabled || !text.trim()) return;
+    if (!ttsPlayingRef.current) {
+      ttsPlayingRef.current = true; // set synchronously before any await
+      setIsSpeaking(true);
+      if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
+      await playSentenceNow(text);
+    } else {
+      ttsQueueRef.current.push(text);
     }
   }
 
@@ -785,6 +881,7 @@ export default function ChatScreen() {
       return;
     }
     await stopSpeaking();
+    ttsPlayingRef.current = true;
     setIsSpeaking(true);
     // Update native overlay bubble to "speaking" state while TTS plays
     if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
@@ -913,21 +1010,59 @@ export default function ChatScreen() {
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       await stopSpeaking();
 
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
+      // Enable metering so we can read audio levels for VAD
+      const { recording } = await Audio.Recording.createAsync({
+        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        isMeteringEnabled: true,
+      });
       recordingRef.current = recording;
       setIsRecording(true);
       setRecordingDuration(0);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+      // Duration timer — display only (no auto-stop here)
       durationTimerRef.current = setInterval(() => {
-        setRecordingDuration((d) => {
-          const limit = isCallModeRef.current ? 7 : 59;
-          if (d >= limit) { stopRecording(); return d; }
-          return d + 1;
-        });
+        setRecordingDuration((d) => d + 1);
       }, 1000);
+
+      // ── VAD: auto-stop on silence ─────────────────────────────────────────
+      // Poll audio level every 100ms. Once the user has spoken and then gone
+      // silent for 700ms we stop — same feel as ChatGPT Voice. Hard cutoff at
+      // 30 s so the recording doesn't run forever if VAD misses something.
+      let vadHasVoice = false;
+      let vadSilenceStart = 0;
+      const VAD_SILENCE_THRESHOLD_DB = -35; // below this = silence
+      const VAD_SILENCE_MS = 700;           // silence duration before cut-off
+      const VAD_MAX_MS = 30_000;            // hard limit
+      const vadStartedAt = Date.now();
+
+      vadTimerRef.current = setInterval(async () => {
+        const rec = recordingRef.current;
+        if (!rec) { clearInterval(vadTimerRef.current!); vadTimerRef.current = null; return; }
+        // Hard cutoff
+        if (Date.now() - vadStartedAt >= VAD_MAX_MS) {
+          clearInterval(vadTimerRef.current!); vadTimerRef.current = null;
+          stopRecording();
+          return;
+        }
+        try {
+          const status = await rec.getStatusAsync();
+          if (!status.isRecording) return;
+          const db = (status as { metering?: number }).metering ?? -160;
+          if (db > VAD_SILENCE_THRESHOLD_DB) {
+            // Heard voice
+            vadHasVoice = true;
+            vadSilenceStart = 0;
+          } else if (vadHasVoice) {
+            // Silence after speech
+            if (vadSilenceStart === 0) vadSilenceStart = Date.now();
+            else if (Date.now() - vadSilenceStart >= VAD_SILENCE_MS) {
+              clearInterval(vadTimerRef.current!); vadTimerRef.current = null;
+              stopRecording();
+            }
+          }
+        } catch { /* ignore status errors */ }
+      }, 100);
     } catch {
       setIsRecording(false);
     }
@@ -935,6 +1070,7 @@ export default function ChatScreen() {
 
   function stopRecordingCleanup() {
     if (durationTimerRef.current) { clearInterval(durationTimerRef.current); durationTimerRef.current = null; }
+    if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null; }
     if (recordingRef.current) {
       recordingRef.current.stopAndUnloadAsync().catch(() => {});
       recordingRef.current = null;
@@ -945,6 +1081,7 @@ export default function ChatScreen() {
     if (!recordingRef.current) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (durationTimerRef.current) { clearInterval(durationTimerRef.current); durationTimerRef.current = null; }
+    if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null; }
 
     const rec = recordingRef.current;
     recordingRef.current = null;
@@ -2351,10 +2488,13 @@ export default function ChatScreen() {
       let added = false;
 
       if (!reader) {
+        // No streaming — get full text then speak it all at once
         fullContent = parseSseChunk(await response.text());
+        speakText(fullContent);
       } else {
         const decoder = new TextDecoder();
-        let buf = "";
+        let buf = "";       // SSE line buffer
+        let ttsBuf = "";    // sentence accumulation buffer for TTS
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -2364,6 +2504,8 @@ export default function ChatScreen() {
           const delta = parseSseChunk(lines.join("\n"));
           if (!delta) continue;
           fullContent += delta;
+          ttsBuf += delta;
+          // Update chat UI as tokens arrive
           if (!added) {
             setShowTyping(false);
             setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: fullContent, timestamp: Date.now() }]);
@@ -2375,8 +2517,17 @@ export default function ChatScreen() {
               return u;
             });
           }
+          // Fire complete sentences to TTS immediately as they arrive —
+          // user hears the first sentence while the rest is still generating
+          const { sentences, remainder } = extractSentences(ttsBuf);
+          ttsBuf = remainder;
+          for (const s of sentences) {
+            enqueueSentence(s); // fire-and-forget: TTS plays while streaming continues
+          }
         }
         if (buf) fullContent += parseSseChunk(buf);
+        // Speak any trailing text that didn't end with sentence punctuation
+        if (ttsBuf.trim()) enqueueSentence(ttsBuf.trim());
       }
 
       if (!fullContent.trim()) throw new Error("No response received from chat service.");
@@ -2386,7 +2537,6 @@ export default function ChatScreen() {
       }
 
       setMessages((finalMsgs) => { saveMessages(convId, finalMsgs); return finalMsgs; });
-      speakText(fullContent);
     } catch (error) {
       console.warn("Chat send failed", error);
       const errMsg = "Sorry, something went wrong. Please try again.";

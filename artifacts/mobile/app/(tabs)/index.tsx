@@ -30,6 +30,7 @@ import { KeyboardAvoidingView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message, type Conversation } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { NativeAccessibility, type VoxAccessibilityNotification } from "@/modules/NativeAccessibility";
 import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallScreening";
 import { NativeMediaControl } from "@/modules/NativeMediaControl";
@@ -385,6 +386,8 @@ export default function ChatScreen() {
   const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
   const { assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
 
+  const network = useNetworkStatus();
+  const isOnline = network.isConnected && network.isInternetReachable;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -1166,6 +1169,7 @@ export default function ChatScreen() {
 
   async function startRecording() {
     if (isStreamingRef.current || isTranscribingRef.current) return;
+    if (!isOnline) { showOfflineAlert("Voice transcription"); return; }
     // If wake word loop is mid-recording, stop it first
     if (isWakeListeningRef.current) {
       wakeWordLoopRef.current = false;
@@ -2565,6 +2569,12 @@ export default function ChatScreen() {
     const text = (overrideText ?? input).trim();
     if (!text || isStreaming) return;
 
+    // Block if offline (device commands still work without internet)
+    if (!isOnline && !detectDeviceIntent(text)) {
+      showOfflineAlert("AI chat");
+      return;
+    }
+
     // If screen share is active route to AI game assist instead of chat
     if (screenShareActiveRef.current && !isSearchMode) {
       setInput("");
@@ -2813,7 +2823,7 @@ export default function ChatScreen() {
       setIsStreaming(false);
       setShowTyping(false);
     }
-  }, [isStreaming, messages]);
+  }, [isStreaming, messages, isOnline]);
 
   function handleNewChat() {
     endCallMode();
@@ -2822,6 +2832,14 @@ export default function ChatScreen() {
     setMessages([]);
     setCurrentConversationId(null);
     activeConvId.current = null;
+  }
+
+  function showOfflineAlert(feature: string) {
+    Alert.alert(
+      "No internet connection",
+      `${feature} requires an internet connection.\n\n✅  Available offline:\n• Browse & read conversation history\n• Device controls (torch, volume, brightness)\n• Phone TTS (device voice)\n• Settings & preferences\n\n🌐  Requires internet:\n• AI chat & voice assistant\n• Voice transcription (Whisper)\n• Web search\n• Cloud TTS (ElevenLabs / Kokoro)`,
+      [{ text: "OK" }]
+    );
   }
 
   function handleSwitchConversation(conv: Conversation) {
@@ -2906,6 +2924,14 @@ export default function ChatScreen() {
           </Pressable>
         </View>
       </View>
+
+      {/* ── Offline banner ── */}
+      {!isOnline && (
+        <View style={[styles.offlineBanner, { backgroundColor: "#92400e" }]}>
+          <Ionicons name="cloud-offline-outline" size={14} color="#fef3c7" />
+          <Text style={styles.offlineBannerText}>No internet — chat &amp; voice unavailable</Text>
+        </View>
+      )}
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         {/* ── Call mode banner ── */}
@@ -3172,6 +3198,12 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     shadowOffset: { width: 0, height: 2 },
   },
+
+  offlineBanner: {
+    flexDirection: "row", alignItems: "center", gap: 7,
+    paddingHorizontal: 14, paddingVertical: 8,
+  },
+  offlineBannerText: { fontSize: 13, fontFamily: "Inter_500Medium", color: "#fef3c7", flex: 1 },
 
   screenShareBtn: {
     flexDirection: "row", alignItems: "center", gap: 10,

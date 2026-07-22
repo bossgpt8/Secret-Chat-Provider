@@ -28,7 +28,7 @@ import {
 } from "react-native";
 import { KeyboardAvoidingView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAssistant, generateMsgId, type Message } from "@/context/AssistantContext";
+import { useAssistant, generateMsgId, type Message, type Conversation } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
 import { NativeAccessibility, type VoxAccessibilityNotification } from "@/modules/NativeAccessibility";
 import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallScreening";
@@ -217,6 +217,141 @@ const orbStyles = StyleSheet.create({
   orb: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center" },
 });
 
+// ─── Conversation Sidebar ─────────────────────────────────────────────────────
+
+function formatRelativeDate(ts: number): string {
+  const now = Date.now();
+  const diff = now - ts;
+  const day = 86400000;
+  if (diff < day) return "Today";
+  if (diff < 2 * day) return "Yesterday";
+  if (diff < 7 * day) return `${Math.floor(diff / day)}d ago`;
+  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+interface ConversationSidebarProps {
+  open: boolean;
+  onClose: () => void;
+  conversations: Conversation[];
+  currentId: string | null;
+  onSelect: (conv: Conversation) => void;
+  onNew: () => void;
+  onDelete: (id: string) => void;
+  colors: ReturnType<typeof useColors>;
+}
+
+function ConversationSidebar({ open, onClose, conversations, currentId, onSelect, onNew, onDelete, colors }: ConversationSidebarProps) {
+  const translateX = useRef(new Animated.Value(-300)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (open) {
+      Animated.parallel([
+        Animated.spring(translateX, { toValue: 0, useNativeDriver: Platform.OS !== "web", damping: 22, stiffness: 200 }),
+        Animated.timing(backdropOpacity, { toValue: 1, duration: 220, useNativeDriver: Platform.OS !== "web" }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(translateX, { toValue: -300, duration: 200, useNativeDriver: Platform.OS !== "web" }),
+        Animated.timing(backdropOpacity, { toValue: 0, duration: 200, useNativeDriver: Platform.OS !== "web" }),
+      ]).start();
+    }
+  }, [open]);
+
+  if (!open && (translateX as any)._value <= -299) return null;
+
+  function confirmDelete(id: string, title: string) {
+    Alert.alert("Delete conversation", `Delete "${title}"?`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => onDelete(id) },
+    ]);
+  }
+
+  return (
+    <View style={sidebarStyles.overlay} pointerEvents={open ? "auto" : "none"}>
+      {/* Backdrop */}
+      <Animated.View style={[sidebarStyles.backdrop, { opacity: backdropOpacity }]}>
+        <Pressable style={{ flex: 1 }} onPress={onClose} />
+      </Animated.View>
+
+      {/* Drawer */}
+      <Animated.View style={[sidebarStyles.drawer, { backgroundColor: colors.card, borderRightColor: colors.border, transform: [{ translateX }] }]}>
+        {/* Header */}
+        <View style={[sidebarStyles.drawerHeader, { borderBottomColor: colors.border }]}>
+          <Text style={[sidebarStyles.drawerTitle, { color: colors.foreground }]}>History</Text>
+          <Pressable style={[sidebarStyles.newBtn, { backgroundColor: colors.primary }]} onPress={() => { onNew(); onClose(); }}>
+            <Ionicons name="create-outline" size={15} color="#fff" />
+            <Text style={sidebarStyles.newBtnText}>New</Text>
+          </Pressable>
+        </View>
+
+        {/* Conversation list */}
+        <FlatList
+          data={conversations}
+          keyExtractor={(c) => c.id}
+          contentContainerStyle={sidebarStyles.listContent}
+          ListEmptyComponent={
+            <Text style={[sidebarStyles.emptyText, { color: colors.mutedForeground }]}>No conversations yet</Text>
+          }
+          renderItem={({ item }) => {
+            const isActive = item.id === currentId;
+            return (
+              <Pressable
+                style={[sidebarStyles.convItem, isActive && { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40", borderWidth: 1 }]}
+                onPress={() => { onSelect(item); onClose(); }}
+                onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); confirmDelete(item.id, item.title); }}
+                delayLongPress={500}
+              >
+                <View style={sidebarStyles.convIcon}>
+                  <Ionicons name="chatbubble-outline" size={14} color={isActive ? colors.primary : colors.mutedForeground} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[sidebarStyles.convTitle, { color: isActive ? colors.primary : colors.foreground }]} numberOfLines={1}>
+                    {item.title}
+                  </Text>
+                  <Text style={[sidebarStyles.convDate, { color: colors.mutedForeground }]}>
+                    {formatRelativeDate(item.updatedAt)} · {item.messages.length} msg{item.messages.length !== 1 ? "s" : ""}
+                  </Text>
+                </View>
+                <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); confirmDelete(item.id, item.title); }} hitSlop={8}>
+                  <Ionicons name="trash-outline" size={15} color={colors.mutedForeground} />
+                </Pressable>
+              </Pressable>
+            );
+          }}
+        />
+      </Animated.View>
+    </View>
+  );
+}
+
+const sidebarStyles = StyleSheet.create({
+  overlay: { ...StyleSheet.absoluteFillObject, zIndex: 100, flexDirection: "row" },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
+  drawer: {
+    width: 280, height: "100%",
+    borderRightWidth: StyleSheet.hairlineWidth,
+    shadowColor: "#000", shadowOffset: { width: 4, height: 0 }, shadowOpacity: 0.18, shadowRadius: 12, elevation: 16,
+  },
+  drawerHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingTop: 60, paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  drawerTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  newBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
+  newBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  listContent: { paddingVertical: 8, paddingHorizontal: 10 },
+  emptyText: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 24 },
+  convItem: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 10, paddingVertical: 11, borderRadius: 12, marginBottom: 2,
+  },
+  convIcon: { width: 26, alignItems: "center" },
+  convTitle: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  convDate: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+});
+
 // ─── Main chat screen ─────────────────────────────────────────────────────────
 
 const CALL_MODE_RETRY_DELAY_MS = 400;
@@ -248,8 +383,9 @@ export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
-  const { assistantName, currentConversationId, setCurrentConversationId, createConversation, saveMessages, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
+  const { assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -2688,6 +2824,15 @@ export default function ChatScreen() {
     activeConvId.current = null;
   }
 
+  function handleSwitchConversation(conv: Conversation) {
+    endCallMode();
+    stopSpeaking();
+    Haptics.selectionAsync();
+    setMessages(conv.messages);
+    setCurrentConversationId(conv.id);
+    activeConvId.current = conv.id;
+  }
+
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
   const reversed = [...messages].reverse();
@@ -2708,9 +2853,24 @@ export default function ChatScreen() {
         />
       )}
 
+      {/* Conversation sidebar */}
+      <ConversationSidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        conversations={conversations}
+        currentId={currentConversationId}
+        onSelect={handleSwitchConversation}
+        onNew={handleNewChat}
+        onDelete={deleteConversation}
+        colors={colors}
+      />
+
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.headerLeft}>
+          <Pressable style={styles.iconBtn} onPress={() => { Haptics.selectionAsync(); setSidebarOpen(true); }}>
+            <Ionicons name="menu-outline" size={22} color={colors.mutedForeground} />
+          </Pressable>
           <View style={[styles.dot, { backgroundColor: isRecording ? colors.destructive : isSpeaking ? colors.accent : colors.success }]} />
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>{assistantName}</Text>
           {isRecording && <Text style={[styles.recLabel, { color: colors.destructive }]}>● {recordingDuration}s</Text>}

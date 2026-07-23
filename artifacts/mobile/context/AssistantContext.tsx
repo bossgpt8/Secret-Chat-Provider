@@ -344,11 +344,15 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setFloatingBubbleEnabledState(v);
   }
 
+  function warnStorageError(key: string, err: unknown) {
+    console.warn(`[Storage] Failed to persist ${key}:`, err);
+  }
+
   async function saveNote(text: string): Promise<VoiceNote> {
     const note: VoiceNote = { id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, text, timestamp: Date.now() };
     setNotes((prev) => {
       const updated = [note, ...prev];
-      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch((e) => warnStorageError("notes", e));
       return updated;
     });
     return note;
@@ -357,7 +361,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   async function deleteNote(id: string) {
     setNotes((prev) => {
       const updated = prev.filter((n) => n.id !== id);
-      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated)).catch((e) => warnStorageError("notes", e));
       return updated;
     });
   }
@@ -366,7 +370,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     const todo: TodoItem = { id: `todo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, text, done: false, timestamp: Date.now() };
     setTodos((prev) => {
       const updated = [todo, ...prev];
-      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch((e) => warnStorageError("todos", e));
       return updated;
     });
     return todo;
@@ -375,7 +379,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   async function completeTodo(id: string) {
     setTodos((prev) => {
       const updated = prev.map((t) => t.id === id ? { ...t, done: true } : t);
-      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch((e) => warnStorageError("todos", e));
       return updated;
     });
   }
@@ -383,7 +387,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   async function deleteTodo(id: string) {
     setTodos((prev) => {
       const updated = prev.filter((t) => t.id !== id);
-      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(TODOS_KEY, JSON.stringify(updated)).catch((e) => warnStorageError("todos", e));
       return updated;
     });
   }
@@ -393,7 +397,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setContactFavoritesState((prev) => {
       const filtered = prev.filter((f) => f.alias !== normalizedAlias);
       const updated = [{ alias: normalizedAlias, contactName: contactName.trim() }, ...filtered];
-      AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(updated)).catch((e) => warnStorageError("favorites", e));
       return updated;
     });
   }
@@ -428,7 +432,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         const newTitle = title ?? (messages.find((m) => m.role === "user")?.content.slice(0, 40) || c.title);
         return { ...c, messages, title: newTitle, updatedAt: Date.now() };
       });
-      AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(updated)).catch((e) => console.warn("[Storage] Failed to persist conversations:", e));
       return updated;
     });
   }
@@ -436,7 +440,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   async function deleteConversation(id: string) {
     setConversations((prev) => {
       const updated = prev.filter((c) => c.id !== id);
-      AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(updated)).catch((e) => console.warn("[Storage] Failed to persist conversations:", e));
       return updated;
     });
     if (currentConversationId === id) setCurrentConversationId(null);

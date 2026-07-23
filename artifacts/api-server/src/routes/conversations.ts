@@ -16,13 +16,18 @@ router.get("/conversations", async (req, res) => {
     return;
   }
 
+  const limit = Math.min(parseInt(String(req.query.limit ?? "50"), 10) || 50, 200);
+  const offset = parseInt(String(req.query.offset ?? "0"), 10) || 0;
+
   try {
     const rows = await db
       .select()
       .from(conversationsTable)
       .where(eq(conversationsTable.deviceId, deviceId))
-      .orderBy(desc(conversationsTable.updatedAt));
-    res.json({ conversations: rows });
+      .orderBy(desc(conversationsTable.updatedAt))
+      .limit(limit)
+      .offset(offset);
+    res.json({ conversations: rows, limit, offset });
   } catch (err) {
     req.log.error({ err }, "Failed to list conversations");
     res.status(500).json({ error: "Failed to list conversations" });
@@ -143,12 +148,17 @@ router.get("/conversations/:id/messages", async (req, res) => {
       return;
     }
 
+    const limit = Math.min(parseInt(String(req.query.limit ?? "100"), 10) || 100, 500);
+    const offset = parseInt(String(req.query.offset ?? "0"), 10) || 0;
+
     const rows = await db
       .select()
       .from(messagesTable)
       .where(eq(messagesTable.conversationId, id))
-      .orderBy(messagesTable.createdAt);
-    res.json({ messages: rows });
+      .orderBy(messagesTable.createdAt)
+      .limit(limit)
+      .offset(offset);
+    res.json({ messages: rows, limit, offset });
   } catch (err) {
     req.log.error({ err }, "Failed to list messages");
     res.status(500).json({ error: "Failed to list messages" });

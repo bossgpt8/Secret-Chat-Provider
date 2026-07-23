@@ -64,12 +64,15 @@ export default function ProfileScreen() {
 
   const [nameInput, setNameInput] = useState(userProfile.userName);
   const [ageInput, setAgeInput] = useState(userProfile.age);
+  const [savedField, setSavedField] = useState<string | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   async function saveField(field: keyof UserProfile, value: string) {
     await setUserProfile({ ...userProfile, [field]: value });
+    setSavedField(field);
+    setTimeout(() => setSavedField(null), 1800);
   }
 
   async function saveGender(gender: UserProfile["gender"]) {
@@ -102,9 +105,14 @@ export default function ProfileScreen() {
           <View style={[styles.fieldRow, { borderBottomColor: colors.border }]}>
             <Ionicons name="person-outline" size={18} color={colors.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Your Name</Text>
+              <View style={styles.fieldLabelRow}>
+                <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Your Name</Text>
+                {savedField === "userName" && (
+                  <Text style={[styles.savedBadge, { color: colors.primary }]}>Saved ✓</Text>
+                )}
+              </View>
               <TextInput
-                style={[styles.fieldInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
+                style={[styles.fieldInput, { color: colors.foreground, borderBottomColor: colors.border }]}
                 value={nameInput}
                 onChangeText={setNameInput}
                 onBlur={() => saveField("userName", nameInput.trim())}
@@ -121,9 +129,14 @@ export default function ProfileScreen() {
           <View style={[styles.fieldRow, { borderBottomColor: colors.border }]}>
             <Ionicons name="calendar-outline" size={18} color={colors.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Age</Text>
+              <View style={styles.fieldLabelRow}>
+                <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Age</Text>
+                {savedField === "age" && (
+                  <Text style={[styles.savedBadge, { color: colors.primary }]}>Saved ✓</Text>
+                )}
+              </View>
               <TextInput
-                style={[styles.fieldInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
+                style={[styles.fieldInput, { color: colors.foreground, borderBottomColor: colors.border }]}
                 value={ageInput}
                 onChangeText={setAgeInput}
                 onBlur={() => saveField("age", ageInput.trim())}
@@ -247,9 +260,12 @@ const styles = StyleSheet.create({
   },
   fieldLabel: { fontSize: 14, fontFamily: "Inter_500Medium", marginBottom: 1 },
   fieldHint: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  fieldLabelRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  savedBadge: { fontSize: 11, fontFamily: "Inter_500Medium" },
   fieldInput: {
-    marginTop: 6, height: 36, borderRadius: 8, borderWidth: 1,
-    paddingHorizontal: 10, fontSize: 14, fontFamily: "Inter_400Regular",
+    marginTop: 6, height: 36,
+    borderBottomWidth: 1.5,
+    paddingHorizontal: 0, fontSize: 14, fontFamily: "Inter_400Regular",
   },
   pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 14, paddingBottom: 12 },
   pill: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },

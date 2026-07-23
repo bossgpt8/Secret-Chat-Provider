@@ -14,14 +14,30 @@ const OR_WHISPER_MODEL = "openai/whisper-large-v3";
 const OLLAMA_BASE = process.env.OLLAMA_URL ? `${process.env.OLLAMA_URL}/v1` : "";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1:8b";
 
+// ─── Context window trimming ──────────────────────────────────────────────────
+// Keep at most MAX_HISTORY_MESSAGES turns (user+assistant pairs) so long
+// conversations never exceed the model's context window or slow down requests.
+// System messages are always prepended separately and are not counted here.
+
+const MAX_HISTORY_MESSAGES = 40;
+
+function trimMessages(messages: { role: string; content: string }[]) {
+  if (messages.length <= MAX_HISTORY_MESSAGES) return messages;
+  // Always keep the first user message for context, then the most recent turns
+  const head = messages[0];
+  const tail = messages.slice(-MAX_HISTORY_MESSAGES + 1);
+  return [head, ...tail];
+}
+
 // ─── /chat  (streaming) ───────────────────────────────────────────────────────
 
 router.post("/chat", async (req, res) => {
-  const { messages, systemPrompt } = req.body;
-  if (!messages || !Array.isArray(messages)) {
+  const { messages: rawMessages, systemPrompt } = req.body;
+  if (!rawMessages || !Array.isArray(rawMessages)) {
     res.status(400).json({ error: "messages array is required" });
     return;
   }
+  const messages = trimMessages(rawMessages);
 
   const groqKey = process.env.GROQ_API_KEY;
   const orKey = process.env.OPENROUTER_API_KEY;
@@ -64,7 +80,7 @@ router.post("/chat", async (req, res) => {
       };
       if (url.includes("openrouter")) {
         headers["HTTP-Referer"] = "https://replit.com";
-        headers["X-Title"] = "Zeno Voice Assistant";
+        headers["X-Title"] = "Vox Voice Assistant";
       }
 
       const response = await fetch(`${url}/chat/completions`, {
@@ -168,7 +184,7 @@ router.post("/search", async (req, res) => {
       ? [
           {
             role: "system",
-            content: `You are ${assistantName || "Zeno"}, a voice assistant. Summarize the following search results in 2-3 concise sentences. No markdown.`,
+            content: `You are ${assistantName || "Vox"}, a voice assistant. Summarize the following search results in 2-3 concise sentences. No markdown.`,
           },
           {
             role: "user",
@@ -178,7 +194,7 @@ router.post("/search", async (req, res) => {
       : [
           {
             role: "system",
-            content: `You are ${assistantName || "Zeno"}, a voice assistant. Answer the user's question concisely in 2-3 sentences. No markdown.`,
+            content: `You are ${assistantName || "Vox"}, a voice assistant. Answer the user's question concisely in 2-3 sentences. No markdown.`,
           },
           { role: "user", content: query },
         ];
@@ -191,7 +207,7 @@ router.post("/search", async (req, res) => {
         };
         if (baseUrl.includes("openrouter")) {
           headers["HTTP-Referer"] = "https://replit.com";
-          headers["X-Title"] = "Zeno Voice Assistant";
+          headers["X-Title"] = "Vox Voice Assistant";
         }
         const r = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
@@ -248,7 +264,7 @@ router.post("/transcribe", upload.single("audio"), async (req, res) => {
       };
       if (baseUrl.includes("openrouter")) {
         headers["HTTP-Referer"] = "https://replit.com";
-        headers["X-Title"] = "Zeno Voice Assistant";
+        headers["X-Title"] = "Vox Voice Assistant";
       }
 
       const r = await fetch(`${baseUrl}/audio/transcriptions`, {
@@ -305,7 +321,7 @@ router.post("/vision", upload.single("image"), async (req, res) => {
         Authorization: `Bearer ${orKey}`,
         "Content-Type": "application/json",
         "HTTP-Referer": "https://replit.com",
-        "X-Title": "Zeno Voice Assistant",
+        "X-Title": "Vox Voice Assistant",
       },
       body: JSON.stringify({
         model: "google/gemini-2.0-flash-001",

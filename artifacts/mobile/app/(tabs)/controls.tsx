@@ -225,11 +225,7 @@ export default function ControlsScreen() {
             </Text>
           </View>
         )}
-        {!isSupported && (
-          <View style={[styles.togglePill, { backgroundColor: colors.muted }]}>
-            <Text style={[styles.toggleText, { color: colors.mutedForeground }]}>N/A</Text>
-          </View>
-        )}
+        {/* Unsupported controls are hidden entirely rather than showing N/A */}
       </Pressable>
     );
   }
@@ -265,15 +261,10 @@ export default function ControlsScreen() {
           </View>
         )}
 
-        <View style={[styles.voiceTip, { backgroundColor: colors.primary + "10", borderColor: colors.primary + "30" }]}>
-          <Ionicons name="mic" size={14} color={colors.primary} />
-          <Text style={[styles.voiceTipText, { color: colors.primary }]}>
-            Say: &quot;Turn on flashlight&quot;, &quot;Volume up&quot;, &quot;Make it brighter&quot;, &quot;Lock phone&quot;
-          </Text>
-        </View>
-
         {CATEGORIES.map((cat) => {
-          const catControls = CONTROLS.filter((c) => c.category === cat);
+          // Only render controls that are actually supported on this platform
+          const catControls = CONTROLS.filter((c) => c.category === cat && isSupportedControl(c.id));
+          if (catControls.length === 0) return null;
           return (
             <View key={cat}>
               <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>{cat}</Text>
@@ -286,22 +277,6 @@ export default function ControlsScreen() {
           );
         })}
 
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Voice Commands</Text>
-        <View style={[styles.cmdCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {[
-            { voice: "Turn on/off flashlight", action: "Toggle torch" },
-            { voice: "Volume up / volume down", action: "Adjust media volume" },
-            { voice: "Mute / unmute", action: "Mute media audio" },
-            { voice: "Make it brighter / dimmer", action: "System brightness" },
-            { voice: "Lock the phone", action: "Lock screen" },
-          ].map(({ voice, action }) => (
-            <View key={voice} style={[styles.cmdRow, { borderBottomColor: colors.border }]}>
-              <Ionicons name="mic-outline" size={13} color={colors.primary} />
-              <Text style={[styles.cmdVoice, { color: colors.foreground }]}>&quot;{voice}&quot;</Text>
-              <Text style={[styles.cmdAction, { color: colors.mutedForeground }]}>→ {action}</Text>
-            </View>
-          ))}
-        </View>
       </ScrollView>
     </View>
   );

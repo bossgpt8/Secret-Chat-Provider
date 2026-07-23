@@ -8,7 +8,7 @@ import * as Notifications from "expo-notifications";
 import * as Speech from "expo-speech";
 import { fetch } from "expo/fetch";
 import { useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -494,6 +494,8 @@ export default function ChatScreen() {
   const ttsPlayingRef = useRef(false);
   // Incremented every time stopSpeaking() is called — used to cancel stale in-flight TTS fetches
   const ttsGenerationRef = useRef(0);
+  // AbortController for the active /chat SSE stream — aborted when user interrupts
+  const chatAbortRef = useRef<AbortController | null>(null);
   // Notification announcements queued while TTS is already playing (played after current speech ends)
   const pendingNotifSpeechRef = useRef<string[]>([]);
   // VAD polling interval (replaces fixed silence timer)
@@ -956,6 +958,9 @@ export default function ChatScreen() {
   // ── TTS ────────────────────────────────────────────────────────────────────
 
   async function stopSpeaking() {
+    // Cancel any in-flight chat/SSE fetch so the network request actually stops
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
     ttsGenerationRef.current++;          // invalidate any in-flight TTS fetches
     pendingNotifSpeechRef.current = [];  // also clear queued notification announcements
     ttsQueueRef.current = [];
@@ -2599,6 +2604,33 @@ export default function ChatScreen() {
     }
   }
 
+  // ── Memoised system prompt ─────────────────────────────────────────────────
+  // Rebuilt only when personality / profile / name changes, not on every send.
+
+  const MAX_CHAT_HISTORY = 40;
+
+  const chatSystemPrompt = useMemo(() => {
+    const personalityText: Record<string, string> = {
+      friendly: "Be warm, supportive, and upbeat.",
+      casual: "Be relaxed and casual. Use informal, everyday language.",
+      professional: "Be formal, precise, and to the point.",
+      witty: "Be clever and add light humor when appropriate.",
+      caring: "Be empathetic, gentle, and attentive to the user's feelings.",
+    };
+    const parts: string[] = [
+      `You are ${assistantName}, a voice assistant.`,
+      personalityText[assistantPersonality] ?? personalityText.friendly,
+    ];
+    if (userProfile.userName) parts.push(`The user's name is ${userProfile.userName}.`);
+    if (userProfile.age) parts.push(`They are ${userProfile.age} years old.`);
+    if (assistantPersonality === "casual" || assistantPersonality === "friendly") {
+      if (userProfile.gender === "male") parts.push("Occasionally address them as 'bro'.");
+      else if (userProfile.gender === "female") parts.push("Occasionally address them as 'sis'.");
+    }
+    parts.push("Keep responses to 1-3 sentences. No markdown.");
+    return parts.join(" ");
+  }, [assistantName, assistantPersonality, userProfile]);
+
   // ── Send message ───────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async (overrideText?: string) => {
@@ -2653,33 +2685,19 @@ export default function ChatScreen() {
         return;
       }
 
-      const chatHistory = withUser.map((m) => ({ role: m.role, content: m.content }));
+      // Trim to last MAX_CHAT_HISTORY messages to prevent unbounded context growth
+      const chatHistory = withUser.slice(-MAX_CHAT_HISTORY).map((m) => ({ role: m.role, content: m.content }));
 
-      // Build personality-aware, profile-aware system prompt
-      const personalityText: Record<string, string> = {
-        friendly: "Be warm, supportive, and upbeat.",
-        casual: "Be relaxed and casual. Use informal, everyday language.",
-        professional: "Be formal, precise, and to the point.",
-        witty: "Be clever and add light humor when appropriate.",
-        caring: "Be empathetic, gentle, and attentive to the user's feelings.",
-      };
-      const promptParts: string[] = [
-        `You are ${assistantName}, a voice assistant.`,
-        personalityText[assistantPersonality] ?? personalityText.friendly,
-      ];
-      if (userProfile.userName) promptParts.push(`The user's name is ${userProfile.userName}.`);
-      if (userProfile.age) promptParts.push(`They are ${userProfile.age} years old.`);
-      if (assistantPersonality === "casual" || assistantPersonality === "friendly") {
-        if (userProfile.gender === "male") promptParts.push("Occasionally address them as 'bro'.");
-        else if (userProfile.gender === "female") promptParts.push("Occasionally address them as 'sis'.");
-      }
-      promptParts.push("Keep responses to 1-3 sentences. No markdown.");
-      const systemPrompt = promptParts.join(" ");
+      // Cancel any previous in-flight request and start a fresh AbortController
+      chatAbortRef.current?.abort();
+      const abortCtrl = new AbortController();
+      chatAbortRef.current = abortCtrl;
 
       const response = await fetch(`${baseUrl}chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ messages: chatHistory, systemPrompt }),
+        body: JSON.stringify({ messages: chatHistory, systemPrompt: chatSystemPrompt }),
+        signal: abortCtrl.signal,
       });
 
       if (!response.ok) throw new Error("Chat failed");
@@ -2756,6 +2774,11 @@ export default function ChatScreen() {
 
       setMessages((finalMsgs) => { saveMessages(convId, finalMsgs); return finalMsgs; });
     } catch (error) {
+      // Ignore user-initiated cancellations — no error message needed
+      if (error instanceof Error && error.name === "AbortError") {
+        setShowTyping(false);
+        return;
+      }
       console.warn("Chat send failed", error);
       const errMsg = "Sorry, something went wrong. Please try again.";
       setShowTyping(false);
@@ -2765,7 +2788,7 @@ export default function ChatScreen() {
       setIsStreaming(false);
       setShowTyping(false);
     }
-  }, [input, isStreaming, isSearchMode, messages, assistantName, userProfile, assistantPersonality]);
+  }, [input, isStreaming, isSearchMode, messages, chatSystemPrompt]);
 
   // ── Screen share / game assist ────────────────────────────────────────────
 

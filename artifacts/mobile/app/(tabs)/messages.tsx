@@ -1,7 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, LayoutAnimation, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { NativeNotifications, VoxNotification } from "@/modules/NativeNotifications";
@@ -387,6 +392,7 @@ export default function MessagesScreen() {
                   key={n.key}
                   onPress={() => {
                     if (!canReply) return;
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                     if (isExpanded) {
                       setReplyExpanded(null);
                       setReplyText("");

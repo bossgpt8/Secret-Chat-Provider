@@ -13,6 +13,43 @@ import {
   TextInput,
   View,
 } from "react-native";
+
+const FEATURES = [
+  { icon: "chatbubble-ellipses" as const, label: "AI conversation with LLaMA 3.3", delay: 0 },
+  { icon: "mic" as const, label: "Voice input & TTS responses", delay: 120 },
+  { icon: "search" as const, label: "Web search integration", delay: 240 },
+  { icon: "phone-portrait" as const, label: "Phone controls & notifications", delay: 360 },
+];
+
+function FeatureRow({ icon, label, delay }: { icon: "chatbubble-ellipses" | "mic" | "search" | "phone-portrait"; label: string; delay: number }) {
+  const colors = useColors();
+  const anim = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 350,
+      delay,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: Platform.OS !== "web",
+    }).start();
+  }, []);
+  return (
+    <Animated.View
+      style={[
+        styles.featureRow,
+        {
+          opacity: anim,
+          transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
+        },
+      ]}
+    >
+      <View style={[styles.featureIcon, { backgroundColor: colors.primary + "18" }]}>
+        <Ionicons name={icon} size={16} color={colors.primary} />
+      </View>
+      <Text style={[styles.featureText, { color: colors.foreground }]}>{label}</Text>
+    </Animated.View>
+  );
+}
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
@@ -92,17 +129,9 @@ export default function OnboardingScreen() {
           ))}
         </View>
 
-        <View style={[styles.featureList, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {[
-            { icon: "chatbubble-ellipses", label: "AI conversation with LLaMA 3.3" },
-            { icon: "mic", label: "Voice input & TTS responses" },
-            { icon: "search", label: "Web search integration" },
-            { icon: "phone-portrait", label: "Phone controls (dev build)" },
-          ].map(({ icon, label }) => (
-            <View key={label} style={styles.featureRow}>
-              <Ionicons name={icon as "chatbubble-ellipses"} size={16} color={colors.primary} />
-              <Text style={[styles.featureText, { color: colors.foreground }]}>{label}</Text>
-            </View>
+        <View style={styles.featureList}>
+          {FEATURES.map((f) => (
+            <FeatureRow key={f.label} icon={f.icon} label={f.label} delay={f.delay} />
           ))}
         </View>
 
@@ -128,9 +157,10 @@ const styles = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, width: "100%", marginBottom: 20 },
   chip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
   chipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  featureList: { width: "100%", borderRadius: 14, borderWidth: 1, padding: 14, gap: 10, marginBottom: 24 },
-  featureRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  featureText: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  featureList: { width: "100%", gap: 10, marginBottom: 24 },
+  featureRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  featureIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  featureText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
   btn: { width: "100%", height: 54, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   btnText: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
 });

@@ -237,10 +237,11 @@ class VoxOverlayService : Service() {
                         lp.y = lp.y.coerceIn(dpToPx(80), screenH - bubblePx - dpToPx(80))
                         try { windowManager?.updateViewLayout(bubbleView, lp) } catch (_: Exception) {}
                     } else {
-                        // Tap → tell JS to open app / start listening
-                        onEvent?.invoke("onVoxOverlayTap", "")
-                        // If no JS bridge, open app ourselves
-                        if (onEvent == null) bringAppToFront()
+                        // Tap → always bring the app to foreground first so the JS
+                        // navigation call has an active Activity to work with.
+                        bringAppToFront()
+                        // Then notify JS so it can start listening / handle the tap.
+                        try { onEvent?.invoke("onVoxOverlayTap", "") } catch (_: Exception) {}
                     }
                     true
                 }

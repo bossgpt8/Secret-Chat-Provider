@@ -236,7 +236,7 @@ export default function SettingsScreen() {
     setPermStatuses((prev) => ({ ...prev, ...updates }));
   }
 
-  async function loadPhoneVoices() {
+  async function loadPhoneVoices(attempt = 0) {
     try {
       const all = await Speech.getAvailableVoicesAsync();
       const english = all
@@ -246,9 +246,20 @@ export default function SettingsScreen() {
           const qB = b.quality === Speech.VoiceQuality.Enhanced ? 1 : 0;
           return (qB - qA) || (a.name ?? "").localeCompare(b.name ?? "");
         });
+      if (english.length === 0 && attempt < 3) {
+        // Android TTS engine sometimes needs a moment to initialize — retry
+        setTimeout(() => loadPhoneVoices(attempt + 1), 1500);
+        return;
+      }
       setPhoneVoices(english);
-    } catch { setPhoneVoices([]); }
-    finally { setLoadingPhoneVoices(false); }
+    } catch {
+      if (attempt < 3) {
+        setTimeout(() => loadPhoneVoices(attempt + 1), 1500);
+        return;
+      }
+      setPhoneVoices([]);
+    }
+    setLoadingPhoneVoices(false);
   }
 
   function resolveBase() {
@@ -735,8 +746,11 @@ export default function SettingsScreen() {
                   <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>Loading device voices…</Text>
                 </View>
               ) : phoneVoices.length === 0 ? (
-                <View style={[styles.row, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>No English voices found on this device.</Text>
+                <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 4 }]}>
+                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>No specific voices detected</Text>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+                    Phone TTS will still speak using your device's default voice — this is normal and does not require internet. To install more voices, go to Android Settings → General Management → Language &amp; Input → Text-to-speech.
+                  </Text>
                 </View>
               ) : (
                 phoneVoices.map((v) => {

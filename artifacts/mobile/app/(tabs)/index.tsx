@@ -133,9 +133,50 @@ const bubbleStyles = StyleSheet.create({
 
 // ─── Siri orb ─────────────────────────────────────────────────────────────────
 
-function SiriOrb({ isRecording, isSpeaking, colors }: {
+// ─── Waveform bars — react to live audio amplitude ────────────────────────────
+
+function WaveformBars({ audioLevel, colors }: {
+  audioLevel: Animated.Value;
+  colors: ReturnType<typeof useColors>;
+}) {
+  const NUM_BARS = 5;
+  const BASE_H = 4;
+  const MAX_HEIGHTS = [16, 28, 36, 26, 18];
+
+  const bars = useRef(
+    Array.from({ length: NUM_BARS }, () => new Animated.Value(BASE_H))
+  ).current;
+
+  useEffect(() => {
+    const id = audioLevel.addListener(({ value }) => {
+      bars.forEach((b, i) => {
+        const target = BASE_H + value * (MAX_HEIGHTS[i] - BASE_H);
+        Animated.timing(b, { toValue: target, duration: 80, useNativeDriver: false }).start();
+      });
+    });
+    return () => audioLevel.removeListener(id);
+  }, []);
+
+  return (
+    <View style={waveStyles.container}>
+      {bars.map((h, i) => (
+        <Animated.View key={i} style={[waveStyles.bar, { height: h, backgroundColor: colors.primary }]} />
+      ))}
+    </View>
+  );
+}
+
+const waveStyles = StyleSheet.create({
+  container: { flexDirection: "row", alignItems: "center", gap: 5, height: 40, marginTop: 10 },
+  bar: { width: 4, borderRadius: 2, opacity: 0.85 },
+});
+
+// ─── Siri-style orb — scale driven by voice amplitude when recording ──────────
+
+function SiriOrb({ isRecording, isSpeaking, audioLevel, colors }: {
   isRecording: boolean;
   isSpeaking: boolean;
+  audioLevel?: Animated.Value;
   colors: ReturnType<typeof useColors>;
 }) {
   const pulse = useRef(new Animated.Value(1)).current;
@@ -144,13 +185,24 @@ function SiriOrb({ isRecording, isSpeaking, colors }: {
   const glow = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (isRecording || isSpeaking) {
+    if (isSpeaking) {
+      // Speaking: smooth fixed-speed pulse
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulse, { toValue: 1.12, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== "web" }),
           Animated.timing(pulse, { toValue: 0.95, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== "web" }),
         ])
       ).start();
+    } else if (isRecording) {
+      // Recording: pulse stays at 1 — orb scale is driven by audioLevel prop instead
+      pulse.stopAnimation();
+      Animated.timing(pulse, { toValue: 1, duration: 100, useNativeDriver: Platform.OS !== "web" }).start();
+    } else {
+      pulse.stopAnimation();
+      Animated.timing(pulse, { toValue: 1, duration: 200, useNativeDriver: Platform.OS !== "web" }).start();
+    }
+
+    if (isRecording || isSpeaking) {
       Animated.loop(
         Animated.sequence([
           Animated.timing(ring1, { toValue: 1.5, duration: 900, useNativeDriver: Platform.OS !== "web" }),
@@ -166,10 +218,8 @@ function SiriOrb({ isRecording, isSpeaking, colors }: {
       ).start();
       Animated.timing(glow, { toValue: 1, duration: 300, useNativeDriver: Platform.OS !== "web" }).start();
     } else {
-      pulse.stopAnimation();
       ring1.stopAnimation();
       ring2.stopAnimation();
-      Animated.timing(pulse, { toValue: 1, duration: 200, useNativeDriver: Platform.OS !== "web" }).start();
       Animated.timing(ring1, { toValue: 1, duration: 200, useNativeDriver: Platform.OS !== "web" }).start();
       Animated.timing(ring2, { toValue: 1, duration: 200, useNativeDriver: Platform.OS !== "web" }).start();
       Animated.timing(glow, { toValue: 0, duration: 300, useNativeDriver: Platform.OS !== "web" }).start();
@@ -177,6 +227,11 @@ function SiriOrb({ isRecording, isSpeaking, colors }: {
   }, [isRecording, isSpeaking]);
 
   const activeColor = isSpeaking ? colors.accent : colors.primary;
+
+  // When recording, scale is driven by voice amplitude; otherwise use the pulse loop
+  const orbScaleTransform = isRecording && audioLevel
+    ? audioLevel.interpolate({ inputRange: [0, 1], outputRange: [1.0, 1.4] })
+    : pulse;
 
   return (
     <View style={orbStyles.container}>
@@ -193,10 +248,10 @@ function SiriOrb({ isRecording, isSpeaking, colors }: {
         opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }),
         transform: [{ scale: ring1 }],
       }]} />
-      {/* Core orb */}
+      {/* Core orb — amplitude-reactive when recording */}
       <Animated.View style={[orbStyles.orb, {
         backgroundColor: activeColor,
-        transform: [{ scale: pulse }],
+        transform: [{ scale: orbScaleTransform as Animated.AnimatedInterpolation<number> }],
         shadowColor: activeColor,
         shadowOpacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0, 0.6] }) as unknown as number,
         shadowRadius: 20,
@@ -443,6 +498,8 @@ export default function ChatScreen() {
   const pendingNotifSpeechRef = useRef<string[]>([]);
   // VAD polling interval (replaces fixed silence timer)
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Live audio amplitude (0–1) driven by VAD metering — feeds WaveformBars + SiriOrb
+  const audioLevelAnim = useRef(new Animated.Value(0)).current;
 
   // Wake word refs
   const wakeWordLoopRef = useRef(false);
@@ -1200,6 +1257,8 @@ export default function ChatScreen() {
           const status = await rec.getStatusAsync();
           if (!status.isRecording) return;
           const db = (status as { metering?: number }).metering ?? -160;
+          // Drive live waveform: map -60 dB → 0, 0 dB → 1
+          audioLevelAnim.setValue(Math.max(0, Math.min(1, (db + 60) / 60)));
           if (db > VAD_SILENCE_THRESHOLD_DB) {
             // Heard voice
             vadHasVoice = true;
@@ -1222,6 +1281,7 @@ export default function ChatScreen() {
   function stopRecordingCleanup() {
     if (durationTimerRef.current) { clearInterval(durationTimerRef.current); durationTimerRef.current = null; }
     if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null; }
+    audioLevelAnim.setValue(0);
     if (recordingRef.current) {
       recordingRef.current.stopAndUnloadAsync().catch(() => {});
       recordingRef.current = null;
@@ -1238,6 +1298,7 @@ export default function ChatScreen() {
     recordingRef.current = null;
     setIsRecording(false);
     setRecordingDuration(0);
+    audioLevelAnim.setValue(0);
 
     try {
       await rec.stopAndUnloadAsync();
@@ -2914,7 +2975,7 @@ export default function ChatScreen() {
           <View style={[styles.callBanner, { backgroundColor: colors.destructive + "12", borderBottomColor: colors.destructive + "30" }]}>
             <View style={[styles.callDot, { backgroundColor: colors.destructive }]} />
             <Text style={[styles.callBannerText, { color: colors.destructive }]}>
-              {isSpeaking ? `${assistantName} is speaking…` : isRecording ? `Listening… speak now (${7 - recordingDuration}s)` : isTranscribing ? "Processing…" : isStreaming ? `${assistantName} is thinking…` : "Call mode — waiting…"}
+              {isSpeaking ? `${assistantName} is speaking…` : isRecording ? "Listening…" : isTranscribing ? "Processing…" : isStreaming ? `${assistantName} is thinking…` : "Waiting…"}
             </Text>
             <Pressable onPress={endCallMode} style={styles.callEndBtn}>
               <Ionicons name="call" size={14} color={colors.destructive} />
@@ -2958,13 +3019,16 @@ export default function ChatScreen() {
           /* ── Empty / Voice-first state ── */
           <View style={styles.voiceHome}>
             <Pressable onPress={isRecording ? stopRecording : startRecording} disabled={isStreaming || isCallMode || isWakeListening}>
-              <SiriOrb isRecording={isRecording} isSpeaking={isSpeaking} colors={colors} />
+              <SiriOrb isRecording={isRecording} isSpeaking={isSpeaking} audioLevel={audioLevelAnim} colors={colors} />
             </Pressable>
+
+            {/* Live waveform — visible while mic is open */}
+            {isRecording && <WaveformBars audioLevel={audioLevelAnim} colors={colors} />}
 
             {isCallMode ? (
               <>
                 <Text style={[styles.voiceHint, { color: colors.destructive }]}>
-                  {isSpeaking ? "Speaking…" : isRecording ? `Listening (${7 - recordingDuration}s left)` : "Getting ready…"}
+                  {isSpeaking ? "Speaking…" : isRecording ? "Listening…" : isTranscribing ? "Processing…" : isStreaming ? "Thinking…" : "Waiting…"}
                 </Text>
                 <Pressable style={[styles.endCallChip, { backgroundColor: colors.destructive + "15", borderColor: colors.destructive + "40" }]} onPress={endCallMode}>
                   <Ionicons name="call" size={14} color={colors.destructive} />
@@ -2972,21 +3036,25 @@ export default function ChatScreen() {
                 </Pressable>
               </>
             ) : isRecording ? (
-              <Text style={[styles.voiceHint, { color: colors.destructive }]}>Listening… tap to send</Text>
+              <Text style={[styles.voiceHint, { color: colors.primary }]}>Listening… tap to stop</Text>
+            ) : isSpeaking ? (
+              <Text style={[styles.voiceHint, { color: colors.accent }]}>Speaking… tap to interrupt</Text>
+            ) : isTranscribing ? (
+              <Text style={[styles.voiceHint, { color: colors.mutedForeground }]}>Processing…</Text>
             ) : (
               <>
                 <Text style={[styles.voiceTitle, { color: colors.foreground }]}>Hi, I&apos;m {assistantName}</Text>
                 <Text style={[styles.voiceSubtitle, { color: colors.mutedForeground }]}>
-                  Tap the mic to speak, or start a hands-free voice call
+                  Tap the mic to speak, or go hands-free
                 </Text>
-                {/* Voice Call button */}
+                {/* Hands-free call button */}
                 <Pressable
                   style={[styles.voiceCallBtn, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
                   onPress={startCallMode}
                   disabled={isStreaming}
                 >
-                  <Ionicons name="call" size={20} color="#fff" />
-                  <Text style={styles.voiceCallBtnText}>Start Voice Call</Text>
+                  <Ionicons name="mic-outline" size={20} color="#fff" />
+                  <Text style={styles.voiceCallBtnText}>Hands-Free Mode</Text>
                 </Pressable>
 
                 {/* Screen Share / Game Assist toggle — Android only */}

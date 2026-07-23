@@ -1,10 +1,10 @@
-# Zeno — Voice-Controlled AI Assistant
+# Vox — Voice-Controlled AI Assistant
 
 🎤 A comprehensive voice-controlled personal assistant for Android built with React Native/Expo, combining multimodal AI with deep Android system integration.
 
 ## 📱 Overview
 
-**Zeno** is an intelligent voice assistant that brings hands-free control to your Android phone. It combines fast AI conversation (Groq / LLaMA 3.3), vision analysis (Gemini 2.0 Flash), web search (Tavily), and premium text-to-speech (ElevenLabs / Kokoro) with native Android capabilities — controlling flashlight, brightness, volume, screen lock, notifications, and even automating word games.
+**Vox** is an intelligent voice assistant that brings hands-free control to your Android phone. It combines fast AI conversation (Groq / LLaMA 3.3), vision analysis (Gemini 2.0 Flash), web search (Tavily), and premium text-to-speech (ElevenLabs / Kokoro) with native Android capabilities — controlling flashlight, brightness, volume, screen lock, notifications, and even automating word games.
 
 ## 🎯 Key Features
 
@@ -14,7 +14,7 @@
 - Voice input with real-time audio recording and Whisper transcription
 - Text-to-speech responses (ElevenLabs, Kokoro self-hosted, or system TTS)
 - Streaming responses for low-latency interaction
-- "Hey Zeno" wake-word support
+- "Hey Vox" wake-word support
 
 ### 2. Multimodal AI
 - 📷 **Vision** — describe any image or screenshot using Gemini 2.0 Flash

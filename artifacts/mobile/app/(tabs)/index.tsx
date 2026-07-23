@@ -2793,7 +2793,14 @@ export default function ChatScreen() {
   // ── Screen share / game assist ────────────────────────────────────────────
 
   const toggleScreenShare = async () => {
-    if (!NativeScreenCapture.isAvailable) return;
+    if (!NativeScreenCapture.isAvailable) {
+      Alert.alert(
+        "Native Build Required",
+        "Screen Share uses Android's MediaProjection API and is only available in a production build, not in Expo Go. Build the app with `eas build` to enable it.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
     if (screenShareActive) {
       setScreenShareActive(false);
       screenShareActiveRef.current = false;
@@ -3081,7 +3088,7 @@ export default function ChatScreen() {
                 </Pressable>
 
                 {/* Screen Share / Game Assist toggle — Android only */}
-                {Platform.OS === "android" && NativeScreenCapture.isAvailable && (
+                {Platform.OS === "android" && (
                   <Pressable
                     style={[
                       styles.screenShareBtn,

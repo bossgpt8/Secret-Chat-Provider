@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type Request, type Response, type IRouter } from "express";
 
 const router: IRouter = Router();
 
@@ -7,6 +7,9 @@ const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 // Kokoro FastAPI server (self-hosted, OpenAI-compatible)
 const KOKORO_URL = process.env.KOKORO_URL ?? "";
 const KOKORO_API_KEY = process.env.KOKORO_API_KEY ?? "";
+
+// Kokoro request timeout — fail fast so the mobile client doesn't hang
+const KOKORO_TIMEOUT_MS = 12000;
 
 // Curated Kokoro voices — fallback when server is unreachable
 const KOKORO_VOICES = [
@@ -62,7 +65,7 @@ const ELEVENLABS_VOICES = [
 ];
 
 // GET /tts/voices?provider=kokoro|elevenlabs
-router.get("/tts/voices", async (req, res) => {
+router.get("/tts/voices", async (req: Request, res: Response) => {
   const provider = (req.query.provider as string) || "elevenlabs";
 
   // ── Kokoro voices ──────────────────────────────────────────────────────────
@@ -74,7 +77,10 @@ router.get("/tts/voices", async (req, res) => {
     try {
       const kokoroHeaders: Record<string, string> = {};
       if (KOKORO_API_KEY) kokoroHeaders["Authorization"] = `Bearer ${KOKORO_API_KEY}`;
-      const r = await fetch(`${KOKORO_URL}/v1/voices`, { headers: kokoroHeaders });
+      const r = await fetch(`${KOKORO_URL}/v1/voices`, {
+        headers: kokoroHeaders,
+        signal: AbortSignal.timeout(6000),
+      });
       if (!r.ok) throw new Error("non-ok");
       const data = await r.json() as { voices?: { voice_id?: string; id?: string; name?: string }[] };
       const voices = (data.voices ?? []).map((v) => ({
@@ -119,17 +125,19 @@ router.get("/tts/voices", async (req, res) => {
   }
 });
 
-// POST /tts — synthesize speech, stream back mp3
-// Body: { text, provider?, voiceId?, stability?, similarityBoost? }
-router.post("/tts", async (req, res) => {
-  const { text, provider, voiceId, stability, similarityBoost } = req.body as {
-    text?: string;
-    provider?: string;
-    voiceId?: string;
-    stability?: number;
-    similarityBoost?: number;
-  };
+// ── Shared TTS synthesis logic ─────────────────────────────────────────────────
+// Called by both GET and POST /tts so the mobile client can choose the most
+// efficient transport: GET lets expo-av stream directly via its native HTTP
+// client (no JS-side buffer download needed), POST is kept for compatibility.
 
+async function handleTts(
+  text: string | undefined,
+  provider: string | undefined,
+  voiceId: string | undefined,
+  stability: number | undefined,
+  similarityBoost: number | undefined,
+  res: Response
+) {
   if (!text || !text.trim()) {
     res.status(400).json({ error: "text is required" });
     return;
@@ -137,7 +145,7 @@ router.post("/tts", async (req, res) => {
 
   const truncated = text.slice(0, 1000);
 
-  // ── ElevenLabs helper ─────────────────────────────────────────────────────
+  // ── ElevenLabs helper ──────────────────────────────────────────────────────
   async function tryElevenLabs(elVoiceId?: string): Promise<boolean> {
     const apiKey = process.env.ELEVENLABS_API_KEY;
     if (!apiKey) return false;
@@ -186,6 +194,7 @@ router.post("/tts", async (req, res) => {
           method: "POST",
           headers: kokoroHeaders,
           body: JSON.stringify({ model: "kokoro", input: truncated, voice, response_format: "mp3", speed: 1.0 }),
+          signal: AbortSignal.timeout(KOKORO_TIMEOUT_MS),
         });
 
         if (r.ok) {
@@ -203,14 +212,18 @@ router.post("/tts", async (req, res) => {
             return;
           }
         }
-      } catch {
-        // fall through to ElevenLabs
+        // Kokoro returned non-ok — log and fall through
+        console.warn(`[tts] Kokoro returned ${r.status} — falling back to ElevenLabs`);
+      } catch (err) {
+        console.warn(`[tts] Kokoro error: ${err instanceof Error ? err.message : err} — falling back to ElevenLabs`);
       }
+    } else {
+      console.warn("[tts] KOKORO_URL not set — falling back to ElevenLabs");
     }
 
     // Kokoro unavailable — try ElevenLabs as fallback
     const ok = await tryElevenLabs();
-    if (!ok) res.status(503).json({ error: "All TTS providers unavailable" });
+    if (!ok) res.status(503).json({ error: "kokoro_unavailable" });
     return;
   }
 
@@ -223,6 +236,34 @@ router.post("/tts", async (req, res) => {
 
   const ok = await tryElevenLabs(voiceId);
   if (!ok) res.status(503).json({ error: "ElevenLabs TTS failed" });
+}
+
+// GET /tts?text=...&provider=kokoro&voiceId=af_bella
+// Used by the mobile app — expo-av passes this URL directly to Android's
+// ExoPlayer, which streams and starts playback immediately without waiting
+// for the full file to download.
+router.get("/tts", async (req: Request, res: Response) => {
+  const { text, provider, voiceId, stability, similarityBoost } = req.query as Record<string, string>;
+  await handleTts(
+    text,
+    provider,
+    voiceId,
+    stability ? parseFloat(stability) : undefined,
+    similarityBoost ? parseFloat(similarityBoost) : undefined,
+    res
+  );
+});
+
+// POST /tts — kept for backward compatibility
+router.post("/tts", async (req: Request, res: Response) => {
+  const { text, provider, voiceId, stability, similarityBoost } = req.body as {
+    text?: string;
+    provider?: string;
+    voiceId?: string;
+    stability?: number;
+    similarityBoost?: number;
+  };
+  await handleTts(text, provider, voiceId, stability, similarityBoost, res);
 });
 
 export default router;

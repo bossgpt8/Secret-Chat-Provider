@@ -956,6 +956,39 @@ export default function ChatScreen() {
     return { sentences, remainder: buf.slice(last) };
   }
 
+  // Build a streaming GET URL for the TTS endpoint.
+  // expo-av passes this directly to Android's ExoPlayer which starts buffering
+  // and playing immediately — no JS-side download or base64 conversion needed.
+  async function buildTtsUrl(text: string): Promise<string> {
+    const base = await getApiBase();
+    const params = new URLSearchParams({
+      text: text.slice(0, 800),
+      provider: ttsProvider,
+      voiceId: ttsProvider === "kokoro" ? kokoroVoiceId : elVoiceId,
+    });
+    return `${base}tts?${params.toString()}`;
+  }
+
+  // Attach playback listeners to a sound object and track it in elSoundRef.
+  function attachSoundListeners(sound: Audio.Sound, gen: number) {
+    elSoundRef.current = sound;
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if (!status.isLoaded) return;
+      if ((status as any).error) {
+        console.warn("[tts] playback error:", (status as any).error);
+        sound.unloadAsync().catch(() => {});
+        if (elSoundRef.current === sound) elSoundRef.current = null;
+        onTtsDone();
+        return;
+      }
+      if (status.didJustFinish) {
+        sound.unloadAsync().catch(() => {});
+        if (elSoundRef.current === sound) elSoundRef.current = null;
+        onTtsDone();
+      }
+    });
+  }
+
   // Play one sentence immediately via cloud or phone TTS, then call onTtsDone.
   // Used for queue draining — no Alert fallback dialog (would be jarring mid-response).
   async function playSentenceNow(text: string): Promise<void> {
@@ -963,50 +996,21 @@ export default function ChatScreen() {
     const gen = ttsGenerationRef.current;
     if ((ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && Platform.OS !== "web") {
       try {
-        const base = await getApiBase();
-        const body = ttsProvider === "kokoro"
-          ? { text: text.slice(0, 800), provider: "kokoro", voiceId: kokoroVoiceId }
-          : { text: text.slice(0, 800), voiceId: elVoiceId };
-        const resp = await fetch(`${base}tts`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        // Bail out if stopSpeaking() was called while we were fetching
+        const uri = await buildTtsUrl(text);
         if (gen !== ttsGenerationRef.current) return;
-        if (resp.ok) {
-          await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-          const arrayBuffer = await resp.arrayBuffer();
-          const bytes = new Uint8Array(arrayBuffer);
-          let binary = "";
-          const chunkSize = 0x8000;
-          for (let i = 0; i < bytes.length; i += chunkSize) {
-            binary += String.fromCharCode(...Array.from(bytes.slice(i, i + chunkSize)));
-          }
-          const base64 = btoa(binary);
-          if (gen !== ttsGenerationRef.current) return;
-          const { sound } = await Audio.Sound.createAsync(
-            { uri: `data:audio/mpeg;base64,${base64}` },
-            { shouldPlay: true, volume: 1.0 }
-          );
-          if (gen !== ttsGenerationRef.current) {
-            sound.unloadAsync().catch(() => {});
-            return;
-          }
-          elSoundRef.current = sound;
-          sound.setOnPlaybackStatusUpdate((status) => {
-            if (!status.isLoaded) return;
-            if (status.didJustFinish) {
-              sound.unloadAsync().catch(() => {});
-              elSoundRef.current = null;
-              onTtsDone();
-            }
-          });
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri },
+          { shouldPlay: true, volume: 1.0 }
+        );
+        if (gen !== ttsGenerationRef.current) {
+          sound.unloadAsync().catch(() => {});
           return;
         }
+        attachSoundListeners(sound, gen);
+        return;
       } catch { /* fall through to phone TTS */ }
       if (gen !== ttsGenerationRef.current) return;
-      // Cloud TTS unavailable — silently fall back to phone voice
       speakWithPhone(text);
       return;
     }
@@ -1053,52 +1057,23 @@ export default function ChatScreen() {
     // Update native overlay bubble to "speaking" state while TTS plays
     if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
 
-    // Cloud/self-hosted TTS providers (kokoro + elevenlabs share the same audio playback path)
+    // Cloud/self-hosted TTS — stream directly via GET URL so expo-av (ExoPlayer)
+    // starts playback immediately without waiting for the full audio download.
     if ((ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && Platform.OS !== "web") {
       try {
-        const base = await getApiBase();
-        const body = ttsProvider === "kokoro"
-          ? { text: text.slice(0, 800), provider: "kokoro", voiceId: kokoroVoiceId }
-          : { text: text.slice(0, 800), voiceId: elVoiceId };
-        const resp = await fetch(`${base}tts`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-
-        // Bail out if stopSpeaking() was called while we were fetching
+        const uri = await buildTtsUrl(text);
         if (gen !== ttsGenerationRef.current) return;
-        if (resp.ok) {
-          await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-          const arrayBuffer = await resp.arrayBuffer();
-          const bytes = new Uint8Array(arrayBuffer);
-          let binary = "";
-          const chunkSize = 0x8000;
-          for (let i = 0; i < bytes.length; i += chunkSize) {
-            binary += String.fromCharCode(...Array.from(bytes.slice(i, i + chunkSize)));
-          }
-          const base64 = btoa(binary);
-
-          if (gen !== ttsGenerationRef.current) return;
-          const { sound } = await Audio.Sound.createAsync(
-            { uri: `data:audio/mpeg;base64,${base64}` },
-            { shouldPlay: true, volume: 1.0 }
-          );
-          if (gen !== ttsGenerationRef.current) {
-            sound.unloadAsync().catch(() => {});
-            return;
-          }
-          elSoundRef.current = sound;
-          sound.setOnPlaybackStatusUpdate((status) => {
-            if (!status.isLoaded) return;
-            if (status.didJustFinish) {
-              sound.unloadAsync().catch(() => {});
-              elSoundRef.current = null;
-              onTtsDone();
-            }
-          });
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri },
+          { shouldPlay: true, volume: 1.0 }
+        );
+        if (gen !== ttsGenerationRef.current) {
+          sound.unloadAsync().catch(() => {});
           return;
         }
+        attachSoundListeners(sound, gen);
+        return;
       } catch {
         // cloud TTS failed — ask user about phone TTS below
       }

@@ -1,0 +1,48 @@
+High Impact
+1. No conversation context window limit
+
+The entire chat history is sent to the API on every message — forever. If you have a long conversation, eventually API calls fail silently or get very slow. Modern assistants trim to the last N tokens. Backend chat.ts + mobile handleSend.
+2. ChatScreen is 3,200 lines — one component does everything
+
+Battery monitoring, call screening, timers, vision mode, wake word, TTS queue, recording, streaming — all in one file with 20+ useRefs and 15+ useStates. Any state update (even recordingDuration) potentially re-renders the whole tree. This is the #1 maintainability and performance problem.
+3. AssistantContext is a "God Object"
+
+Notes, todos, contacts, TTS config, chat history, theme, profile, and API URL — all in one context. Every component that calls useAssistant() re-renders on any of those changes. Should be split into SettingsContext, ChatContext, TasksContext.
+4. No rate limiting on the backend
+
+Any device can hammer /api/chat, /api/transcribe, or /api/tts with unlimited requests. No rate limiting middleware exists on any route. One bad actor (or a bug in the mobile app) can drain your Groq/ElevenLabs API quota instantly.
+🟠 Medium Impact
+5. Regex-based intent detection instead of LLM tool-calling
+
+detectDeviceIntent uses regex to detect commands like "turn on flashlight." Modern assistants use structured tool/function calling — the LLM explicitly returns { tool: "flashlight", action: "on" } instead of the app pattern-matching free text. This is more reliable, handles edge cases better, and is already supported by Groq.
+6. Controls screen: permanent instructional text wastes screen space
+
+Every control shows "Say: Turn on flashlight…" as permanent text. Modern control panels are visual — you tap the toggle, you don't read instructions. These should be first-run tooltips or entirely removed.
+7. Controls screen: "N/A" pills for unavailable features look broken
+
+Unsupported controls show a grey "N/A" badge. Modern apps hide features that aren't available rather than surfacing broken-looking placeholders.
+8. Messages screen: reply input animates in as a hard jump
+
+Tapping "Reply" causes the input box to appear instantly with no transition. This should be a smooth LayoutAnimation slide-in — a 3-line fix with noticeable feel improvement.
+9. No AbortController on in-flight TTS/chat requests
+
+There's a ttsGenerationRef counter to detect stale responses but no actual request cancellation. When the user taps "interrupt," the old fetch still runs to completion in the background. Should use AbortController so network requests actually cancel.
+10. Backend has no global async error handler
+
+Express 5 needs an explicit app.use((err, req, res, next) => ...) error handler, otherwise uncaught async errors in routes return HTML error pages instead of JSON. All routes also lack consistent response shapes — some return { error }, some return { message }.
+🟡 Lower Impact (Polish)
+11. Profile screen: web-form style inputs
+
+Full-bordered TextInput boxes look like a 2015 web form. Modern mobile apps use bottom-border-only or floating label inputs. Save-on-blur with no "Saved ✓" confirmation is also confusing.
+12. Onboarding: feature list looks like a legal disclaimer
+
+The feature list on onboarding is a static bordered box. Modern onboarding uses swipeable cards or animated reveal per feature, not a bullet list inside a box.
+13. No pagination on /api/conversations or /api/messages
+
+These endpoints return everything. Works now, but once a user has 100+ conversations with thousands of messages, the app will noticeably lag on first load.
+14. AsyncStorage failures silently swallowed
+
+Multiple .catch(() => {}) in AssistantContext mean if a message fails to persist to disk, it's lost with no retry and no user feedback.
+15. System prompt rebuilt on every handleSend
+
+The system prompt string is reconstructed from user profile/personality/settings on every single message. It should be memoized and only rebuilt when those settings change.

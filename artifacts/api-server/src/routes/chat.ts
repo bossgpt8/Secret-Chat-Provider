@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import FormData from "form-data";
+import { db, memoryFactsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -276,7 +278,7 @@ const DEVICE_TOOLS = [
 
 router.post("/chat", async (req, res) => {
   const startMs = Date.now();
-  const { messages: rawMessages, systemPrompt } = req.body;
+  const { messages: rawMessages, systemPrompt, deviceId } = req.body;
   if (!rawMessages || !Array.isArray(rawMessages)) {
     res.status(400).json({ error: "messages array is required" });
     return;
@@ -290,20 +292,40 @@ router.post("/chat", async (req, res) => {
     return;
   }
 
+  // ── Load persistent memory facts for this device ───────────────────────────
+  let memoryBlock = "";
+  if (deviceId && process.env.DATABASE_URL) {
+    try {
+      const facts = await db
+        .select({ fact: memoryFactsTable.fact })
+        .from(memoryFactsTable)
+        .where(eq(memoryFactsTable.deviceId, deviceId));
+      if (facts.length > 0) {
+        memoryBlock =
+          " Here is what you know about the user from previous conversations: " +
+          facts.map((f) => f.fact).join(". ") +
+          ". Use this naturally — don't recite it robotically.";
+      }
+    } catch { /* DB unavailable — skip memory silently */ }
+  }
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("X-Accel-Buffering", "no");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
+  const baseSystemContent =
+    systemPrompt ||
+    "You are a helpful, intelligent, and friendly voice assistant — like Siri but smarter. " +
+    "Keep responses concise, natural, and conversational (1–3 sentences). Perfect for voice output — no markdown, no bullet lists unless truly needed. Get straight to the point. " +
+    "You can control the user's phone when asked. Use the provided tools for device actions like flashlight, brightness, battery, calls, SMS, timers, alarms, weather, media controls, lock screen, opening apps, and web search. " +
+    "When you use a tool, also respond with a brief natural confirmation (e.g. 'Sure, turning on the flashlight.'). Do not mention tool names.";
+
   const systemMessages = [
     {
       role: "system",
-      content: systemPrompt ||
-        "You are a helpful, intelligent, and friendly voice assistant — like Siri but smarter. " +
-        "Keep responses concise, natural, and conversational (1–3 sentences). Perfect for voice output — no markdown, no bullet lists unless truly needed. Get straight to the point. " +
-        "You can control the user's phone when asked. Use the provided tools for device actions like flashlight, brightness, battery, calls, SMS, timers, alarms, weather, media controls, lock screen, opening apps, and web search. " +
-        "When you use a tool, also respond with a brief natural confirmation (e.g. 'Sure, turning on the flashlight.'). Do not mention tool names.",
+      content: baseSystemContent + memoryBlock,
     },
   ];
 
@@ -631,6 +653,7 @@ router.post("/search", async (req, res) => {
 
   try {
     let searchContext = "";
+    let sources: Array<{ title: string; url: string }> = [];
 
     if (tavilyKey) {
       const tavilyRes = await fetch("https://api.tavily.com/search", {
@@ -650,6 +673,14 @@ router.post("/search", async (req, res) => {
           answer?: string;
           results?: { title: string; content: string; url: string }[];
         };
+
+        // Capture sources for the client to display as cards
+        if (tavilyData.results?.length) {
+          sources = tavilyData.results.slice(0, 3).map((r) => ({
+            title: r.title,
+            url: r.url,
+          }));
+        }
 
         if (tavilyData.answer) {
           searchContext = tavilyData.answer;
@@ -709,7 +740,7 @@ router.post("/search", async (req, res) => {
     if (!result && orKey) result = await fetchSummary(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
     if (!result && OLLAMA_BASE) result = await fetchSummary(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
 
-    res.json({ result: result ?? (searchContext || "Sorry, I couldn't find an answer to that.") });
+    res.json({ result: result ?? (searchContext || "Sorry, I couldn't find an answer to that."), sources });
   } catch (err) {
     req.log.error({ err }, "Search error");
     res.status(500).json({ error: "Search failed" });

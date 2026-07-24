@@ -20,6 +20,7 @@ const FAVORITES_KEY = "@vox_favorites";
 const QUICK_CHIPS_KEY = "@vox_quick_chips";
 const SPEECH_LANGUAGE_KEY = "@vox_speech_language";
 const FLOATING_BUBBLE_KEY = "@vox_floating_bubble";
+const DEVICE_ID_KEY = "@vox_device_id";
 
 // Migration map: old @zeno_* key → new @vox_* key
 const LEGACY_KEY_MAP: Record<string, string> = {
@@ -92,6 +93,10 @@ export interface Message {
   content: string;
   timestamp: number;
   isSearch?: boolean;
+  /** Source cards to display under web-search answers */
+  sources?: Array<{ title: string; url: string }>;
+  /** Image URL for /imagine responses */
+  imageUrl?: string;
 }
 
 export interface Conversation {
@@ -123,6 +128,7 @@ export interface ContactFavorite {
 export const DEFAULT_QUICK_CHIPS = ["What can you do?", "Tell me a fun fact", "What's today's date?"];
 
 interface AssistantContextType {
+  deviceId: string;
   assistantName: string;
   setAssistantName: (name: string) => Promise<void>;
   isOnboarded: boolean;
@@ -205,6 +211,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [customQuickChips, setCustomQuickChipsState] = useState<string[]>(DEFAULT_QUICK_CHIPS);
   const [speechLanguage, setSpeechLanguageState] = useState("en-US");
   const [floatingBubbleEnabled, setFloatingBubbleEnabledState] = useState(false);
+  const [deviceId, setDeviceIdState] = useState("");
 
   useEffect(() => {
     loadData();
@@ -221,7 +228,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     await migrateZenoToVox();
     try {
       const startTime = Date.now();
-      const [name, convsRaw, pvid, evid, kvid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble] = await Promise.all([
+      const [name, convsRaw, pvid, evid, kvid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble, storedDeviceId] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
@@ -241,7 +248,16 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(QUICK_CHIPS_KEY),
         AsyncStorage.getItem(SPEECH_LANGUAGE_KEY),
         AsyncStorage.getItem(FLOATING_BUBBLE_KEY),
+        AsyncStorage.getItem(DEVICE_ID_KEY),
       ]);
+      // Persist a stable device ID across launches
+      if (storedDeviceId) {
+        setDeviceIdState(storedDeviceId);
+      } else {
+        const newId = `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+        await AsyncStorage.setItem(DEVICE_ID_KEY, newId);
+        setDeviceIdState(newId);
+      }
       console.log(`[AssistantContext] Loaded from AsyncStorage in ${Date.now() - startTime}ms, onboarded=${!!name}`);
       if (name) { setAssistantNameState(name); setIsOnboarded(true); }
       if (convsRaw) setConversations(JSON.parse(convsRaw));
@@ -455,6 +471,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   return (
     <AssistantContext.Provider
       value={{
+        deviceId,
         assistantName, setAssistantName,
         isOnboarded,
         conversations,

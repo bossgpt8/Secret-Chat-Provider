@@ -16,6 +16,7 @@ import {
   Dimensions,
   Easing,
   FlatList,
+  Image,
   Linking,
   Platform,
   Pressable,
@@ -147,9 +148,42 @@ function MessageBubble({
               <Text style={[bubbleStyles.searchLabelText, { color: colors.accent }]}>Web search</Text>
             </View>
           )}
-          <Text style={[bubbleStyles.text, { color: isUser ? colors.userBubbleText : colors.assistantBubbleText }]}>
-            {message.content}
-          </Text>
+          {message.imageUrl ? (
+            <Image
+              source={{ uri: message.imageUrl }}
+              style={bubbleStyles.generatedImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text style={[bubbleStyles.text, { color: isUser ? colors.userBubbleText : colors.assistantBubbleText }]}>
+              {message.content}
+            </Text>
+          )}
+          {message.sources && message.sources.length > 0 && (
+            <View style={bubbleStyles.sourcesContainer}>
+              {message.sources.map((s, i) => {
+                let domain = "";
+                try { domain = new URL(s.url).hostname.replace("www.", ""); } catch { domain = s.url; }
+                return (
+                  <Pressable
+                    key={i}
+                    style={bubbleStyles.sourceCard}
+                    onPress={() => Linking.openURL(s.url).catch(() => {})}
+                  >
+                    <MaterialIcons name="link" size={11} color={colors.accent} />
+                    <View style={bubbleStyles.sourceCardText}>
+                      <Text style={[bubbleStyles.sourceTitle, { color: colors.foreground }]} numberOfLines={1}>
+                        {s.title}
+                      </Text>
+                      <Text style={[bubbleStyles.sourceDomain, { color: colors.mutedForeground }]}>
+                        {domain}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
         </View>
         {isUser && onBranchEdit && (
           <Pressable onPress={onBranchEdit} hitSlop={8} style={bubbleStyles.branchBtn}>
@@ -179,6 +213,16 @@ const bubbleStyles = StyleSheet.create({
   dots: { flexDirection: "row", gap: 5, paddingVertical: 3 },
   dot: { width: 7, height: 7, borderRadius: 3.5 },
   branchBtn: { paddingBottom: 4, opacity: 0.5 },
+  generatedImage: { width: "100%", aspectRatio: 4 / 3, borderRadius: 12, marginTop: 4 },
+  sourcesContainer: { marginTop: 8, gap: 5 },
+  sourceCard: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 8, paddingVertical: 5,
+    borderRadius: 8, backgroundColor: "rgba(0,0,0,0.06)",
+  },
+  sourceCardText: { flex: 1, gap: 1 },
+  sourceTitle: { fontSize: 11, fontFamily: "Inter_500Medium", lineHeight: 14 },
+  sourceDomain: { fontSize: 10, fontFamily: "Inter_400Regular" },
 });
 
 // ─── Siri orb ─────────────────────────────────────────────────────────────────
@@ -490,7 +534,7 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
   const router = useRouter();
-  const { assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
+  const { deviceId, assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
 
   const network = useNetworkStatus();
   const isOnline = network.isConnected && network.isInternetReachable;
@@ -531,6 +575,8 @@ export default function ChatScreen() {
   const [incomingCallNumber, setIncomingCallNumber] = useState<string | null>(null);
   // Command received from native overlay while app is backgrounded
   const [pendingOverlayCmd, setPendingOverlayCmd] = useState<string | null>(null);
+  // Persistent memory facts fetched from the API (injected into system prompt)
+  const [memoryFacts, setMemoryFacts] = useState<string[]>([]);
   // Screen share / game assist
   const [screenShareActive, setScreenShareActive] = useState(false);
   const screenShareActiveRef = useRef(false);
@@ -587,6 +633,23 @@ export default function ChatScreen() {
     const escaped = assistantName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     wakeWordRegexRef.current = new RegExp(`(?:hey[\\s,!]+)?${escaped}`, "i");
   }, [assistantName]);
+
+  // ── Load persistent memory facts from API ─────────────────────────────────
+  useEffect(() => {
+    if (!deviceId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = await getApiBase();
+        const r = await globalThis.fetch(`${base}memory?deviceId=${encodeURIComponent(deviceId)}`);
+        if (!r.ok || cancelled) return;
+        const data = await r.json() as { facts?: Array<{ fact: string }> };
+        if (!cancelled) setMemoryFacts(data.facts?.map((f) => f.fact) ?? []);
+      } catch { /* API not available — silently skip */ }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId]);
 
   // ── Native overlay event listeners (Android only) ─────────────────────────
   // These fire even when the app is backgrounded because the JS thread keeps
@@ -2855,9 +2918,15 @@ export default function ChatScreen() {
       if (userProfile.gender === "male") parts.push("Occasionally address them as 'bro'.");
       else if (userProfile.gender === "female") parts.push("Occasionally address them as 'sis'.");
     }
+    if (memoryFacts.length > 0) {
+      parts.push(
+        `What you know about this user from past conversations: ${memoryFacts.join(". ")}.` +
+        " Weave this in naturally — don't recite it robotically."
+      );
+    }
     parts.push("Keep responses to 1-3 sentences. No markdown.");
     return parts.join(" ");
-  }, [assistantName, assistantPersonality, userProfile]);
+  }, [assistantName, assistantPersonality, userProfile, memoryFacts]);
 
   // ── Send message ───────────────────────────────────────────────────────────
 
@@ -2909,16 +2978,49 @@ export default function ChatScreen() {
     try {
       const baseUrl = await getApiBase();
 
+      // ── /imagine slash command — AI image generation ─────────────────────
+      if (text.startsWith("/imagine ")) {
+        const prompt = text.slice(9).trim();
+        const resp = await fetch(`${baseUrl}imagine`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt }),
+        });
+        setShowTyping(false);
+        const data = await resp.json() as { imageUrl?: string; error?: string };
+        if (data.imageUrl) {
+          const assistantMsg: Message = {
+            id: generateMsgId(), role: "assistant",
+            content: `Here's "${prompt}"`,
+            imageUrl: data.imageUrl,
+            timestamp: Date.now(),
+          };
+          const final = [...withUser, assistantMsg];
+          setMessages(final);
+          await saveMessages(convId, final);
+        } else {
+          const errMsg = data.error ?? "Image generation failed.";
+          setMessages((prev) => [...prev, { id: generateMsgId(), role: "assistant", content: errMsg, timestamp: Date.now() }]);
+          speakText(errMsg);
+        }
+        return;
+      }
+
+      // ── Web search mode ───────────────────────────────────────────────────
       if (isSearchMode) {
         const resp = await fetch(`${baseUrl}search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: text, assistantName }),
         });
-        const data = await resp.json() as { result?: string; error?: string };
+        const data = await resp.json() as { result?: string; error?: string; sources?: Array<{ title: string; url: string }> };
         setShowTyping(false);
         const reply = data.result ?? data.error ?? "No results found.";
-        const assistantMsg: Message = { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now(), isSearch: true };
+        const assistantMsg: Message = {
+          id: generateMsgId(), role: "assistant", content: reply,
+          timestamp: Date.now(), isSearch: true,
+          sources: data.sources?.length ? data.sources : undefined,
+        };
         const final = [...withUser, assistantMsg];
         setMessages(final);
         await saveMessages(convId, final);
@@ -2958,7 +3060,7 @@ export default function ChatScreen() {
       const response = await fetch(`${baseUrl}chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ messages: chatHistory, systemPrompt: chatSystemPrompt }),
+        body: JSON.stringify({ messages: chatHistory, systemPrompt: chatSystemPrompt, deviceId }),
         signal: abortCtrl.signal,
       });
 
@@ -3040,6 +3142,31 @@ export default function ChatScreen() {
       }
 
       setMessages((finalMsgs) => { saveMessages(convId, finalMsgs); return finalMsgs; });
+
+      // ── Memory extraction (fire-and-forget) ────────────────────────────────
+      // Extract durable personal facts from this exchange and save them to the
+      // server. Then refresh the local cache so future prompts include them.
+      if (deviceId && fullContent.trim() && text.trim()) {
+        (async () => {
+          try {
+            const base = await getApiBase();
+            const r = await globalThis.fetch(`${base}memory/extract`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                deviceId,
+                userMessage: text,
+                assistantMessage: fullContent.trim(),
+              }),
+            });
+            if (!r.ok) return;
+            const data = await r.json() as { facts?: Array<{ fact: string }> };
+            if (data.facts && data.facts.length > 0) {
+              setMemoryFacts((prev) => [...prev, ...data.facts!.map((f) => f.fact)]);
+            }
+          } catch { /* non-critical — skip silently */ }
+        })();
+      }
     } catch (error) {
       // Ignore user-initiated cancellations — no error message needed
       if (error instanceof Error && error.name === "AbortError") {
@@ -3055,7 +3182,7 @@ export default function ChatScreen() {
       setIsStreaming(false);
       setShowTyping(false);
     }
-  }, [input, isStreaming, isSearchMode, messages, chatSystemPrompt]);
+  }, [input, isStreaming, isSearchMode, messages, chatSystemPrompt, deviceId]);
 
   // ── Screen share / game assist ────────────────────────────────────────────
 

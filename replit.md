@@ -128,6 +128,22 @@ Run codegen: `pnpm --filter @workspace/api-spec run codegen`
 | `OPENROUTER_API_KEY` | Fallback AI | LLaMA 3.3 chat + Whisper STT (fallback if Groq fails) |
 | `TAVILY_API_KEY` | Web search | Fetches search results for `/api/search` |
 | `ELEVENLABS_API_KEY` | TTS | Streams voice audio via ElevenLabs |
+| `FAL_KEY` | Image generation | fal.ai key for `/api/imagine` (FLUX Schnell). Get one at fal.ai. |
 | `SESSION_SECRET` | Session security | Express session |
 | `DATABASE_URL` | Database | PostgreSQL connection (Replit-managed) |
 | `EXPO_PUBLIC_API_URL` | Mobile API URL | Base URL for mobile app to reach API server |
+
+## New API Endpoints (this session)
+
+| Route | Purpose |
+|---|---|
+| `GET /api/memory?deviceId=` | Fetch all memory facts for a device |
+| `POST /api/memory` | Save a fact `{ deviceId, fact, category? }` |
+| `DELETE /api/memory/:id` | Delete a fact |
+| `POST /api/memory/extract` | LLM-extract facts from `{ deviceId, userMessage, assistantMessage }` |
+| `POST /api/imagine` | Generate an image `{ prompt }` via fal.ai FLUX — returns `{ imageUrl }` |
+
+## DB Schema additions
+
+Run `pnpm --filter @workspace/db run migrate` (or `drizzle-kit push`) after adding `DATABASE_URL`:
+- `memory_facts` — `id`, `device_id`, `fact`, `category`, `created_at`

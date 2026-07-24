@@ -128,4 +128,3 @@ overrides:
   rollup>@rollup/rollup-win32-x64-gnu: '-'
   rollup>@rollup/rollup-win32-x64-msvc: '-'
   shell-quote: file:./stubs/shell-quote
-  tar: ^6.2.1

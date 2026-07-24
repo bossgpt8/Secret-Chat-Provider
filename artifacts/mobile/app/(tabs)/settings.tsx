@@ -483,7 +483,11 @@ export default function SettingsScreen() {
   }) {
     return (
       <Pressable style={[styles.row, { borderBottomColor: colors.border }]} onPress={onPress} disabled={!onPress}>
-        {icon && <Ionicons name={icon as "mic"} size={18} color={destructive ? colors.destructive : colors.primary} />}
+        {icon && (
+          <View style={[styles.rowIconBg, { backgroundColor: destructive ? colors.destructive + "18" : colors.primary + "15" }]}>
+            <Ionicons name={icon as "mic"} size={16} color={destructive ? colors.destructive : colors.primary} />
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           <Text style={[styles.rowLabel, { color: destructive ? colors.destructive : colors.foreground }]}>{label}</Text>
           {value && <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{value}</Text>}
@@ -1069,6 +1073,7 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 },
   sectionCard: { borderRadius: 14, borderWidth: 1, overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  rowIconBg: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   rowLabel: { fontSize: 14, fontFamily: "Inter_500Medium", marginBottom: 1 },
   rowValue: { fontSize: 12, fontFamily: "Inter_400Regular" },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },

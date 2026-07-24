@@ -112,6 +112,18 @@ export default function OnboardingScreen() {
   const [error, setError] = useState("");
   const inputRef = useRef<TextInput>(null);
 
+  // Fade + slide-up entrance — runs once on mount
+  const entranceAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(entranceAnim, {
+      toValue: 1,
+      duration: 520,
+      delay: 80,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
   async function handleContinue() {
     const trimmed = name.trim();
     if (!trimmed || trimmed.length < 2) {
@@ -135,6 +147,13 @@ export default function OnboardingScreen() {
       />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <Animated.View
+          style={{
+            flex: 1,
+            opacity: entranceAnim,
+            transform: [{ translateY: entranceAnim.interpolate({ inputRange: [0, 1], outputRange: [28, 0] }) }],
+          }}
+        >
         {/* ── ScrollView fixes the "stuck" screen on smaller phones ── */}
         <ScrollView
           contentContainerStyle={[
@@ -209,6 +228,7 @@ export default function OnboardingScreen() {
             <Ionicons name="arrow-forward" size={18} color="#fff" />
           </Pressable>
         </ScrollView>
+        </Animated.View>
       </KeyboardAvoidingView>
     </View>
   );

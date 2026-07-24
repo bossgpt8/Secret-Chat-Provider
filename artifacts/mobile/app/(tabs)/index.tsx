@@ -39,22 +39,24 @@ import { NativeOverlay } from "@/modules/NativeOverlay";
 import { NativeScreenCapture } from "@/modules/NativeScreenCapture";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 
-// ─── Typing indicator ────────────────────────────────────────────────────────
+// ─── Typing indicator — waveform bars ────────────────────────────────────────
 
 function TypingIndicator({ colors }: { colors: ReturnType<typeof useColors> }) {
+  // Height animation requires useNativeDriver: false
   const anims = [
-    useRef(new Animated.Value(0.3)).current,
-    useRef(new Animated.Value(0.3)).current,
-    useRef(new Animated.Value(0.3)).current,
+    useRef(new Animated.Value(0.25)).current,
+    useRef(new Animated.Value(0.25)).current,
+    useRef(new Animated.Value(0.25)).current,
+    useRef(new Animated.Value(0.25)).current,
+    useRef(new Animated.Value(0.25)).current,
   ];
   useEffect(() => {
     anims.forEach((a, i) => {
       Animated.loop(
         Animated.sequence([
-          Animated.delay(i * 160),
-          Animated.timing(a, { toValue: 1, duration: 280, useNativeDriver: Platform.OS !== "web" }),
-          Animated.timing(a, { toValue: 0.3, duration: 280, useNativeDriver: Platform.OS !== "web" }),
-          Animated.delay(480),
+          Animated.delay(i * 90),
+          Animated.timing(a, { toValue: 1, duration: 420, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+          Animated.timing(a, { toValue: 0.25, duration: 420, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
         ])
       ).start();
     });
@@ -63,18 +65,33 @@ function TypingIndicator({ colors }: { colors: ReturnType<typeof useColors> }) {
   return (
     <View style={[bubbleStyles.row, bubbleStyles.aRow]}>
       <View style={[bubbleStyles.avatar, { backgroundColor: colors.primary }]}>
-        <Ionicons name="mic" size={11} color="#fff" />
+        <Ionicons name="sparkles" size={11} color="#fff" />
       </View>
       <View style={[bubbleStyles.bubble, bubbleStyles.aBubble, { backgroundColor: colors.assistantBubble, borderColor: colors.assistantBubbleBorder }]}>
-        <View style={bubbleStyles.dots}>
+        <View style={waveTypingStyles.bars}>
           {anims.map((a, i) => (
-            <Animated.View key={i} style={[bubbleStyles.dot, { backgroundColor: colors.primary, opacity: a }]} />
+            <Animated.View
+              key={i}
+              style={[
+                waveTypingStyles.bar,
+                {
+                  backgroundColor: colors.primary,
+                  height: a.interpolate({ inputRange: [0.25, 1], outputRange: [3, 20] }),
+                  opacity: a.interpolate({ inputRange: [0.25, 1], outputRange: [0.3, 1] }),
+                },
+              ]}
+            />
           ))}
         </View>
       </View>
     </View>
   );
 }
+
+const waveTypingStyles = StyleSheet.create({
+  bars: { flexDirection: "row", alignItems: "center", gap: 3.5, paddingVertical: 2, height: 28 },
+  bar: { width: 3, borderRadius: 2 },
+});
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
@@ -3367,10 +3384,19 @@ export default function ChatScreen() {
                     <View style={[styles.screenShareDot, { backgroundColor: screenShareActive ? "#86efac" : colors.muted }]} />
                   </Pressable>
                 )}
+                {/* Faint static waveform decoration */}
+                <View style={styles.faintWave}>
+                  {[4, 10, 18, 26, 32, 26, 18, 10, 4, 10, 18, 26, 32, 26, 18, 10, 4].map((h, i) => (
+                    <View key={i} style={[styles.faintWaveBar, { height: h, backgroundColor: colors.primary }]} />
+                  ))}
+                </View>
+
+                <Text style={[styles.chipSectionLabel, { color: colors.mutedForeground }]}>Try asking…</Text>
                 <View style={styles.quickChips}>
                   {customQuickChips.map((q) => (
                     <Pressable key={q} style={[styles.chip, { backgroundColor: colors.card, borderColor: colors.border }]}
-                      onPress={() => handleSend(q)}>
+                      onPress={() => { Haptics.selectionAsync(); handleSend(q); }}>
+                      <Ionicons name="sparkles-outline" size={13} color={colors.primary} />
                       <Text style={[styles.chipText, { color: colors.foreground }]}>{q}</Text>
                     </Pressable>
                   ))}
@@ -3531,8 +3557,11 @@ const styles = StyleSheet.create({
   },
   voiceCallBtnText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#fff" },
   quickChips: { width: "100%", gap: 8, marginTop: 4 },
-  chip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, alignItems: "center" },
-  chipText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  chip: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, borderWidth: 1 },
+  chipText: { fontSize: 14, fontFamily: "Inter_400Regular", flex: 1 },
+  chipSectionLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 1, alignSelf: "flex-start", marginTop: 4 },
+  faintWave: { flexDirection: "row", alignItems: "center", gap: 4, opacity: 0.09, marginVertical: 6 },
+  faintWaveBar: { width: 3, borderRadius: 2 },
   endCallChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 14, borderWidth: 1 },
 
   callBanner: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth },

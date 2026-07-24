@@ -1,4 +1,5 @@
 import { Feather, Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { BubbleIcon, GearIcon, PersonIcon, SlidersIcon, VoiceWaveIcon } from "@/components/VoxIcons";
 import { BlurView } from "expo-blur";
 import { router, Tabs } from "expo-router";
 import React, { useCallback, useEffect, useRef } from "react";
@@ -108,7 +109,7 @@ export default function TabLayout() {
           options={{
             title: "Chat",
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="mic" size={size} color={color} />
+              <VoiceWaveIcon color={color} size={size} />
             ),
           }}
         />
@@ -117,7 +118,7 @@ export default function TabLayout() {
           options={{
             title: "Messages",
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="chatbubbles" size={size} color={color} />
+              <BubbleIcon color={color} size={size} />
             ),
           }}
         />
@@ -126,7 +127,7 @@ export default function TabLayout() {
           options={{
             title: "Controls",
             tabBarIcon: ({ color, size }) => (
-              <MaterialIcons name="tune" size={size} color={color} />
+              <SlidersIcon color={color} size={size} />
             ),
           }}
         />
@@ -135,7 +136,7 @@ export default function TabLayout() {
           options={{
             title: "Settings",
             tabBarIcon: ({ color, size }) => (
-              <Feather name="settings" size={size} color={color} />
+              <GearIcon color={color} size={size} />
             ),
           }}
         />
@@ -144,7 +145,7 @@ export default function TabLayout() {
           options={{
             title: "Profile",
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="person-outline" size={size} color={color} />
+              <PersonIcon color={color} size={size} />
             ),
           }}
         />

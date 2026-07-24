@@ -18,11 +18,11 @@ export default function TabLayout() {
   const { assistantName, floatingBubbleEnabled } = useAssistant();
 
   const handleMicPress = useCallback(() => {
-    router.navigate("/(tabs)/");
+    router.navigate("/(tabs)");
   }, []);
 
   const handleCommandPress = useCallback((cmd: string) => {
-    router.navigate({ pathname: "/(tabs)/", params: { bubbleCmd: cmd, bubbleCmdTs: String(Date.now()) } });
+    router.navigate({ pathname: "/(tabs)", params: { bubbleCmd: cmd, bubbleCmdTs: String(Date.now()) } });
   }, []);
 
   // On Android the floating bubble is a native WindowManager overlay so it

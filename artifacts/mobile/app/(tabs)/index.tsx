@@ -7,7 +7,7 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as Speech from "expo-speech";
 import { fetch } from "expo/fetch";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -78,57 +78,90 @@ function TypingIndicator({ colors }: { colors: ReturnType<typeof useColors> }) {
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ message, colors }: { message: Message; colors: ReturnType<typeof useColors> }) {
+function MessageBubble({
+  message,
+  colors,
+  onBranchEdit,
+}: {
+  message: Message;
+  colors: ReturnType<typeof useColors>;
+  onBranchEdit?: () => void;
+}) {
   const isUser = message.role === "user";
 
   function handleLongPress() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Share.share({ message: message.content });
+    if (isUser && onBranchEdit) {
+      // Show action sheet: Edit & Regenerate or Share
+      Share.share({ message: message.content });
+    } else {
+      Share.share({ message: message.content });
+    }
+  }
+
+  function handleDoubleTap() {
+    if (isUser && onBranchEdit) onBranchEdit();
   }
 
   return (
-    <Pressable onLongPress={handleLongPress} delayLongPress={400}>
-    <View style={[bubbleStyles.row, isUser ? bubbleStyles.uRow : bubbleStyles.aRow]}>
-      {!isUser && (
-        <View style={[bubbleStyles.avatar, { backgroundColor: colors.primary }]}>
-          <Ionicons name="mic" size={11} color="#fff" />
-        </View>
-      )}
-      <View style={[
-        bubbleStyles.bubble,
-        isUser
-          ? [bubbleStyles.uBubble, { backgroundColor: colors.userBubble }]
-          : [bubbleStyles.aBubble, { backgroundColor: colors.assistantBubble, borderColor: colors.assistantBubbleBorder }],
-        message.isSearch && { borderLeftWidth: 3, borderLeftColor: colors.accent },
-      ]}>
-        {message.isSearch && (
-          <View style={bubbleStyles.searchLabel}>
-            <MaterialIcons name="travel-explore" size={11} color={colors.accent} />
-            <Text style={[bubbleStyles.searchLabelText, { color: colors.accent }]}>Web search</Text>
+    <Pressable
+      onLongPress={handleLongPress}
+      onPress={isUser && onBranchEdit ? handleDoubleTap : undefined}
+      delayLongPress={400}
+    >
+      <View style={[bubbleStyles.row, isUser ? bubbleStyles.uRow : bubbleStyles.aRow]}>
+        {!isUser && (
+          <View style={[bubbleStyles.avatar, { backgroundColor: colors.primary }]}>
+            <Ionicons name="sparkles" size={12} color="#fff" />
           </View>
         )}
-        <Text style={[bubbleStyles.text, { color: isUser ? colors.userBubbleText : colors.assistantBubbleText }]}>
-          {message.content}
-        </Text>
+        <View
+          style={[
+            bubbleStyles.bubble,
+            isUser
+              ? [bubbleStyles.uBubble, { backgroundColor: colors.userBubble }]
+              : [bubbleStyles.aBubble, { backgroundColor: colors.assistantBubble, borderColor: colors.assistantBubbleBorder }],
+            message.isSearch && { borderLeftWidth: 3, borderLeftColor: colors.accent },
+          ]}
+        >
+          {message.isSearch && (
+            <View style={bubbleStyles.searchLabel}>
+              <MaterialIcons name="travel-explore" size={11} color={colors.accent} />
+              <Text style={[bubbleStyles.searchLabelText, { color: colors.accent }]}>Web search</Text>
+            </View>
+          )}
+          <Text style={[bubbleStyles.text, { color: isUser ? colors.userBubbleText : colors.assistantBubbleText }]}>
+            {message.content}
+          </Text>
+        </View>
+        {isUser && onBranchEdit && (
+          <Pressable onPress={onBranchEdit} hitSlop={8} style={bubbleStyles.branchBtn}>
+            <Ionicons name="create-outline" size={13} color={colors.mutedForeground} />
+          </Pressable>
+        )}
       </View>
-    </View>
     </Pressable>
   );
 }
 
 const bubbleStyles = StyleSheet.create({
-  row: { flexDirection: "row", marginVertical: 3, alignItems: "flex-end", gap: 7 },
+  row: { flexDirection: "row", marginVertical: 4, alignItems: "flex-end", gap: 6 },
   uRow: { justifyContent: "flex-end" },
   aRow: { justifyContent: "flex-start" },
-  avatar: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", marginBottom: 2 },
-  bubble: { maxWidth: "78%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
-  uBubble: { borderBottomRightRadius: 5 },
-  aBubble: { borderBottomLeftRadius: 5, borderWidth: 1 },
-  text: { fontSize: 15, fontFamily: "Inter_400Regular", lineHeight: 22 },
-  searchLabel: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 5 },
+  avatar: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: "center", justifyContent: "center", marginBottom: 2,
+    shadowColor: "#7c3aed", shadowOpacity: 0.3, shadowRadius: 6, elevation: 3,
+  },
+  bubble: { maxWidth: "80%", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22 },
+  uBubble: { borderBottomRightRadius: 6 },
+  aBubble: { borderBottomLeftRadius: 6, borderWidth: StyleSheet.hairlineWidth },
+  text: { fontSize: 16, fontFamily: "Inter_400Regular", lineHeight: 24, letterSpacing: 0.1 },
+  searchLabel: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 6 },
   searchLabelText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
   dots: { flexDirection: "row", gap: 5, paddingVertical: 3 },
   dot: { width: 7, height: 7, borderRadius: 3.5 },
+  branchBtn: { paddingBottom: 4, opacity: 0.5 },
 });
 
 // ─── Siri orb ─────────────────────────────────────────────────────────────────
@@ -439,6 +472,7 @@ export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
+  const router = useRouter();
   const { assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
 
   const network = useNetworkStatus();
@@ -463,6 +497,10 @@ export default function ChatScreen() {
   const [notifPermGranted, setNotifPermGranted] = useState(false);
   const [lastNotification, setLastNotification] = useState<VoxNotification | null>(null);
   const lastNotifRef = useRef<VoxNotification | null>(null);
+
+  // Conversation branching — tap a user message's edit icon to regenerate from that point
+  const [branchEditMsgId, setBranchEditMsgId] = useState<string | null>(null);
+  const [branchEditText, setBranchEditText] = useState("");
 
   // Timers
   const [activeTimers, setActiveTimers] = useState<ActiveTimer[]>([]);
@@ -553,7 +591,7 @@ export default function ChatScreen() {
 
     const unsubTap = NativeOverlay.onTap(() => {
       // User tapped the bubble — navigate to chat tab and start listening
-      router.navigate("/(tabs)/");
+      router.navigate("/(tabs)");
     });
 
     return () => {
@@ -830,15 +868,24 @@ export default function ChatScreen() {
     lastBubbleCmdTs.current = bubbleCmdTs;
     // Small delay so the screen has focused
     setTimeout(() => {
-      sendMessage(bubbleCmd);
+      handleSend(bubbleCmd);
     }, 400);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bubbleCmd, bubbleCmdTs]);
 
   // ── Vision AI — capture a photo and describe it ──────────────────────────────
   async function captureAndDescribe(userQuestion?: string) {
+    function visionRespond(reply: string) {
+      setShowTyping(false);
+      setMessages((prev) => [
+        ...prev,
+        { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() },
+      ]);
+      speakText(reply);
+    }
+
     if (!cameraRef.current) {
-      await respond("I need the camera to be active. Please open the camera first.");
+      visionRespond("I need the camera to be active. Please open the camera first.");
       return;
     }
     try {
@@ -855,15 +902,9 @@ export default function ChatScreen() {
       if (userQuestion) fd.append("prompt", userQuestion);
       const r = await globalThis.fetch(`${base}vision`, { method: "POST", body: fd });
       const { description = "I couldn't describe the image." } = await r.json() as { description?: string };
-      setShowTyping(false);
-      setMessages((prev) => [
-        ...prev,
-        { id: generateMsgId(), role: "assistant", content: description, timestamp: Date.now() },
-      ]);
-      await speakText(description);
+      visionRespond(description);
     } catch {
-      setShowTyping(false);
-      await respond("I couldn't capture or describe the image. Make sure the camera is active.");
+      visionRespond("I couldn't capture or describe the image. Make sure the camera is active.");
     }
   }
 
@@ -1026,7 +1067,7 @@ export default function ChatScreen() {
     const params = new URLSearchParams({
       text: text.slice(0, 800),
       provider: ttsProvider,
-      voiceId: ttsProvider === "kokoro" ? kokoroVoiceId : elVoiceId,
+      ...(((ttsProvider === "kokoro" ? kokoroVoiceId : elVoiceId)) != null && { voiceId: (ttsProvider === "kokoro" ? kokoroVoiceId : elVoiceId) as string }),
     });
     return `${base}tts?${params.toString()}`;
   }
@@ -2604,6 +2645,176 @@ export default function ChatScreen() {
     }
   }
 
+  // ── Silent device action executor (used by LLM tool-call results) ───────────
+  // Performs the native action without adding messages — the LLM's confirmation
+  // text streams in as content separately and becomes the assistant bubble.
+
+  async function silentExecuteDeviceAction(name: string, params: Record<string, unknown>): Promise<void> {
+    if (Platform.OS === "web") return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const Brightness = await import("expo-brightness").catch(() => null);
+
+    switch (name) {
+      case "flashlight": {
+        if (!cameraPermission?.granted) {
+          const { granted } = await requestCameraPermission();
+          if (!granted) return;
+        }
+        const on = params.on as boolean;
+        setTorchOn(on);
+        if (on) setCameraReady(true); else setTimeout(() => setCameraReady(false), 500);
+        break;
+      }
+      case "set_brightness": {
+        if (!Brightness) break;
+        try {
+          const current = await Brightness.getBrightnessAsync();
+          let next = current;
+          if (params.percent != null) next = Math.max(0.05, Math.min(1, (params.percent as number) / 100));
+          else if (params.direction === "up") next = Math.min(1, current + 0.25);
+          else if (params.direction === "down") next = Math.max(0.05, current - 0.25);
+          else if (params.direction === "max") next = 1;
+          else if (params.direction === "min") next = 0.05;
+          await Brightness.setBrightnessAsync(next);
+        } catch { /* ignore */ }
+        break;
+      }
+      case "make_call": {
+        let phone = params.phone as string | undefined;
+        if (!phone && params.contact) phone = await lookupContactPhone(params.contact as string);
+        if (phone) await Linking.openURL(`tel:${phone}`).catch(() => {});
+        break;
+      }
+      case "send_sms": {
+        let phone = params.phone as string | undefined;
+        if (!phone && params.contact) phone = await lookupContactPhone(params.contact as string);
+        const base = phone ? `sms:${phone}` : "sms:";
+        const sep = Platform.OS === "ios" ? "&" : "?";
+        const body = params.message ? encodeURIComponent(params.message as string) : "";
+        await Linking.openURL(`${base}${body ? `${sep}body=${body}` : ""}`).catch(() => {});
+        break;
+      }
+      case "open_app": {
+        const appName = params.app as string;
+        const appUrls: Record<string, string[]> = {
+          YouTube: ["youtube://", "https://youtube.com"],
+          WhatsApp: ["whatsapp://send", "https://wa.me"],
+          Maps: ["geo:0,0", "https://maps.google.com"],
+          Spotify: ["spotify://", "https://open.spotify.com"],
+          Instagram: ["instagram://", "https://instagram.com"],
+          Twitter: ["twitter://", "https://x.com"],
+          Facebook: ["fb://", "https://facebook.com"],
+          Netflix: ["nflx://", "https://netflix.com"],
+          TikTok: ["tiktok://", "https://tiktok.com"],
+          Gmail: ["googlegmail://", "https://mail.google.com"],
+          Telegram: ["tg://", "https://t.me"],
+          Calculator: ["android-app://com.android.calculator2", ""],
+          Clock: ["android-app://com.google.android.deskclock", ""],
+          Gallery: ["content://media/external/images/media", "https://photos.google.com"],
+          Browser: ["https://google.com"],
+          Camera: ["android.media.action.IMAGE_CAPTURE", ""],
+          "Play Store": ["market://", "https://play.google.com"],
+        };
+        if (appName === "Settings") {
+          await Linking.openSettings().catch(() => {});
+        } else {
+          const urls = appUrls[appName] ?? [`https://${appName.toLowerCase().replace(/\s/g, "")}.com`];
+          for (const u of urls) {
+            if (!u) continue;
+            const ok = await Linking.canOpenURL(u).catch(() => false);
+            if (ok) { await Linking.openURL(u).catch(() => {}); break; }
+          }
+        }
+        break;
+      }
+      case "vibrate":
+        Vibration.vibrate([0, 300, 100, 300]);
+        break;
+      case "set_timer": {
+        const secs = (params.duration_seconds as number) ?? 60;
+        const lbl = (params.label as string) ?? `${secs}s`;
+        const timerId = `timer-${Date.now()}`;
+        setActiveTimers((prev) => [
+          { id: timerId, label: lbl, totalSeconds: secs, remainingSeconds: secs, done: false },
+          ...prev,
+        ]);
+        break;
+      }
+      case "set_alarm": {
+        const h = (params.hour as number) ?? 0;
+        const m = (params.minute as number) ?? 0;
+        const alarmTarget = new Date();
+        alarmTarget.setHours(h, m, 0, 0);
+        if (alarmTarget.getTime() <= Date.now()) alarmTarget.setDate(alarmTarget.getDate() + 1);
+        const ms = alarmTarget.getTime() - Date.now();
+        const timeStr = alarmTarget.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        await schedulePushNotification("⏰ Alarm", `Your alarm for ${timeStr} is going off.`, ms).catch(() => {});
+        break;
+      }
+      case "set_reminder": {
+        const lbl2 = (params.label as string) ?? "reminder";
+        let ms2 = 0;
+        if (params.offset_ms) {
+          ms2 = params.offset_ms as number;
+        } else if (params.hour != null) {
+          const remTarget = new Date();
+          remTarget.setHours((params.hour as number), (params.minute as number) ?? 0, 0, 0);
+          if (remTarget.getTime() <= Date.now()) remTarget.setDate(remTarget.getDate() + 1);
+          ms2 = remTarget.getTime() - Date.now();
+        }
+        await schedulePushNotification("🔔 Reminder", lbl2, ms2 || undefined).catch(() => {});
+        break;
+      }
+      case "lock_screen": {
+        if (!NativeScreenLock.isAvailable) break;
+        const isAdmin = await NativeScreenLock.isAdminEnabled().catch(() => false);
+        if (isAdmin) await NativeScreenLock.lock().catch(() => {});
+        break;
+      }
+      case "media_control": {
+        if (!NativeMediaControl.isAvailable) break;
+        const action = params.action as string;
+        if (action === "play") await NativeMediaControl.play().catch(() => {});
+        else if (action === "pause") await NativeMediaControl.pause().catch(() => {});
+        else if (action === "next") await NativeMediaControl.next().catch(() => {});
+        else if (action === "previous") await NativeMediaControl.previous().catch(() => {});
+        else if (action === "stop") await NativeMediaControl.stop().catch(() => {});
+        break;
+      }
+      case "reply_message": {
+        const msgTarget = lastNotifRef.current;
+        if (msgTarget?.hasReply && NativeNotifications.isAvailable) {
+          await NativeNotifications.replyTo(msgTarget.key, (params.message as string) ?? "").catch(() => {});
+        }
+        break;
+      }
+      // check_battery, check_weather, read_notification, web_search, take_photo:
+      // These are purely informational — the LLM response text handles them.
+    }
+  }
+
+  // ── Conversation summarization ─────────────────────────────────────────────
+  // Called before sending a large history to the backend. Compresses old turns
+  // into a rolling summary and prepends it as a system message.
+
+  async function summarizeOldMessages(msgs: Message[]): Promise<string | null> {
+    try {
+      const base = await getApiBase();
+      const payload = msgs.map((m) => ({ role: m.role, content: m.content }));
+      const r = await globalThis.fetch(`${base}summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: payload }),
+      });
+      if (!r.ok) return null;
+      const d = await r.json() as { summary?: string };
+      return d.summary ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   // ── Memoised system prompt ─────────────────────────────────────────────────
   // Rebuilt only when personality / profile / name changes, not on every send.
 
@@ -2634,11 +2845,16 @@ export default function ChatScreen() {
   // ── Send message ───────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async (overrideText?: string) => {
-    const text = (overrideText ?? input).trim();
+    const text = (overrideText ?? (branchEditMsgId ? branchEditText : input)).trim();
     if (!text || isStreaming) return;
 
-    // Block if offline (device commands still work without internet)
-    if (!isOnline && !detectDeviceIntent(text)) {
+    // Offline: only device commands work; block AI chat
+    if (!isOnline) {
+      const offlineIntent = detectDeviceIntent(text);
+      if (offlineIntent) {
+        handleDeviceCommand(offlineIntent, text);
+        return;
+      }
       showOfflineAlert("AI chat");
       return;
     }
@@ -2646,21 +2862,29 @@ export default function ChatScreen() {
     // If screen share is active route to AI game assist instead of chat
     if (screenShareActiveRef.current && !isSearchMode) {
       setInput("");
+      setBranchEditMsgId(null);
+      setBranchEditText("");
       handleGameAssist(text);
       return;
     }
 
-    // Check for device commands first
-    const deviceIntent = detectDeviceIntent(text);
-    if (deviceIntent) { handleDeviceCommand(deviceIntent, text); return; }
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setInput("");
 
+    // Branch edit: slice history at the edited message and replace it
+    let baseSnapshot = [...messages];
+    if (branchEditMsgId) {
+      const branchIdx = baseSnapshot.findIndex((m) => m.id === branchEditMsgId);
+      if (branchIdx !== -1) {
+        baseSnapshot = baseSnapshot.slice(0, branchIdx);
+      }
+      setBranchEditMsgId(null);
+      setBranchEditText("");
+    }
+
     const convId = getOrCreateConvId();
-    const snapshot = [...messages];
     const userMsg: Message = { id: generateMsgId(), role: "user", content: text, timestamp: Date.now() };
-    const withUser = [...snapshot, userMsg];
+    const withUser = [...baseSnapshot, userMsg];
     setMessages(withUser);
     setIsStreaming(true);
     setShowTyping(true);
@@ -2685,8 +2909,29 @@ export default function ChatScreen() {
         return;
       }
 
-      // Trim to last MAX_CHAT_HISTORY messages to prevent unbounded context growth
-      const chatHistory = withUser.slice(-MAX_CHAT_HISTORY).map((m) => ({ role: m.role, content: m.content }));
+      // Rolling summarization: compress old turns instead of hard-dropping them.
+      // If history exceeds 30 messages, summarize the oldest half and prepend as context.
+      const SUMMARIZE_THRESHOLD = 30;
+      const KEEP_RECENT = 20;
+      let chatHistory: { role: string; content: string }[];
+
+      if (withUser.length > SUMMARIZE_THRESHOLD) {
+        const oldMessages = withUser.slice(0, withUser.length - KEEP_RECENT);
+        const recentMessages = withUser.slice(-KEEP_RECENT);
+        const summary = await summarizeOldMessages(oldMessages);
+        if (summary) {
+          chatHistory = [
+            { role: "user", content: `[Earlier conversation summary: ${summary}]` },
+            { role: "assistant", content: "Understood, I have context from our earlier conversation." },
+            ...recentMessages.map((m) => ({ role: m.role, content: m.content })),
+          ];
+        } else {
+          // Fallback: hard trim if summarization fails
+          chatHistory = withUser.slice(-MAX_CHAT_HISTORY).map((m) => ({ role: m.role, content: m.content }));
+        }
+      } else {
+        chatHistory = withUser.slice(-MAX_CHAT_HISTORY).map((m) => ({ role: m.role, content: m.content }));
+      }
 
       // Cancel any previous in-flight request and start a fresh AbortController
       chatAbortRef.current?.abort();
@@ -2702,20 +2947,23 @@ export default function ChatScreen() {
 
       if (!response.ok) throw new Error("Chat failed");
 
-      const parseSseChunk = (chunk: string): string => {
-        let out = "";
+      type SseChunkResult = { content: string; toolCall?: { name: string; params: Record<string, unknown> } };
+      const parseSseChunk = (chunk: string): SseChunkResult => {
+        let content = "";
+        let toolCall: SseChunkResult["toolCall"];
         const lines = chunk.split("\n");
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const data = line.slice(6).trim();
           if (!data || data === "[DONE]") continue;
           try {
-            const parsed = JSON.parse(data) as { content?: string; error?: string };
-            if (parsed.content) out += parsed.content;
-            else if (parsed.error) out += parsed.error;
+            const parsed = JSON.parse(data) as { content?: string; error?: string; tool_call?: { name: string; params: Record<string, unknown> } };
+            if (parsed.content) content += parsed.content;
+            else if (parsed.error) content += parsed.error;
+            if (parsed.tool_call) toolCall = parsed.tool_call;
           } catch { /* skip malformed lines */ }
         }
-        return out;
+        return { content, toolCall };
       };
 
       const reader = response.body?.getReader();
@@ -2725,7 +2973,7 @@ export default function ChatScreen() {
 
       if (!reader) {
         // No streaming — get full text then speak it all at once
-        fullContent = parseSseChunk(await response.text());
+        fullContent = parseSseChunk(await response.text()).content;
         speakText(fullContent);
       } else {
         const decoder = new TextDecoder();
@@ -2737,7 +2985,9 @@ export default function ChatScreen() {
           buf += decoder.decode(value, { stream: true });
           const lines = buf.split("\n");
           buf = lines.pop() ?? "";
-          const delta = parseSseChunk(lines.join("\n"));
+          const { content: delta, toolCall } = parseSseChunk(lines.join("\n"));
+          // Execute device tool call silently — confirmation text streams as content
+          if (toolCall) silentExecuteDeviceAction(toolCall.name, toolCall.params).catch(() => {});
           if (!delta) continue;
           fullContent += delta;
           ttsBuf += delta;
@@ -2761,7 +3011,7 @@ export default function ChatScreen() {
             enqueueSentence(s); // fire-and-forget: TTS plays while streaming continues
           }
         }
-        if (buf) fullContent += parseSseChunk(buf);
+        if (buf) fullContent += parseSseChunk(buf).content;
         // Speak any trailing text that didn't end with sentence punctuation
         if (ttsBuf.trim()) enqueueSentence(ttsBuf.trim());
       }
@@ -3133,7 +3383,20 @@ export default function ChatScreen() {
           <FlatList
             data={reversed}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <MessageBubble message={item} colors={colors} />}
+            renderItem={({ item }) => (
+              <MessageBubble
+                message={item}
+                colors={colors}
+                onBranchEdit={item.role === "user" ? () => {
+                  setBranchEditMsgId(item.id);
+                  setBranchEditText(item.content);
+                  // Pre-fill the input bar with the original text
+                  setInput(item.content);
+                  inputRef.current?.focus();
+                  Haptics.selectionAsync();
+                } : undefined}
+              />
+            )}
             inverted={messages.length > 0}
             ListHeaderComponent={
               showTyping || isTranscribing ? (
@@ -3157,15 +3420,25 @@ export default function ChatScreen() {
 
         {/* ── Input bar ── */}
         <View style={[styles.inputBar, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: bottomPad + 57 }]}>
+          {/* Branch edit indicator */}
+          {branchEditMsgId && (
+            <View style={[styles.branchBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "30" }]}>
+              <Ionicons name="create-outline" size={13} color={colors.primary} />
+              <Text style={[styles.branchBannerText, { color: colors.primary }]}>Editing — send to regenerate from this point</Text>
+              <Pressable onPress={() => { setBranchEditMsgId(null); setBranchEditText(""); setInput(""); }} hitSlop={8}>
+                <Ionicons name="close" size={14} color={colors.primary} />
+              </Pressable>
+            </View>
+          )}
           <View style={styles.inputRow}>
-            <View style={[styles.textWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.textWrap, { backgroundColor: colors.card, borderColor: branchEditMsgId ? colors.primary : colors.border }]}>
               <TextInput
                 ref={inputRef}
                 style={[styles.textInput, { color: colors.foreground }]}
                 placeholder={isSearchMode ? "Search the web…" : `Ask ${assistantName}…`}
                 placeholderTextColor={colors.mutedForeground}
                 value={input}
-                onChangeText={setInput}
+                onChangeText={(t) => { setInput(t); if (branchEditMsgId) setBranchEditText(t); }}
                 multiline
                 maxLength={2000}
                 returnKeyType="send"
@@ -3184,6 +3457,25 @@ export default function ChatScreen() {
               </Pressable>
             </View>
 
+            {/* Camera shortcut button */}
+            <Pressable
+              style={[styles.cameraBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={async () => {
+                if (!cameraPermission?.granted) {
+                  const { granted } = await requestCameraPermission();
+                  if (!granted) return;
+                }
+                setCameraReady(true);
+                setVisionMode(true);
+                await new Promise<void>((r) => setTimeout(r, 800));
+                await captureAndDescribe();
+                setVisionMode(false);
+              }}
+              disabled={isStreaming || isRecording}
+            >
+              <Ionicons name="camera-outline" size={22} color={colors.mutedForeground} />
+            </Pressable>
+
             {/* Mic button */}
             <Pressable
               style={[
@@ -3201,7 +3493,7 @@ export default function ChatScreen() {
             >
               {isTranscribing
                 ? <ActivityIndicator size="small" color={colors.primary} />
-                : <Ionicons name={isRecording ? "stop" : "mic"} size={22} color={isRecording ? "#fff" : "#fff"} />}
+                : <Ionicons name={isRecording ? "stop" : "mic"} size={22} color="#fff" />}
             </Pressable>
           </View>
         </View>
@@ -3271,6 +3563,17 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     shadowOffset: { width: 0, height: 2 },
   },
+  cameraBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  branchBanner: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 6, marginBottom: 6,
+    borderRadius: 10, borderWidth: 1, marginHorizontal: 4,
+  },
+  branchBannerText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },
 
   offlineBanner: {
     flexDirection: "row", alignItems: "center", gap: 7,

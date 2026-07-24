@@ -102,6 +102,39 @@ export default function MessagesScreen() {
   const [replyStatus, setReplyStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [replyError, setReplyError] = useState<string | null>(null);
 
+  // Proactive AI suggestion state
+  const [aiSuggestLoading, setAiSuggestLoading] = useState<string | null>(null); // notification key being suggested
+
+  async function getApiBase(): Promise<string> {
+    const envUrl = process.env.EXPO_PUBLIC_API_URL;
+    if (envUrl) return envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
+    if (Platform.OS === "web") return "/api/";
+    return "https://secret-chat-provider--b-oss.replit.app/api/";
+  }
+
+  async function handleAiSuggestReply(n: VoxNotification) {
+    setAiSuggestLoading(n.key);
+    try {
+      const base = await getApiBase();
+      const r = await fetch(`${base}suggest-reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sender: n.sender ?? n.app,
+          app: getAppMeta(n.packageName, n.app).name,
+          text: n.text ?? "",
+        }),
+      });
+      if (!r.ok) throw new Error("suggest-reply failed");
+      const d = await r.json() as { suggestion?: string };
+      if (d.suggestion) setReplyText(d.suggestion);
+    } catch {
+      // Silently fail — user can still type manually
+    } finally {
+      setAiSuggestLoading(null);
+    }
+  }
+
   // Derive unique apps for filter chips
   const uniqueApps = useMemo(() => {
     const seen = new Map<string, { pkg: string; name: string; color: string }>();
@@ -428,25 +461,40 @@ export default function MessagesScreen() {
                   </View>
                   {/* ── Inline reply row ── */}
                   {isExpanded && (
-                    <View style={[styles.replyRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-                      <TextInput
-                        style={[styles.replyInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
-                        placeholder={`Reply to ${n.sender || meta.name}…`}
-                        placeholderTextColor={colors.mutedForeground}
-                        value={replyText}
-                        onChangeText={setReplyText}
-                        returnKeyType="send"
-                        onSubmitEditing={() => handleSmartReply(n)}
-                        autoFocus
-                        editable={replyStatus !== "sending"}
-                      />
+                    <View style={[styles.replyCol, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                      {/* AI suggest button */}
                       <Pressable
-                        style={[styles.replyBtn, { backgroundColor: replyStatus === "sent" ? colors.success : colors.primary, opacity: replyStatus === "sending" ? 0.6 : 1 }]}
-                        onPress={() => handleSmartReply(n)}
-                        disabled={replyStatus === "sending" || !replyText.trim()}
+                        style={[styles.aiSuggestBtn, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}
+                        onPress={() => handleAiSuggestReply(n)}
+                        disabled={aiSuggestLoading === n.key}
                       >
-                        <Ionicons name={replyStatus === "sent" ? "checkmark" : "send"} size={16} color="#fff" />
+                        {aiSuggestLoading === n.key
+                          ? <ActivityIndicator size="small" color={colors.primary} />
+                          : <Ionicons name="sparkles" size={14} color={colors.primary} />}
+                        <Text style={[styles.aiSuggestText, { color: colors.primary }]}>
+                          {aiSuggestLoading === n.key ? "Thinking…" : "Suggest reply"}
+                        </Text>
                       </Pressable>
+                      <View style={styles.replyRow}>
+                        <TextInput
+                          style={[styles.replyInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
+                          placeholder={`Reply to ${n.sender || meta.name}…`}
+                          placeholderTextColor={colors.mutedForeground}
+                          value={replyText}
+                          onChangeText={setReplyText}
+                          returnKeyType="send"
+                          onSubmitEditing={() => handleSmartReply(n)}
+                          autoFocus
+                          editable={replyStatus !== "sending"}
+                        />
+                        <Pressable
+                          style={[styles.replyBtn, { backgroundColor: replyStatus === "sent" ? colors.success : colors.primary, opacity: replyStatus === "sending" ? 0.6 : 1 }]}
+                          onPress={() => handleSmartReply(n)}
+                          disabled={replyStatus === "sending" || !replyText.trim()}
+                        >
+                          <Ionicons name={replyStatus === "sent" ? "checkmark" : "send"} size={16} color="#fff" />
+                        </Pressable>
+                      </View>
                     </View>
                   )}
                   {isExpanded && replyStatus === "error" && replyError && (
@@ -592,8 +640,8 @@ const styles = StyleSheet.create({
   preview: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
   replyDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 6 },
 
-  replyRow: {
-    flexDirection: "row",
+  replyCol: {
+    flexDirection: "column",
     gap: 8,
     marginHorizontal: 16,
     marginTop: -4,
@@ -602,6 +650,18 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     padding: 10,
   },
+  aiSuggestBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignSelf: "flex-start",
+  },
+  aiSuggestText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  replyRow: { flexDirection: "row", gap: 8 },
   replyInput: {
     flex: 1,
     fontSize: 14,

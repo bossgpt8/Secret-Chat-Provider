@@ -1,0 +1,1 @@
+- [vox-upgrades-2026-07](vox-upgrades-2026-07.md) — Six upgrades to the Vox voice assistant; key patterns and gotchas for each.

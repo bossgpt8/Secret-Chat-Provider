@@ -278,6 +278,8 @@ function VoiceCallOverlay({
   colors: ReturnType<typeof useColors>; assistantName: string;
   lastMessage: string; onEnd: () => void;
 }) {
+  const [minimized, setMinimized] = useState(false);
+
   const stateLabel = isSpeaking
     ? `${assistantName} is speaking`
     : isRecording ? "Listening…"
@@ -290,8 +292,45 @@ function VoiceCallOverlay({
     : isRecording ? colors.primary
     : colors.mutedForeground;
 
+  // ── Minimized pip (WhatsApp-style floating bar) ───────────────────────────
+  if (minimized) {
+    return (
+      <Pressable
+        style={[voiceOverlayStyles.pip, { backgroundColor: "#18181f", borderColor: stateColor + "50" }]}
+        onPress={() => setMinimized(false)}
+        pointerEvents="auto"
+      >
+        {/* Small orb indicator */}
+        <View style={[voiceOverlayStyles.pipDot, { backgroundColor: stateColor }]} />
+        <Text style={[voiceOverlayStyles.pipLabel, { color: "#fff" }]} numberOfLines={1}>
+          {stateLabel}
+        </Text>
+        <Text style={[voiceOverlayStyles.pipHint, { color: "rgba(255,255,255,0.45)" }]}>tap to expand</Text>
+        {/* End button inline */}
+        <Pressable
+          style={voiceOverlayStyles.pipEnd}
+          onPress={(e) => { e.stopPropagation(); onEnd(); }}
+          hitSlop={12}
+        >
+          <Ionicons name="call" size={15} color="#ef4444" />
+        </Pressable>
+      </Pressable>
+    );
+  }
+
+  // ── Full-screen overlay ────────────────────────────────────────────────────
   return (
     <View style={voiceOverlayStyles.container} pointerEvents="box-none">
+      {/* Minimize button — top right, like WhatsApp */}
+      <Pressable
+        style={voiceOverlayStyles.minimizeBtn}
+        onPress={() => setMinimized(true)}
+        pointerEvents="auto"
+      >
+        <Ionicons name="chevron-down" size={18} color="rgba(255,255,255,0.6)" />
+        <Text style={voiceOverlayStyles.minimizeBtnText}>Minimize</Text>
+      </Pressable>
+
       {/* Orb — 1.8× scale for the full-screen context */}
       <View style={{ transform: [{ scale: 1.8 }], marginBottom: 48 }}>
         <SiriOrb isRecording={isRecording} isSpeaking={isSpeaking} audioLevel={audioLevelAnim} colors={colors} />
@@ -330,6 +369,23 @@ const voiceOverlayStyles = StyleSheet.create({
     zIndex: 200,
     paddingHorizontal: 32,
   },
+  minimizeBtn: {
+    position: "absolute",
+    top: 52,
+    right: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  minimizeBtnText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "rgba(255,255,255,0.6)",
+  },
   stateLabel: {
     fontSize: 18,
     fontFamily: "Inter_600SemiBold",
@@ -361,6 +417,34 @@ const voiceOverlayStyles = StyleSheet.create({
     elevation: 8,
   },
   endBtnText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#fff" },
+  // ── Minimized pip ──────────────────────────────────────────────────────────
+  pip: {
+    position: "absolute",
+    bottom: 100,
+    left: 16,
+    right: 16,
+    zIndex: 200,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderRadius: 18,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  pipDot: { width: 10, height: 10, borderRadius: 5 },
+  pipLabel: { flex: 1, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  pipHint: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  pipEnd: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: "rgba(239,68,68,0.15)",
+    alignItems: "center", justifyContent: "center",
+  },
 });
 
 // ─── Siri-style orb — scale driven by voice amplitude when recording ──────────
@@ -729,7 +813,11 @@ export default function ChatScreen() {
   useEffect(() => {
     assistantNameRef.current = assistantName;
     const escaped = assistantName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    wakeWordRegexRef.current = new RegExp(`(?:hey[\\s,!]+)?${escaped}`, "i");
+    // Catch: "hey/ok/yo/hi vox", "vox", "hey vox wake up", etc.
+    wakeWordRegexRef.current = new RegExp(
+      `(?:(?:hey|ok|okay|yo|hi)[\\s,!]+)?${escaped}(?:[\\s,!]|$)`,
+      "i"
+    );
   }, [assistantName]);
 
   // ── Load persistent memory facts from API ─────────────────────────────────
@@ -1124,9 +1212,12 @@ export default function ChatScreen() {
     if (!wakeWordLoopRef.current) return;
     // Pause if something else is using audio
     if (isCallModeRef.current || isStreamingRef.current || recordingRef.current) {
-      setTimeout(() => wakeWordLoopTick(), 800);
+      setTimeout(() => wakeWordLoopTick(), 600);
       return;
     }
+    // Prevent concurrent ticks
+    if (isWakeListeningRef.current) return;
+
     let rec: Audio.Recording | null = null;
     try {
       const { status } = await Audio.requestPermissionsAsync();
@@ -1136,8 +1227,11 @@ export default function ChatScreen() {
       rec = recording;
       isWakeListeningRef.current = true;
       setIsWakeListening(true);
-      // Listen for 1.5 seconds — faster wake word detection
-      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+
+      // 2 s window — large enough that "Hey Vox" always lands in one chunk.
+      // The previous 1.5 s window could clip the phrase across two recordings.
+      await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+
       isWakeListeningRef.current = false;
       setIsWakeListening(false);
       if (!wakeWordLoopRef.current) { rec.stopAndUnloadAsync().catch(() => {}); return; }
@@ -1145,26 +1239,33 @@ export default function ChatScreen() {
       rec = null;
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
       if (!wakeWordLoopRef.current) return;
+
       const uri = recording.getURI();
-      if (!uri) { setTimeout(() => wakeWordLoopTick(), 300); return; }
-      // Transcribe silently
+      if (!uri) { setTimeout(() => wakeWordLoopTick(), 50); return; }
+
+      // Pipeline: kick off the next recording immediately while we transcribe
+      // this one — eliminates the dead zone between cycles.
+      if (wakeWordLoopRef.current) setTimeout(() => wakeWordLoopTick(), 50);
+
+      // Transcribe in background
       const base = await getApiBase();
       const fd = new FormData();
       fd.append("audio", { uri, type: "audio/m4a", name: "audio.m4a" } as unknown as Blob);
       const resp = await globalThis.fetch(`${base}transcribe`, { method: "POST", body: fd });
       const { text = "" } = await resp.json() as { text?: string };
       if (!wakeWordLoopRef.current) return;
-      // Check for wake word: "hey [name]" or just "[name]"
+
+      // Check for wake word: "hey/ok/yo/hi [name]" or just "[name]"
       const wakeRe = wakeWordRegexRef.current;
       if (wakeRe && wakeRe.test(text.trim())) {
-        // Wake word triggered
+        // Detected — stop the loop (the next tick scheduled above will exit
+        // on the wakeWordLoopRef.current === false guard)
         wakeWordLoopRef.current = false;
         setIsWakeListening(false);
         pendingCallModeAfterTtsRef.current = true;
         speakText(getWakeWordGreeting());
-      } else {
-        if (wakeWordLoopRef.current) setTimeout(() => wakeWordLoopTick(), 300);
       }
+      // No else — next tick is already queued above
     } catch {
       isWakeListeningRef.current = false;
       setIsWakeListening(false);
@@ -3266,8 +3367,12 @@ export default function ChatScreen() {
   const toggleScreenShare = async () => {
     if (!NativeScreenCapture.isAvailable) {
       Alert.alert(
-        "Native Build Required",
-        "Screen Share uses Android's MediaProjection API and is only available in a production build, not in Expo Go. Build the app with `eas build` to enable it.",
+        "Screen Share Unavailable",
+        Platform.OS !== "android"
+          ? "Screen Share is Android-only."
+          : "The VoxScreenCapture module isn't loaded.\n\n" +
+            "• If you're using Expo Go: scan the QR code with your EAS-built APK instead — Expo Go doesn't include custom native modules.\n\n" +
+            "• If you installed the EAS APK: open Settings → Apps → Vox → Permissions and make sure Display over other apps is allowed, then restart the app.",
         [{ text: "OK" }]
       );
       return;

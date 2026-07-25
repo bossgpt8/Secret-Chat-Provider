@@ -265,6 +265,104 @@ const waveStyles = StyleSheet.create({
   bar: { width: 4, borderRadius: 2, opacity: 0.85 },
 });
 
+// ─── Full-screen voice call overlay — shown when call mode is active ──────────
+// Mimics modern assistant UX (ChatGPT voice mode): large orb, state label,
+// last spoken text, and a single End button. Chat text is hidden underneath.
+
+function VoiceCallOverlay({
+  isRecording, isSpeaking, isStreaming, isTranscribing,
+  audioLevelAnim, colors, assistantName, lastMessage, onEnd,
+}: {
+  isRecording: boolean; isSpeaking: boolean; isStreaming: boolean;
+  isTranscribing: boolean; audioLevelAnim: Animated.Value;
+  colors: ReturnType<typeof useColors>; assistantName: string;
+  lastMessage: string; onEnd: () => void;
+}) {
+  const stateLabel = isSpeaking
+    ? `${assistantName} is speaking`
+    : isRecording ? "Listening…"
+    : isTranscribing ? "Processing…"
+    : isStreaming ? "Thinking…"
+    : "Ready";
+
+  const stateColor = isSpeaking
+    ? colors.accent
+    : isRecording ? colors.primary
+    : colors.mutedForeground;
+
+  return (
+    <View style={voiceOverlayStyles.container} pointerEvents="box-none">
+      {/* Orb — 1.8× scale for the full-screen context */}
+      <View style={{ transform: [{ scale: 1.8 }], marginBottom: 48 }}>
+        <SiriOrb isRecording={isRecording} isSpeaking={isSpeaking} audioLevel={audioLevelAnim} colors={colors} />
+      </View>
+
+      {/* Live waveform while mic is open */}
+      {isRecording && (
+        <View style={{ marginTop: -28, marginBottom: 8 }}>
+          <WaveformBars audioLevel={audioLevelAnim} colors={colors} />
+        </View>
+      )}
+
+      {/* State label */}
+      <Text style={[voiceOverlayStyles.stateLabel, { color: stateColor }]}>{stateLabel}</Text>
+
+      {/* Last spoken / streamed text */}
+      {!!lastMessage && (
+        <Text style={voiceOverlayStyles.lastMsg} numberOfLines={5}>{lastMessage}</Text>
+      )}
+
+      {/* End button — fixed to bottom */}
+      <Pressable style={voiceOverlayStyles.endBtn} onPress={onEnd} pointerEvents="auto">
+        <Ionicons name="call" size={22} color="#fff" />
+        <Text style={voiceOverlayStyles.endBtnText}>End</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const voiceOverlayStyles = StyleSheet.create({
+  container: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#08080f",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 200,
+    paddingHorizontal: 32,
+  },
+  stateLabel: {
+    fontSize: 18,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.2,
+    marginTop: 12,
+  },
+  lastMsg: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.55)",
+    textAlign: "center",
+    lineHeight: 23,
+    marginTop: 16,
+  },
+  endBtn: {
+    position: "absolute",
+    bottom: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#ef4444",
+    paddingHorizontal: 36,
+    paddingVertical: 17,
+    borderRadius: 40,
+    shadowColor: "#ef4444",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  endBtnText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#fff" },
+});
+
 // ─── Siri-style orb — scale driven by voice amplitude when recording ──────────
 
 function SiriOrb({ isRecording, isSpeaking, audioLevel, colors }: {
@@ -1258,32 +1356,11 @@ export default function ChatScreen() {
         attachSoundListeners(sound, gen);
         return;
       } catch {
-        // cloud TTS failed — ask user about phone TTS below
+        // cloud TTS failed — silently fall back to phone TTS
       }
       if (gen !== ttsGenerationRef.current) return;
-
-      // Cloud TTS failed — ask the user if they want to fall back to phone TTS
-      setIsSpeaking(false);
-      if (Platform.OS === "android") NativeOverlay.setState("idle").catch(() => {});
-      Alert.alert(
-        "Voice Unavailable",
-        "Cloud voice (Kokoro & ElevenLabs) couldn't be reached. Would you like to use your phone's built-in voice instead?",
-        [
-          {
-            text: "No",
-            style: "cancel",
-            onPress: () => { if (isCallModeRef.current) onTtsDone(); },
-          },
-          {
-            text: "Use Phone Voice",
-            onPress: async () => {
-              setIsSpeaking(true);
-              if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
-              try { await speakWithPhone(text); } catch { onTtsDone(); }
-            },
-          },
-        ]
-      );
+      // Cloud TTS unavailable — silently fall back to phone TTS (always works)
+      try { await speakWithPhone(text); } catch { onTtsDone(); }
       return;
     }
 
@@ -3394,20 +3471,6 @@ export default function ChatScreen() {
       )}
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-        {/* ── Call mode banner ── */}
-        {isCallMode && (
-          <View style={[styles.callBanner, { backgroundColor: colors.destructive + "12", borderBottomColor: colors.destructive + "30" }]}>
-            <View style={[styles.callDot, { backgroundColor: colors.destructive }]} />
-            <Text style={[styles.callBannerText, { color: colors.destructive }]}>
-              {isSpeaking ? `${assistantName} is speaking…` : isRecording ? "Listening…" : isTranscribing ? "Processing…" : isStreaming ? `${assistantName} is thinking…` : "Waiting…"}
-            </Text>
-            <Pressable onPress={endCallMode} style={styles.callEndBtn}>
-              <Ionicons name="call" size={14} color={colors.destructive} />
-              <Text style={[styles.callEndText, { color: colors.destructive }]}>End</Text>
-            </Pressable>
-          </View>
-        )}
-
         {/* ── Incoming call banner ── */}
         {incomingCallNumber && (
           <View style={[styles.callBanner, { backgroundColor: "#16a34a20", borderBottomColor: "#16a34a40" }]}>
@@ -3651,6 +3714,23 @@ export default function ChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* ── Full-screen voice call overlay ── */}
+      {isCallMode && (
+        <VoiceCallOverlay
+          isRecording={isRecording}
+          isSpeaking={isSpeaking}
+          isStreaming={isStreaming}
+          isTranscribing={isTranscribing}
+          audioLevelAnim={audioLevelAnim}
+          colors={colors}
+          assistantName={assistantName}
+          lastMessage={
+            [...messages].reverse().find((m) => m.role === "assistant")?.content ?? ""
+          }
+          onEnd={endCallMode}
+        />
+      )}
     </View>
   );
 }

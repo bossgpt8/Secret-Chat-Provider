@@ -573,10 +573,10 @@ export default function SettingsScreen() {
             </View>
             <Text style={[styles.rowValue, { color: colors.mutedForeground, paddingLeft: 0 }]}>
               {ttsProvider === "kokoro"
-                ? "Self-hosted Kokoro AI voices — unlimited & free. Runs on your own server."
+                ? "⭐ Recommended — Kokoro AI voices, free & natural. Always falls back to phone voice if server is unavailable."
                 : ttsProvider === "elevenlabs"
-                ? "High-quality AI voices via ElevenLabs. Phone TTS used as fallback."
-                : "Uses your device's built-in text-to-speech engine."}
+                ? "High-quality ElevenLabs cloud voices. Falls back to phone TTS if unavailable."
+                : "Your device's built-in voice — works offline, always available."}
             </Text>
           </View>
 

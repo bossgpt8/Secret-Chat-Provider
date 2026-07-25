@@ -47,3 +47,18 @@ Rolling summary prevents context loss from hard-truncation at 40 messages.
 - silentExecuteDeviceAction ≠ respond() — no messages, no TTS, just native action.
 - detectDeviceIntent is offline-only guard; never use it as the primary online classifier.
 - pnpm install needs `"pnpm": { "overrides": { "tar": "^7.4.3" } }` in root package.json (tar@6.2.1 blocked by Replit firewall).
+
+## Voice mode + Kokoro improvements (July 2026)
+
+**Full-screen voice overlay (VoiceCallOverlay component — index.tsx ~L272)**
+- When `isCallMode` is true, an absolutely-positioned dark overlay (#08080f) covers the entire chat screen.
+- Shows SiriOrb at 1.8× scale, WaveformBars while recording, state label (Listening/Thinking/Speaking), last assistant message text, and a red End button fixed at bottom.
+- Replaces the old small top banner (removed). Rendered after `</KeyboardAvoidingView>` inside root container so it sits above all content.
+
+**Kokoro TTS — always works**
+- `KOKORO_TIMEOUT_MS` reduced from 12 000 ms → 5 000 ms (tts.ts) so failures recover quickly.
+- `speakText()` fallback changed: removed `Alert.alert()` dialog that blocked call mode — now silently falls straight to `speakWithPhone()` (expo-speech, always available) when cloud TTS fails.
+- `playSentenceNow()` already had the same silent fallback — left intact.
+- Settings description updated: Kokoro labelled "⭐ Recommended" with note that it always falls back to phone voice.
+
+**Why:** Alert dialog during call mode killed the seamless loop — user had to tap a button before voice resumed. Phone TTS is the guaranteed always-works floor; Kokoro/ElevenLabs are progressive enhancements.

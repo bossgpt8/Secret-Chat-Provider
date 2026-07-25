@@ -9,7 +9,7 @@ const KOKORO_URL = process.env.KOKORO_URL ?? "";
 const KOKORO_API_KEY = process.env.KOKORO_API_KEY ?? "";
 
 // Kokoro request timeout — fail fast so the mobile client doesn't hang
-const KOKORO_TIMEOUT_MS = 12000;
+const KOKORO_TIMEOUT_MS = 5000;
 
 // Curated Kokoro voices — fallback when server is unreachable
 const KOKORO_VOICES = [

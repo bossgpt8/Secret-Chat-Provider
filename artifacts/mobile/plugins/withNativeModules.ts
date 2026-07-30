@@ -55,6 +55,8 @@ const KOTLIN_FILES = [
   "VoxOverlayService.kt",
   "VoxOverlayModule.kt",
   "VoxOverlayPackage.kt",
+  "VoxSpeechRecognizerModule.kt",
+  "VoxSpeechRecognizerPackage.kt",
   "VoxScreenCaptureService.kt",
   "VoxScreenCaptureModule.kt",
   "VoxScreenCapturePackage.kt",
@@ -326,6 +328,7 @@ const PACKAGES = [
   "CallScreeningPackage()",
   "VoxOverlayPackage()",
   "VoxScreenCapturePackage()",
+  "VoxSpeechRecognizerPackage()",
 ];
 
 /** Marker inserted to detect that our packages have already been added (idempotency). */

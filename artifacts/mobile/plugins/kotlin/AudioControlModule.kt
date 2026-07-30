@@ -1,6 +1,8 @@
 package com.boss.assistant
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -13,6 +15,7 @@ class AudioControlModule(reactContext: ReactApplicationContext) :
 
     @Volatile
     private var lastNonZeroVolume = 5
+    private var voiceFocusRequest: AudioFocusRequest? = null
 
     override fun getName(): String = "AudioControlModule"
 
@@ -69,6 +72,59 @@ class AudioControlModule(reactContext: ReactApplicationContext) :
             promise.resolve(currentStatusMap(am))
         } catch (e: Exception) {
             promise.reject("ERR_AUDIO_MUTE", e.message)
+        }
+    }
+
+    /**
+     * Reserve communication audio focus for a foreground voice turn. This
+     * keeps the recorder and TTS on the same Android audio path and prevents
+     * another media app from unexpectedly taking the microphone focus.
+     */
+    @Synchronized
+    @ReactMethod
+    fun beginVoiceSession(promise: Promise) {
+        try {
+            val am = audioManager()
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAcceptsDelayedFocusGain(false)
+                    .setOnAudioFocusChangeListener { }
+                    .build()
+                voiceFocusRequest = request
+                promise.resolve(am.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+            } else {
+                @Suppress("DEPRECATION")
+                promise.resolve(
+                    am.requestAudioFocus(
+                        { },
+                        AudioManager.STREAM_VOICE_CALL,
+                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                    ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+                )
+            }
+        } catch (e: Exception) {
+            promise.reject("ERR_AUDIO_FOCUS", e.message, e)
+        }
+    }
+
+    @Synchronized
+    @ReactMethod
+    fun endVoiceSession(promise: Promise) {
+        try {
+            val am = audioManager()
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                voiceFocusRequest?.let { am.abandonAudioFocusRequest(it) }
+                voiceFocusRequest = null
+            }
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_AUDIO_FOCUS_END", e.message, e)
         }
     }
 

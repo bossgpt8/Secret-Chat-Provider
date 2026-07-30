@@ -34,6 +34,8 @@ const KOTLIN_FILES = [
   "VoxOverlayModule.kt",
   "VoxOverlayPackage.kt",
   "VoxOverlayService.kt",
+  "VoxSpeechRecognizerModule.kt",
+  "VoxSpeechRecognizerPackage.kt",
 ];
 
 function javaDir(projectRoot) {
@@ -200,6 +202,7 @@ const PACKAGES = [
   "MediaControlPackage()",
   "CallScreeningPackage()",
   "VoxOverlayPackage()",
+  "VoxSpeechRecognizerPackage()",
 ];
 
 const MARKER = "// [VoxNativePackages]";

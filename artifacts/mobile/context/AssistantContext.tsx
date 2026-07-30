@@ -21,6 +21,12 @@ const QUICK_CHIPS_KEY = "@vox_quick_chips";
 const SPEECH_LANGUAGE_KEY = "@vox_speech_language";
 const FLOATING_BUBBLE_KEY = "@vox_floating_bubble";
 const DEVICE_ID_KEY = "@vox_device_id";
+const CONTEXT_ENABLED_KEY = "@vox_context_enabled";
+const CONTEXT_BATTERY_KEY = "@vox_ctx_battery";
+const CONTEXT_NOTIFICATIONS_KEY = "@vox_ctx_notifications";
+const CONTEXT_SCREEN_KEY = "@vox_ctx_screen";
+const CONTEXT_LOCATION_KEY = "@vox_ctx_location";
+const CONTEXT_MEDIA_KEY = "@vox_ctx_media";
 
 // Migration map: old @zeno_* key → new @vox_* key
 const LEGACY_KEY_MAP: Record<string, string> = {
@@ -178,6 +184,20 @@ interface AssistantContextType {
   setSpeechLanguage: (lang: string) => Promise<void>;
   floatingBubbleEnabled: boolean;
   setFloatingBubbleEnabled: (v: boolean) => Promise<void>;
+  /** Master toggle: whether any device context is collected and sent with chat */
+  contextEnabled: boolean;
+  setContextEnabled: (v: boolean) => Promise<void>;
+  /** Per-source toggles — only effective when contextEnabled is true */
+  contextBattery: boolean;
+  setContextBattery: (v: boolean) => Promise<void>;
+  contextNotifications: boolean;
+  setContextNotifications: (v: boolean) => Promise<void>;
+  contextScreen: boolean;
+  setContextScreen: (v: boolean) => Promise<void>;
+  contextLocation: boolean;
+  setContextLocation: (v: boolean) => Promise<void>;
+  contextMedia: boolean;
+  setContextMedia: (v: boolean) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -212,6 +232,12 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [speechLanguage, setSpeechLanguageState] = useState("en-US");
   const [floatingBubbleEnabled, setFloatingBubbleEnabledState] = useState(false);
   const [deviceId, setDeviceIdState] = useState("");
+  const [contextEnabled, setContextEnabledState] = useState(true);
+  const [contextBattery, setContextBatteryState] = useState(true);
+  const [contextNotifications, setContextNotificationsState] = useState(true);
+  const [contextScreen, setContextScreenState] = useState(false);
+  const [contextLocation, setContextLocationState] = useState(false);
+  const [contextMedia, setContextMediaState] = useState(true);
 
   useEffect(() => {
     loadData();
@@ -228,7 +254,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     await migrateZenoToVox();
     try {
       const startTime = Date.now();
-      const [name, convsRaw, pvid, evid, kvid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble, storedDeviceId] = await Promise.all([
+      const [name, convsRaw, pvid, evid, kvid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble, storedDeviceId, ctxEnabled, ctxBattery, ctxNotif, ctxScreen, ctxLoc, ctxMedia] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
@@ -249,6 +275,12 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(SPEECH_LANGUAGE_KEY),
         AsyncStorage.getItem(FLOATING_BUBBLE_KEY),
         AsyncStorage.getItem(DEVICE_ID_KEY),
+        AsyncStorage.getItem(CONTEXT_ENABLED_KEY),
+        AsyncStorage.getItem(CONTEXT_BATTERY_KEY),
+        AsyncStorage.getItem(CONTEXT_NOTIFICATIONS_KEY),
+        AsyncStorage.getItem(CONTEXT_SCREEN_KEY),
+        AsyncStorage.getItem(CONTEXT_LOCATION_KEY),
+        AsyncStorage.getItem(CONTEXT_MEDIA_KEY),
       ]);
       // Persist a stable device ID across launches
       if (storedDeviceId) {
@@ -278,6 +310,12 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (quickChipsRaw) { try { const chips = JSON.parse(quickChipsRaw); if (Array.isArray(chips) && chips.length > 0) setCustomQuickChipsState(chips); } catch { /* ignore */ } }
       if (speechLang) setSpeechLanguageState(speechLang);
       if (floatingBubble === "true") setFloatingBubbleEnabledState(true);
+      if (ctxEnabled === "false") setContextEnabledState(false);
+      if (ctxBattery === "false") setContextBatteryState(false);
+      if (ctxNotif === "false") setContextNotificationsState(false);
+      if (ctxScreen === "true") setContextScreenState(true);
+      if (ctxLoc === "true") setContextLocationState(true);
+      if (ctxMedia === "false") setContextMediaState(false);
     } catch (e) {
       console.error("[AssistantContext] Error loading data:", e);
     } finally {
@@ -358,6 +396,36 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   async function setFloatingBubbleEnabled(v: boolean) {
     await AsyncStorage.setItem(FLOATING_BUBBLE_KEY, String(v));
     setFloatingBubbleEnabledState(v);
+  }
+
+  async function setContextEnabled(v: boolean) {
+    await AsyncStorage.setItem(CONTEXT_ENABLED_KEY, String(v));
+    setContextEnabledState(v);
+  }
+
+  async function setContextBattery(v: boolean) {
+    await AsyncStorage.setItem(CONTEXT_BATTERY_KEY, String(v));
+    setContextBatteryState(v);
+  }
+
+  async function setContextNotifications(v: boolean) {
+    await AsyncStorage.setItem(CONTEXT_NOTIFICATIONS_KEY, String(v));
+    setContextNotificationsState(v);
+  }
+
+  async function setContextScreen(v: boolean) {
+    await AsyncStorage.setItem(CONTEXT_SCREEN_KEY, String(v));
+    setContextScreenState(v);
+  }
+
+  async function setContextLocation(v: boolean) {
+    await AsyncStorage.setItem(CONTEXT_LOCATION_KEY, String(v));
+    setContextLocationState(v);
+  }
+
+  async function setContextMedia(v: boolean) {
+    await AsyncStorage.setItem(CONTEXT_MEDIA_KEY, String(v));
+    setContextMediaState(v);
   }
 
   function warnStorageError(key: string, err: unknown) {
@@ -495,6 +563,12 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         customQuickChips, setCustomQuickChips,
         speechLanguage, setSpeechLanguage,
         floatingBubbleEnabled, setFloatingBubbleEnabled,
+        contextEnabled, setContextEnabled,
+        contextBattery, setContextBattery,
+        contextNotifications, setContextNotifications,
+        contextScreen, setContextScreen,
+        contextLocation, setContextLocation,
+        contextMedia, setContextMedia,
       }}
     >
       {children}

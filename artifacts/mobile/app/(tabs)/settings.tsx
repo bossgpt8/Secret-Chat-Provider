@@ -106,6 +106,12 @@ export default function SettingsScreen() {
     floatingBubbleEnabled, setFloatingBubbleEnabled,
     customQuickChips, setCustomQuickChips,
     speechLanguage, setSpeechLanguage,
+    contextEnabled, setContextEnabled,
+    contextBattery, setContextBattery,
+    contextNotifications, setContextNotifications,
+    contextScreen, setContextScreen,
+    contextLocation, setContextLocation,
+    contextMedia, setContextMedia,
   } = useAssistant();
 
   const [editingName, setEditingName] = useState(false);
@@ -851,6 +857,59 @@ export default function SettingsScreen() {
                 Active while app is open or minimized. For fully background listening (screen off), grant Battery Optimization exemption in Permissions below.
               </Text>
             </View>
+          )}
+        </Section>
+
+        {/* ── Privacy & Context ── */}
+        <Section title="Privacy &amp; Context">
+          {/* Master toggle */}
+          <View style={[styles.row, { borderBottomColor: colors.border }]}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.foreground }]}>Send Context to AI</Text>
+              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+                Lets {assistantName} see your device state (battery, recent notification, media) when answering. Nothing leaves the device without your control.
+              </Text>
+            </View>
+            <Switch
+              value={contextEnabled}
+              onValueChange={async (v) => { await setContextEnabled(v); Haptics.selectionAsync(); }}
+              trackColor={{ false: colors.muted, true: colors.primary + "80" }}
+              thumbColor={contextEnabled ? colors.primary : colors.mutedForeground}
+            />
+          </View>
+
+          {/* Per-source toggles — only shown when master is on */}
+          {contextEnabled && (
+            <>
+              {[
+                { label: "Battery level", desc: "Share battery % and charging state.", value: contextBattery, set: setContextBattery, icon: "battery-half-outline" },
+                { label: "Recent notification", desc: "Share the latest notification summary.", value: contextNotifications, set: setContextNotifications, icon: "notifications-outline" },
+                { label: "Media playback", desc: "Share currently playing track.", value: contextMedia, set: setContextMedia, icon: "musical-notes-outline" },
+                { label: "Screen text (Accessibility)", desc: "Share visible screen text from the active app. Requires Accessibility Service.", value: contextScreen, set: setContextScreen, icon: "eye-outline" },
+                { label: "Location (city)", desc: "Share approximate city/region for weather context. Requires location permission.", value: contextLocation, set: setContextLocation, icon: "location-outline" },
+              ].map(({ label, desc, value, set, icon }) => (
+                <View key={label} style={[styles.row, { borderBottomColor: colors.border }]}>
+                  <Ionicons name={icon as "mic"} size={16} color={colors.mutedForeground} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.rowLabel, { color: colors.foreground }]}>{label}</Text>
+                    <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{desc}</Text>
+                  </View>
+                  <Switch
+                    value={value}
+                    onValueChange={async (v) => { await set(v); Haptics.selectionAsync(); }}
+                    trackColor={{ false: colors.muted, true: colors.primary + "80" }}
+                    thumbColor={value ? colors.primary : colors.mutedForeground}
+                  />
+                </View>
+              ))}
+              <View style={[styles.row, { borderBottomColor: "transparent" }]}>
+                <Ionicons name="information-circle-outline" size={14} color={colors.accent} />
+                <Text style={[styles.rowValue, { color: colors.accent, flex: 1 }]}>
+                  Context is sent only with your messages — never in the background. You can disable any source at any time.
+                </Text>
+              </View>
+            </>
           )}
         </Section>
 

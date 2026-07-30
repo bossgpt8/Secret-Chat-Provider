@@ -278,7 +278,7 @@ const DEVICE_TOOLS = [
 
 router.post("/chat", async (req, res) => {
   const startMs = Date.now();
-  const { messages: rawMessages, systemPrompt, deviceId } = req.body;
+  const { messages: rawMessages, systemPrompt, deviceId, deviceContext } = req.body;
   if (!rawMessages || !Array.isArray(rawMessages)) {
     res.status(400).json({ error: "messages array is required" });
     return;
@@ -315,6 +315,15 @@ router.post("/chat", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
+  // ── Device context block (battery, app, notifications, media, location) ────
+  // Collected on-device by the mobile app and forwarded here as a short text
+  // paragraph. We append it verbatim so the model has ambient awareness without
+  // the user having to repeat themselves.
+  let contextBlock = "";
+  if (deviceContext && typeof deviceContext === "string" && deviceContext.trim()) {
+    contextBlock = ` Current device state: ${deviceContext.trim()}`;
+  }
+
   const baseSystemContent =
     systemPrompt ||
     "You are a helpful, intelligent, and friendly voice assistant — like Siri but smarter. " +
@@ -325,7 +334,7 @@ router.post("/chat", async (req, res) => {
   const systemMessages = [
     {
       role: "system",
-      content: baseSystemContent + memoryBlock,
+      content: baseSystemContent + memoryBlock + contextBlock,
     },
   ];
 

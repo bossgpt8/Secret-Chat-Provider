@@ -39,6 +39,8 @@ import { NativeNotifications, type VoxNotification } from "@/modules/NativeNotif
 import { NativeOverlay } from "@/modules/NativeOverlay";
 import { NativeScreenCapture } from "@/modules/NativeScreenCapture";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
+import { NativeAudioSession } from "@/modules/NativeAudioSession";
+import { NativeSpeechRecognizer } from "@/modules/NativeSpeechRecognizer";
 
 // ─── Typing indicator — waveform bars ────────────────────────────────────────
 
@@ -716,7 +718,7 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
   const router = useRouter();
-  const { deviceId, assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage } = useAssistant();
+  const { deviceId, assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage, contextEnabled, contextBattery, contextNotifications, contextScreen, contextMedia, contextLocation } = useAssistant();
 
   const network = useNetworkStatus();
   const isOnline = network.isConnected && network.isInternetReachable;
@@ -771,6 +773,7 @@ export default function ChatScreen() {
   const isCallModeRef = useRef(false);
   const isStreamingRef = useRef(false);
   const isTranscribingRef = useRef(false);
+  const isSpeakingRef = useRef(false);
   // TTS sentence queue — lets us start speaking the first sentence while the
   // LLM is still generating the rest of the response
   const ttsQueueRef = useRef<string[]>([]);
@@ -783,6 +786,13 @@ export default function ChatScreen() {
   const pendingNotifSpeechRef = useRef<string[]>([]);
   // VAD polling interval (replaces fixed silence timer)
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Native Android speech session. Native recognition gives the foreground
+  // voice loop partial/final text without a remote upload; the existing
+  // recording + /transcribe path remains the cross-platform fallback.
+  const nativeSpeechActiveRef = useRef(false);
+  const nativeSpeechModeRef = useRef<"turn" | "barge">("turn");
+  const nativeSpeechTextRef = useRef("");
+  const handleSendRef = useRef<(overrideText?: string) => void>(() => {});
   // Live audio amplitude (0–1) driven by VAD metering — feeds WaveformBars + SiriOrb
   const audioLevelAnim = useRef(new Animated.Value(0)).current;
 
@@ -806,6 +816,7 @@ export default function ChatScreen() {
 
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
   useEffect(() => { isTranscribingRef.current = isTranscribing; }, [isTranscribing]);
+  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
   useEffect(() => { lastNotifRef.current = lastNotification; }, [lastNotification]);
   useEffect(() => { wakeWordEnabledRef.current = wakeWordEnabled; }, [wakeWordEnabled]);
@@ -865,6 +876,85 @@ export default function ChatScreen() {
       unsubCmd();
       unsubTap();
     };
+  }, []);
+
+  // Android SpeechRecognizer is the low-latency path for foreground voice
+  // turns. Partials drive the live transcript and also provide barge-in while
+  // TTS is speaking; final text goes directly to the existing send pipeline.
+  useEffect(() => {
+    if (!NativeSpeechRecognizer.isAvailable) return;
+
+    const unsubPartial = NativeSpeechRecognizer.onPartial(({ text, level }) => {
+      if (!nativeSpeechActiveRef.current || !text.trim()) return;
+      nativeSpeechTextRef.current = text.trim();
+      setInput(text.trim());
+      if (typeof level === "number") audioLevelAnim.setValue(level);
+
+      if (nativeSpeechModeRef.current === "barge" && text.trim().length > 1) {
+        nativeSpeechModeRef.current = "turn";
+        setIsRecording(true);
+        NativeOverlay.setState("listening").catch(() => {});
+        stopSpeaking().catch(() => {});
+      }
+    });
+
+    const unsubResult = NativeSpeechRecognizer.onResult(({ text }) => {
+      if (!nativeSpeechActiveRef.current) return;
+      const mode = nativeSpeechModeRef.current;
+      const transcript = (text || nativeSpeechTextRef.current).trim();
+      nativeSpeechActiveRef.current = false;
+      nativeSpeechModeRef.current = "turn";
+      nativeSpeechTextRef.current = "";
+      setIsRecording(false);
+      setRecordingDuration(0);
+      audioLevelAnim.setValue(0);
+      NativeAudioSession.endVoiceSession().catch(() => {});
+      if (mode === "barge") stopSpeaking().catch(() => {});
+
+      if (transcript.length > 1) {
+        setIsTranscribing(false);
+        handleSendRef.current(transcript);
+      } else if (isCallModeRef.current) {
+        setTimeout(() => {
+          if (isCallModeRef.current && !nativeSpeechActiveRef.current) startRecording();
+        }, CALL_MODE_RETRY_DELAY_MS);
+      }
+    });
+
+    const unsubError = NativeSpeechRecognizer.onError(() => {
+      if (!nativeSpeechActiveRef.current) return;
+      const mode = nativeSpeechModeRef.current;
+      nativeSpeechActiveRef.current = false;
+      nativeSpeechModeRef.current = "turn";
+      nativeSpeechTextRef.current = "";
+      setIsRecording(false);
+      setRecordingDuration(0);
+      audioLevelAnim.setValue(0);
+      NativeAudioSession.endVoiceSession().catch(() => {});
+      if (mode === "barge") {
+        if (isCallModeRef.current && !isSpeakingRef.current) {
+          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+        }
+      } else if (isCallModeRef.current) {
+        setTimeout(() => {
+          if (isCallModeRef.current && !nativeSpeechActiveRef.current) startRecording();
+        }, CALL_MODE_RETRY_DELAY_MS);
+      }
+    });
+
+    return () => {
+      unsubPartial();
+      unsubResult();
+      unsubError();
+      if (nativeSpeechActiveRef.current) {
+        nativeSpeechActiveRef.current = false;
+        NativeSpeechRecognizer.cancel().catch(() => {});
+        NativeAudioSession.endVoiceSession().catch(() => {});
+      }
+    };
+    // This listener intentionally mounts once; mutable refs provide current
+    // call-mode and streaming state without recreating the native subscription.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Process a command that arrived from the native overlay while backgrounded.
@@ -1294,6 +1384,43 @@ export default function ChatScreen() {
     setIsSpeaking(false);
   }
 
+  async function cancelNativeSpeech() {
+    if (!nativeSpeechActiveRef.current) return;
+    nativeSpeechActiveRef.current = false;
+    nativeSpeechModeRef.current = "turn";
+    nativeSpeechTextRef.current = "";
+    await NativeSpeechRecognizer.cancel().catch(() => {});
+    await NativeAudioSession.endVoiceSession().catch(() => {});
+    setIsRecording(false);
+    setRecordingDuration(0);
+    audioLevelAnim.setValue(0);
+  }
+
+  async function startNativeSpeech(mode: "turn" | "barge", silenceMs = 850): Promise<boolean> {
+    if (!NativeSpeechRecognizer.isAvailable || nativeSpeechActiveRef.current) return false;
+    const focusGranted = await NativeAudioSession.beginVoiceSession().catch(() => false);
+    if (!focusGranted && NativeAudioSession.isAvailable) return false;
+
+    nativeSpeechModeRef.current = mode;
+    nativeSpeechTextRef.current = "";
+    const started = await NativeSpeechRecognizer.start(speechLanguage || "en-US", silenceMs).catch(() => false);
+    if (!started) {
+      await NativeAudioSession.endVoiceSession().catch(() => {});
+      return false;
+    }
+    nativeSpeechActiveRef.current = true;
+    setIsRecording(true);
+    setRecordingDuration(0);
+    setIsTranscribing(false);
+    if (Platform.OS === "android") NativeOverlay.setState("listening").catch(() => {});
+    return true;
+  }
+
+  async function startBargeInListener() {
+    if (Platform.OS !== "android" || !isCallModeRef.current || !isSpeakingRef.current) return;
+    await startNativeSpeech("barge", 650);
+  }
+
   function onTtsDone() {
     // Drain the sentence queue — play next sentence if one is waiting
     const next = ttsQueueRef.current.shift();
@@ -1438,6 +1565,9 @@ export default function ChatScreen() {
     setIsSpeaking(true);
     // Update native overlay bubble to "speaking" state while TTS plays
     if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
+    // Keep a native recognizer open during call-mode playback. Its partial
+    // result is the barge-in signal and immediately cancels TTS + the stream.
+    startBargeInListener().catch(() => {});
 
     // Cloud/self-hosted TTS — stream directly via GET URL so expo-av (ExoPlayer)
     // starts playback immediately without waiting for the full audio download.
@@ -1486,6 +1616,7 @@ export default function ChatScreen() {
     isCallModeRef.current = false;
     setIsCallMode(false);
     stopRecordingCleanup();
+    await cancelNativeSpeech();
     setIsRecording(false);
     setRecordingDuration(0);
     await stopSpeaking();
@@ -1518,6 +1649,13 @@ export default function ChatScreen() {
       if (status !== "granted") {
         alert("Microphone permission is required for voice input.");
         return;
+      }
+      if (Platform.OS === "android" && NativeSpeechRecognizer.isAvailable) {
+        const started = await startNativeSpeech("turn", isCallModeRef.current ? 850 : 950);
+        if (started) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          return;
+        }
       }
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       await stopSpeaking();
@@ -1586,6 +1724,11 @@ export default function ChatScreen() {
     if (durationTimerRef.current) { clearInterval(durationTimerRef.current); durationTimerRef.current = null; }
     if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null; }
     audioLevelAnim.setValue(0);
+    if (nativeSpeechActiveRef.current) {
+      nativeSpeechActiveRef.current = false;
+      NativeSpeechRecognizer.cancel().catch(() => {});
+      NativeAudioSession.endVoiceSession().catch(() => {});
+    }
     if (recordingRef.current) {
       recordingRef.current.stopAndUnloadAsync().catch(() => {});
       recordingRef.current = null;
@@ -1593,6 +1736,10 @@ export default function ChatScreen() {
   }
 
   async function stopRecording() {
+    if (nativeSpeechActiveRef.current) {
+      await NativeSpeechRecognizer.stop().catch(() => {});
+      return;
+    }
     if (!recordingRef.current) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (durationTimerRef.current) { clearInterval(durationTimerRef.current); durationTimerRef.current = null; }
@@ -3052,6 +3199,74 @@ export default function ChatScreen() {
     }
   }
 
+  // ── Device context collection ──────────────────────────────────────────────
+  // Gathers a short ambient-state paragraph from the device sensors/modules
+  // that the user has allowed. The paragraph is sent alongside each /chat
+  // request so the model has situational awareness without being asked.
+
+  async function collectDeviceContext(): Promise<string | undefined> {
+    if (!contextEnabled || Platform.OS === "web") return undefined;
+    const parts: string[] = [];
+
+    if (contextBattery) {
+      try {
+        const Battery = await import("expo-battery");
+        const level = await Battery.getBatteryLevelAsync();
+        const state = await Battery.getBatteryStateAsync();
+        const pct = Math.round(level * 100);
+        const charging =
+          state === Battery.BatteryState.CHARGING ? ", charging" :
+          state === Battery.BatteryState.FULL ? ", fully charged" : "";
+        parts.push(`Battery ${pct}%${charging}.`);
+      } catch { /* battery unavailable */ }
+    }
+
+    if (contextNotifications && lastNotifRef.current) {
+      const n = lastNotifRef.current;
+      const ago = Math.round((Date.now() - n.timestamp) / 60000);
+      const agoStr = ago < 1 ? "just now" : ago === 1 ? "1 min ago" : `${ago} mins ago`;
+      parts.push(`Last notification (${agoStr}) from ${n.app}: "${n.text?.slice(0, 80)}".`);
+    }
+
+    // Media playback context: NativeMediaControl only has transport controls, not
+    // playback metadata; use contextMedia flag as a future-expansion gate but
+    // do not attempt an API call that doesn't exist yet.
+    void contextMedia;
+
+    if (contextScreen && NativeAccessibility.isAvailable) {
+      try {
+        const isEnabled = await NativeAccessibility.isEnabled().catch(() => false);
+        if (isEnabled) {
+          // NativeAccessibility.getRecentEvents is not yet implemented;
+          // skip gracefully until the Kotlin module exposes it.
+          const getRecent = (NativeAccessibility as Record<string, unknown>).getRecentEvents;
+          if (typeof getRecent === "function") {
+            const events = await (getRecent as () => Promise<Array<{ text?: string }>>)().catch(() => null);
+            if (Array.isArray(events) && events.length > 0) {
+              const text = events.map((e) => e.text).filter(Boolean).slice(0, 3).join(" | ");
+              if (text.trim()) parts.push(`Screen text: "${text.slice(0, 120)}".`);
+            }
+          }
+        }
+      } catch { /* accessibility unavailable */ }
+    }
+
+    if (contextLocation) {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted") {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const [place] = await Location.reverseGeocodeAsync(loc.coords);
+          const city = place?.city || place?.subregion || place?.region || "";
+          const country = place?.isoCountryCode || "";
+          if (city) parts.push(`Location: ${city}${country ? `, ${country}` : ""}.`);
+        }
+      } catch { /* location unavailable */ }
+    }
+
+    return parts.length > 0 ? parts.join(" ") : undefined;
+  }
+
   // ── Conversation summarization ─────────────────────────────────────────────
   // Called before sending a large history to the backend. Compresses old turns
   // into a rolling summary and prepends it as a system message.
@@ -3230,6 +3445,9 @@ export default function ChatScreen() {
         chatHistory = withUser.slice(-MAX_CHAT_HISTORY).map((m) => ({ role: m.role, content: m.content }));
       }
 
+      // Collect ambient device context to help the model give more relevant answers
+      const deviceCtx = contextEnabled ? await collectDeviceContext() : undefined;
+
       // Cancel any previous in-flight request and start a fresh AbortController
       chatAbortRef.current?.abort();
       const abortCtrl = new AbortController();
@@ -3238,7 +3456,7 @@ export default function ChatScreen() {
       const response = await fetch(`${baseUrl}chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ messages: chatHistory, systemPrompt: chatSystemPrompt, deviceId }),
+        body: JSON.stringify({ messages: chatHistory, systemPrompt: chatSystemPrompt, deviceId, ...(deviceCtx && { deviceContext: deviceCtx }) }),
         signal: abortCtrl.signal,
       });
 
@@ -3361,6 +3579,10 @@ export default function ChatScreen() {
       setShowTyping(false);
     }
   }, [input, isStreaming, isSearchMode, messages, chatSystemPrompt, deviceId]);
+
+  // Native SpeechRecognizer callbacks are registered once, so route their
+  // final transcript through the latest callback/render.
+  handleSendRef.current = handleSend;
 
   // ── Screen share / game assist ────────────────────────────────────────────
 

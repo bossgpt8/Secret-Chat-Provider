@@ -62,3 +62,21 @@ Rolling summary prevents context loss from hard-truncation at 40 messages.
 - Settings description updated: Kokoro labelled "⭐ Recommended" with note that it always falls back to phone voice.
 
 **Why:** Alert dialog during call mode killed the seamless loop — user had to tap a button before voice resumed. Phone TTS is the guaranteed always-works floor; Kokoro/ElevenLabs are progressive enhancements.
+
+## Phase 3 — Android context injection (July 2026)
+
+**Architecture:**
+- Backend `POST /api/chat` now accepts optional `deviceContext` string in the request body (chat.ts).
+- It is appended to the system prompt as ` Current device state: <text>` — after memory block, before user messages.
+- Mobile `collectDeviceContext()` in index.tsx gathers: battery level/state, last notification (from `lastNotifRef`), screen text (accessibility, if enabled), and approximate location (city). It is gated by `contextEnabled` master flag.
+- `NativeMediaControl` has NO playback metadata API (only transport controls). Use `void contextMedia` as a placeholder — wired for future expansion when the Kotlin module exposes track info.
+- `NativeAccessibility.getRecentEvents` is not yet implemented in the Kotlin module; code dynamically checks for the method before calling.
+- Context toggles: master `contextEnabled` + five per-source toggles (`contextBattery`, `contextNotifications`, `contextScreen`, `contextLocation`, `contextMedia`) live in `AssistantContext.tsx`, persisted in AsyncStorage.
+- Settings screen has a "Privacy & Context" section with the master switch and per-source rows — sits above the "Notifications" section.
+
+**Why:** Ambient context lets the model answer questions like "how much battery do I have?" or "who just texted me?" without needing a dedicated tool call round-trip — it's in the system prompt already.
+
+**How to apply:**
+- Context is opt-in per source. `contextScreen` and `contextLocation` default off (high sensitivity); battery/notifications default on.
+- `collectDeviceContext()` must only run on Android (`Platform.OS !== 'web'`).
+- When adding media metadata to `NativeMediaControl`, expose a `getPlaybackInfo()` method returning `{ title, artist, isPlaying }` and remove the `void contextMedia` placeholder.

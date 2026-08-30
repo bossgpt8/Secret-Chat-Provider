@@ -41,6 +41,13 @@ import { NativeScreenCapture } from "@/modules/NativeScreenCapture";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeAudioSession } from "@/modules/NativeAudioSession";
 import { NativeSpeechRecognizer } from "@/modules/NativeSpeechRecognizer";
+import {
+  NativeOfflineModels,
+  NativePcmRecorder,
+  NativePiper,
+  OFFLINE_MODELS,
+  transcribeWithWhisper,
+} from "@/modules/OfflineModels";
 
 // ─── Typing indicator — waveform bars ────────────────────────────────────────
 
@@ -718,7 +725,7 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
   const router = useRouter();
-  const { deviceId, assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage, contextEnabled, contextBattery, contextNotifications, contextScreen, contextMedia, contextLocation } = useAssistant();
+  const { deviceId, assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage, contextEnabled, contextBattery, contextNotifications, contextScreen, contextMedia, contextLocation, offlineSttModelId, offlineTtsModelId } = useAssistant();
 
   const network = useNetworkStatus();
   const isOnline = network.isConnected && network.isInternetReachable;
@@ -742,6 +749,8 @@ export default function ChatScreen() {
   const [notifPermGranted, setNotifPermGranted] = useState(false);
   const [lastNotification, setLastNotification] = useState<VoxNotification | null>(null);
   const lastNotifRef = useRef<VoxNotification | null>(null);
+  const pcmRecordingActiveRef = useRef(false);
+  const pcmLevelUnsubscribeRef = useRef<(() => void) | null>(null);
 
   // Conversation branching — tap a user message's edit icon to regenerate from that point
   const [branchEditMsgId, setBranchEditMsgId] = useState<string | null>(null);
@@ -1498,11 +1507,44 @@ export default function ChatScreen() {
     });
   }
 
+  async function playPiperSentence(text: string, gen: number): Promise<boolean> {
+    if (Platform.OS !== "android" || !NativePiper.isAvailable || !offlineTtsModelId) return false;
+    const model = OFFLINE_MODELS.find((item) => item.id === offlineTtsModelId && item.kind === "tts");
+    if (!model || !model.configFileName) return false;
+    const modelPath = await NativeOfflineModels.getPath(model.fileName);
+    const configPath = await NativeOfflineModels.getPath(model.configFileName);
+    if (!modelPath || !configPath) return false;
+
+    const wavPath = await NativePiper.synthesize(text.slice(0, 800), modelPath, configPath);
+    if (gen !== ttsGenerationRef.current) return true;
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+    const { sound } = await Audio.Sound.createAsync(
+      { uri: wavPath.startsWith("file://") ? wavPath : `file://${wavPath}` },
+      { shouldPlay: true, volume: 1.0 },
+    );
+    if (gen !== ttsGenerationRef.current) {
+      sound.unloadAsync().catch(() => {});
+      return true;
+    }
+    attachSoundListeners(sound, gen);
+    return true;
+  }
+
   // Play one sentence immediately via cloud or phone TTS, then call onTtsDone.
   // Used for queue draining — no Alert fallback dialog (would be jarring mid-response).
   async function playSentenceNow(text: string): Promise<void> {
     if (!text.trim()) { onTtsDone(); return; }
     const gen = ttsGenerationRef.current;
+    if (ttsProvider === "piper") {
+      try {
+        if (await playPiperSentence(text, gen)) return;
+      } catch (error) {
+        console.warn("[tts] Piper unavailable, falling back to phone voice:", error);
+      }
+      if (gen !== ttsGenerationRef.current) return;
+      try { await speakWithPhone(text); } catch { onTtsDone(); }
+      return;
+    }
     if ((ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && Platform.OS !== "web") {
       try {
         const uri = await buildTtsUrl(text);
@@ -1569,6 +1611,17 @@ export default function ChatScreen() {
     // result is the barge-in signal and immediately cancels TTS + the stream.
     startBargeInListener().catch(() => {});
 
+    if (ttsProvider === "piper") {
+      try {
+        if (await playPiperSentence(text, gen)) return;
+      } catch (error) {
+        console.warn("[tts] Piper unavailable, falling back to phone voice:", error);
+      }
+      if (gen !== ttsGenerationRef.current) return;
+      try { await speakWithPhone(text); } catch { onTtsDone(); }
+      return;
+    }
+
     // Cloud/self-hosted TTS — stream directly via GET URL so expo-av (ExoPlayer)
     // starts playback immediately without waiting for the full audio download.
     if ((ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && Platform.OS !== "web") {
@@ -1634,9 +1687,29 @@ export default function ChatScreen() {
 
   // ── Voice recording ────────────────────────────────────────────────────────
 
+  async function startOfflinePcmRecording(modelPath: string) {
+    await stopSpeaking();
+    const started = await NativePcmRecorder.start();
+    if (!started) throw new Error("Offline microphone could not start");
+    pcmRecordingActiveRef.current = true;
+    pcmLevelUnsubscribeRef.current?.();
+    pcmLevelUnsubscribeRef.current = NativePcmRecorder.onLevel(({ level }) => {
+      audioLevelAnim.setValue(level);
+    });
+    setIsRecording(true);
+    setRecordingDuration(0);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    let elapsedSeconds = 0;
+    durationTimerRef.current = setInterval(() => {
+      elapsedSeconds += 1;
+      setRecordingDuration(elapsedSeconds);
+      if (elapsedSeconds >= 30) stopRecording();
+    }, 1000);
+    void modelPath;
+  }
+
   async function startRecording() {
     if (isStreamingRef.current || isTranscribingRef.current) return;
-    if (!isOnline) { showOfflineAlert("Voice transcription"); return; }
     // If wake word loop is mid-recording, stop it first
     if (isWakeListeningRef.current) {
       wakeWordLoopRef.current = false;
@@ -1648,6 +1721,20 @@ export default function ChatScreen() {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== "granted") {
         alert("Microphone permission is required for voice input.");
+        return;
+      }
+      const offlineModel = OFFLINE_MODELS.find(
+        (model) => model.id === offlineSttModelId && model.kind === "stt",
+      );
+      if (offlineModel && NativePcmRecorder.isAvailable) {
+        const modelPath = await NativeOfflineModels.getPath(offlineModel.fileName);
+        if (modelPath) {
+          await startOfflinePcmRecording(modelPath);
+          return;
+        }
+      }
+      if (!isOnline) {
+        showOfflineAlert("Voice transcription");
         return;
       }
       if (Platform.OS === "android" && NativeSpeechRecognizer.isAvailable) {
@@ -1724,6 +1811,12 @@ export default function ChatScreen() {
     if (durationTimerRef.current) { clearInterval(durationTimerRef.current); durationTimerRef.current = null; }
     if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null; }
     audioLevelAnim.setValue(0);
+    if (pcmRecordingActiveRef.current) {
+      pcmRecordingActiveRef.current = false;
+      pcmLevelUnsubscribeRef.current?.();
+      pcmLevelUnsubscribeRef.current = null;
+      NativePcmRecorder.cancel().catch(() => {});
+    }
     if (nativeSpeechActiveRef.current) {
       nativeSpeechActiveRef.current = false;
       NativeSpeechRecognizer.cancel().catch(() => {});
@@ -1738,6 +1831,47 @@ export default function ChatScreen() {
   async function stopRecording() {
     if (nativeSpeechActiveRef.current) {
       await NativeSpeechRecognizer.stop().catch(() => {});
+      return;
+    }
+    if (pcmRecordingActiveRef.current) {
+      pcmRecordingActiveRef.current = false;
+      pcmLevelUnsubscribeRef.current?.();
+      pcmLevelUnsubscribeRef.current = null;
+      if (durationTimerRef.current) { clearInterval(durationTimerRef.current); durationTimerRef.current = null; }
+      setIsRecording(false);
+      setRecordingDuration(0);
+      audioLevelAnim.setValue(0);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      try {
+        const uri = await NativePcmRecorder.stop();
+        const offlineModel = OFFLINE_MODELS.find(
+          (model) => model.id === offlineSttModelId && model.kind === "stt",
+        );
+        const modelPath = offlineModel
+          ? await NativeOfflineModels.getPath(offlineModel.fileName)
+          : null;
+        if (!uri || !modelPath) throw new Error("Offline Whisper model is unavailable");
+        setIsTranscribing(true);
+        const language = (speechLanguage || "en-US").split("-")[0];
+        const transcript = await transcribeWithWhisper(modelPath, uri, language);
+        setIsTranscribing(false);
+        if (transcript.length > 1) {
+          await handleSend(transcript);
+        } else if (isCallModeRef.current) {
+          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+        }
+      } catch (error) {
+        console.warn("[offline-stt] transcription failed:", error);
+        setIsTranscribing(false);
+        if (isCallModeRef.current) {
+          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            { id: generateMsgId(), role: "assistant", content: "Offline speech recognition could not process that recording. Try again or choose another downloaded model.", timestamp: Date.now() },
+          ]);
+        }
+      }
       return;
     }
     if (!recordingRef.current) return;

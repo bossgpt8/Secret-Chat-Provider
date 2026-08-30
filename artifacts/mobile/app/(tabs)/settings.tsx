@@ -26,6 +26,7 @@ import { NativeAccessibility } from "@/modules/NativeAccessibility";
 import { NativeNotifications } from "@/modules/NativeNotifications";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
+import { OfflineModelsSection } from "@/components/OfflineModelsSection";
 
 interface Permission {
   id: string;
@@ -573,6 +574,7 @@ export default function SettingsScreen() {
               <Text style={[styles.rowLabel, { color: colors.foreground }]}>Voice Engine</Text>
             </View>
             <View style={styles.provRow}>
+              <ProviderTab p="piper" label="Piper" icon="cloud-offline-outline" />
               <ProviderTab p="kokoro" label="Kokoro" icon="server-outline" />
               <ProviderTab p="elevenlabs" label="ElevenLabs" icon="sparkles" />
               <ProviderTab p="phone" label="Phone" icon="phone-portrait-outline" />
@@ -582,6 +584,8 @@ export default function SettingsScreen() {
                 ? "⭐ Recommended — Kokoro AI voices, free & natural. Always falls back to phone voice if server is unavailable."
                 : ttsProvider === "elevenlabs"
                 ? "High-quality ElevenLabs cloud voices. Falls back to phone TTS if unavailable."
+                : ttsProvider === "piper"
+                ? "Offline Piper voice. Download an offline voice model below to speak without internet."
                 : "Your device's built-in voice — works offline, always available."}
             </Text>
           </View>
@@ -861,7 +865,7 @@ export default function SettingsScreen() {
         </Section>
 
         {/* ── Privacy & Context ── */}
-        <Section title="Privacy &amp; Context">
+        <Section title="Privacy & Context">
           {/* Master toggle */}
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
             <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
@@ -911,6 +915,11 @@ export default function SettingsScreen() {
               </View>
             </>
           )}
+        </Section>
+
+        {/* ── Offline models ── */}
+        <Section title="Offline Models">
+          <OfflineModelsSection colors={colors} />
         </Section>
 
         {/* ── Notifications ── */}

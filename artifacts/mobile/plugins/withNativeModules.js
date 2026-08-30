@@ -6,6 +6,7 @@ const {
   withAndroidManifest,
   withDangerousMod,
   AndroidConfig,
+  withAppBuildGradle,
 } = require("expo/config-plugins");
 const fs = require("fs");
 const path = require("path");
@@ -36,6 +37,12 @@ const KOTLIN_FILES = [
   "VoxOverlayService.kt",
   "VoxSpeechRecognizerModule.kt",
   "VoxSpeechRecognizerPackage.kt",
+  "VoxDownloadModule.kt",
+  "VoxDownloadPackage.kt",
+  "VoxPiperModule.kt",
+  "VoxPiperPackage.kt",
+  "VoxPcmRecorderModule.kt",
+  "VoxPcmRecorderPackage.kt",
 ];
 
 function javaDir(projectRoot) {
@@ -203,6 +210,9 @@ const PACKAGES = [
   "CallScreeningPackage()",
   "VoxOverlayPackage()",
   "VoxSpeechRecognizerPackage()",
+  "VoxDownloadPackage()",
+  "VoxPiperPackage()",
+  "VoxPcmRecorderPackage()",
 ];
 
 const MARKER = "// [VoxNativePackages]";
@@ -240,10 +250,26 @@ const withMainApplicationPackages = (config) =>
     },
   ]);
 
+const withOnnxRuntime = (config) =>
+  withAppBuildGradle(config, (config) => {
+    const dependency = 'implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")';
+    if (!config.modResults.contents.includes("onnxruntime-android")) {
+      const marker = "dependencies {";
+      if (config.modResults.contents.includes(marker)) {
+        config.modResults.contents = config.modResults.contents.replace(
+          marker,
+          `${marker}\n    ${dependency}`,
+        );
+      }
+    }
+    return config;
+  });
+
 const withNativeModules = (config) => {
   config = withKotlinSources(config);
   config = withAndroidManifestEntries(config);
   config = withMainApplicationPackages(config);
+  config = withOnnxRuntime(config);
   return config;
 };
 

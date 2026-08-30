@@ -21,6 +21,7 @@ import {
   withAndroidManifest,
   withDangerousMod,
   AndroidConfig,
+  withAppBuildGradle,
 } from "expo/config-plugins";
 import * as fs from "fs";
 import * as path from "path";
@@ -57,6 +58,12 @@ const KOTLIN_FILES = [
   "VoxOverlayPackage.kt",
   "VoxSpeechRecognizerModule.kt",
   "VoxSpeechRecognizerPackage.kt",
+  "VoxDownloadModule.kt",
+  "VoxDownloadPackage.kt",
+  "VoxPiperModule.kt",
+  "VoxPiperPackage.kt",
+  "VoxPcmRecorderModule.kt",
+  "VoxPcmRecorderPackage.kt",
   "VoxScreenCaptureService.kt",
   "VoxScreenCaptureModule.kt",
   "VoxScreenCapturePackage.kt",
@@ -329,6 +336,9 @@ const PACKAGES = [
   "VoxOverlayPackage()",
   "VoxScreenCapturePackage()",
   "VoxSpeechRecognizerPackage()",
+  "VoxDownloadPackage()",
+  "VoxPiperPackage()",
+  "VoxPcmRecorderPackage()",
 ];
 
 /** Marker inserted to detect that our packages have already been added (idempotency). */
@@ -377,6 +387,23 @@ const withMainApplicationPackages: ConfigPlugin = (config) =>
     },
   ]);
 
+// Piper runs through ONNX Runtime on Android. Keeping this in the config
+// plugin means it is applied consistently to every generated native project.
+const withOnnxRuntime: ConfigPlugin = (config) =>
+  withAppBuildGradle(config, (config) => {
+    const dependency = 'implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")';
+    if (!config.modResults.contents.includes("onnxruntime-android")) {
+      const marker = "dependencies {";
+      if (config.modResults.contents.includes(marker)) {
+        config.modResults.contents = config.modResults.contents.replace(
+          marker,
+          `${marker}\n    ${dependency}`,
+        );
+      }
+    }
+    return config;
+  });
+
 // ---------------------------------------------------------------------------
 // Compose all steps into a single plugin
 // ---------------------------------------------------------------------------
@@ -385,6 +412,7 @@ const withNativeModules: ConfigPlugin = (config) => {
   config = withKotlinSources(config);
   config = withAndroidManifestEntries(config);
   config = withMainApplicationPackages(config);
+  config = withOnnxRuntime(config);
   return config;
 };
 

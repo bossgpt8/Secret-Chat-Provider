@@ -27,6 +27,8 @@ const CONTEXT_NOTIFICATIONS_KEY = "@vox_ctx_notifications";
 const CONTEXT_SCREEN_KEY = "@vox_ctx_screen";
 const CONTEXT_LOCATION_KEY = "@vox_ctx_location";
 const CONTEXT_MEDIA_KEY = "@vox_ctx_media";
+const OFFLINE_STT_MODEL_KEY = "@vox_offline_stt_model";
+const OFFLINE_TTS_MODEL_KEY = "@vox_offline_tts_model";
 
 // Migration map: old @zeno_* key → new @vox_* key
 const LEGACY_KEY_MAP: Record<string, string> = {
@@ -81,7 +83,7 @@ async function migrateZenoToVox(): Promise<void> {
   }
 }
 
-export type TtsProvider = "elevenlabs" | "kokoro" | "phone";
+export type TtsProvider = "elevenlabs" | "kokoro" | "phone" | "piper";
 export type ThemeOverride = "system" | "dark" | "light";
 export type AssistantPersonality = "friendly" | "casual" | "professional" | "witty" | "caring";
 
@@ -198,6 +200,10 @@ interface AssistantContextType {
   setContextLocation: (v: boolean) => Promise<void>;
   contextMedia: boolean;
   setContextMedia: (v: boolean) => Promise<void>;
+  offlineSttModelId: string | null;
+  setOfflineSttModelId: (id: string | null) => Promise<void>;
+  offlineTtsModelId: string | null;
+  setOfflineTtsModelId: (id: string | null) => Promise<void>;
 }
 
 const AssistantContext = createContext<AssistantContextType | null>(null);
@@ -238,6 +244,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [contextScreen, setContextScreenState] = useState(false);
   const [contextLocation, setContextLocationState] = useState(false);
   const [contextMedia, setContextMediaState] = useState(true);
+  const [offlineSttModelId, setOfflineSttModelIdState] = useState<string | null>(null);
+  const [offlineTtsModelId, setOfflineTtsModelIdState] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -254,7 +262,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     await migrateZenoToVox();
     try {
       const startTime = Date.now();
-      const [name, convsRaw, pvid, evid, kvid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble, storedDeviceId, ctxEnabled, ctxBattery, ctxNotif, ctxScreen, ctxLoc, ctxMedia] = await Promise.all([
+      const [name, convsRaw, pvid, evid, kvid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble, storedDeviceId, ctxEnabled, ctxBattery, ctxNotif, ctxScreen, ctxLoc, ctxMedia, sttModel, ttsModel] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
@@ -281,6 +289,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(CONTEXT_SCREEN_KEY),
         AsyncStorage.getItem(CONTEXT_LOCATION_KEY),
         AsyncStorage.getItem(CONTEXT_MEDIA_KEY),
+        AsyncStorage.getItem(OFFLINE_STT_MODEL_KEY),
+        AsyncStorage.getItem(OFFLINE_TTS_MODEL_KEY),
       ]);
       // Persist a stable device ID across launches
       if (storedDeviceId) {
@@ -297,7 +307,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (evid) setElVoiceIdState(evid);
       if (kvid) setKokoroVoiceIdState(kvid);
       if (rate) setSpeechRateState(parseFloat(rate));
-      if (prov === "phone" || prov === "elevenlabs" || prov === "kokoro") setTtsProviderState(prov);
+      if (prov === "phone" || prov === "elevenlabs" || prov === "kokoro" || prov === "piper") setTtsProviderState(prov);
       if (theme === "dark" || theme === "light" || theme === "system") setThemeOverrideState(theme);
       if (apiUrl) setCustomApiUrlState(apiUrl);
       if (profileRaw) { try { setUserProfileState(JSON.parse(profileRaw)); } catch { /* ignore */ } }
@@ -316,6 +326,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (ctxScreen === "true") setContextScreenState(true);
       if (ctxLoc === "true") setContextLocationState(true);
       if (ctxMedia === "false") setContextMediaState(false);
+      if (sttModel) setOfflineSttModelIdState(sttModel);
+      if (ttsModel) setOfflineTtsModelIdState(ttsModel);
     } catch (e) {
       console.error("[AssistantContext] Error loading data:", e);
     } finally {
@@ -426,6 +438,18 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   async function setContextMedia(v: boolean) {
     await AsyncStorage.setItem(CONTEXT_MEDIA_KEY, String(v));
     setContextMediaState(v);
+  }
+
+  async function setOfflineSttModelId(id: string | null) {
+    if (id) await AsyncStorage.setItem(OFFLINE_STT_MODEL_KEY, id);
+    else await AsyncStorage.removeItem(OFFLINE_STT_MODEL_KEY);
+    setOfflineSttModelIdState(id);
+  }
+
+  async function setOfflineTtsModelId(id: string | null) {
+    if (id) await AsyncStorage.setItem(OFFLINE_TTS_MODEL_KEY, id);
+    else await AsyncStorage.removeItem(OFFLINE_TTS_MODEL_KEY);
+    setOfflineTtsModelIdState(id);
   }
 
   function warnStorageError(key: string, err: unknown) {
@@ -569,6 +593,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         contextScreen, setContextScreen,
         contextLocation, setContextLocation,
         contextMedia, setContextMedia,
+        offlineSttModelId, setOfflineSttModelId,
+        offlineTtsModelId, setOfflineTtsModelId,
       }}
     >
       {children}

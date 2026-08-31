@@ -2,9 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
+import { Audio } from "expo-av";
 import { useAssistant } from "@/context/AssistantContext";
 import {
   NativeOfflineModels,
+  NativePiper,
   OFFLINE_MODELS,
   type DownloadProgress,
   type OfflineModelDefinition,
@@ -37,12 +39,14 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
     setOfflineSttModelId,
     offlineTtsModelId,
     setOfflineTtsModelId,
+    setTtsProvider,
   } = useAssistant();
   const [openMenu, setOpenMenu] = useState<"stt" | "tts" | null>(null);
   const [downloaded, setDownloaded] = useState<Record<string, boolean>>({});
   const [progress, setProgress] = useState<Record<string, DownloadProgress>>({});
   const [activeIds, setActiveIds] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [testingPiper, setTestingPiper] = useState(false);
 
   const sttModels = useMemo(() => OFFLINE_MODELS.filter((m) => m.kind === "stt"), []);
   const ttsModels = useMemo(() => OFFLINE_MODELS.filter((m) => m.kind === "tts"), []);
@@ -152,7 +156,50 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
   function choose(model: OfflineModelDefinition) {
     setOpenMenu(null);
     if (model.kind === "stt") setOfflineSttModelId(model.id);
-    else setOfflineTtsModelId(model.id);
+    else {
+      setOfflineTtsModelId(model.id);
+      // Selecting an offline voice should not leave the app silently using
+      // Kokoro/ElevenLabs. The user can still switch providers in Voice Output.
+      setTtsProvider("piper");
+    }
+  }
+
+  async function testPiperVoice() {
+    const model = OFFLINE_MODELS.find((item) => item.id === offlineTtsModelId && item.kind === "tts");
+    if (!model?.configFileName) {
+      Alert.alert("Choose a Piper voice", "Select a downloaded Piper voice from the Offline voice dropdown first.");
+      return;
+    }
+    if (!NativePiper.isAvailable) {
+      Alert.alert("Android build required", "Piper voice playback is available in the installed Android build, not Expo Go or the web preview.");
+      return;
+    }
+    setTestingPiper(true);
+    try {
+      const modelPath = await NativeOfflineModels.getPath(model.fileName);
+      const configPath = await NativeOfflineModels.getPath(model.configFileName);
+      if (!modelPath || !configPath) throw new Error("The ONNX voice or its configuration is not downloaded.");
+      const wavPath = await NativePiper.synthesize(
+        "Hello. This is Vox speaking with the downloaded Piper voice, completely offline.",
+        modelPath,
+        configPath,
+      );
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: wavPath.startsWith("file://") ? wavPath : `file://${wavPath}` },
+        { shouldPlay: true, volume: 1 },
+      );
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          sound.unloadAsync().catch(() => {});
+          setTestingPiper(false);
+        }
+      });
+    } catch (error) {
+      setTestingPiper(false);
+      const message = error instanceof Error ? error.message : String(error);
+      Alert.alert("Piper could not speak", message || "The native Piper synthesis failed. Rebuild the Android app after installing the latest Vox changes.");
+    }
   }
 
   function ModelPicker({ kind, models }: { kind: "stt" | "tts"; models: OfflineModelDefinition[] }) {
@@ -242,6 +289,21 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
       )}
       <ModelPicker kind="stt" models={sttModels} />
       <ModelPicker kind="tts" models={ttsModels} />
+      <View style={[styles.testRow, { borderTopColor: colors.border }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.label, { color: colors.foreground }]}>Test offline Piper</Text>
+          <Text style={[styles.description, { color: colors.mutedForeground }]}>
+            This plays a short local sentence without contacting the server.
+          </Text>
+        </View>
+        <Pressable
+          style={[styles.downloadButton, { backgroundColor: colors.primary }]}
+          onPress={testPiperVoice}
+          disabled={testingPiper}
+        >
+          {testingPiper ? <ActivityIndicator size="small" color="#fff" /> : <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Test</Text>}
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -261,4 +323,5 @@ const styles = StyleSheet.create({
   fill: { height: "100%", borderRadius: 3 },
   progressText: { fontSize: 10, marginTop: 4 },
   webNote: { padding: 12, fontSize: 12, lineHeight: 17 },
+  testRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderTopWidth: StyleSheet.hairlineWidth },
 });

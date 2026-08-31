@@ -87,6 +87,19 @@ const withAndroidManifestEntries = (config) =>
 
     if (!app.service) app.service = [];
 
+    // VoxOverlayService calls startForeground() during app startup.
+    // Android rejects that call unless the base foreground-service permission
+    // is present in the final merged manifest.
+    if (!manifest.manifest["uses-permission"]) manifest.manifest["uses-permission"] = [];
+    const perms = manifest.manifest["uses-permission"];
+    const ensurePerm = (name) => {
+      if (!perms.some((p) => p.$ && p.$["android:name"] === name)) {
+        perms.push({ $: { "android:name": name } });
+      }
+    };
+    ensurePerm("android.permission.FOREGROUND_SERVICE");
+    ensurePerm("android.permission.FOREGROUND_SERVICE_MICROPHONE");
+
     // ── VoxOverlayService (floating bubble) ──────────────────────────────────
     const overlayServiceExists = app.service.some(
       (s) => s.$ && s.$["android:name"] === ".VoxOverlayService"

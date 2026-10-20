@@ -1,0 +1,17 @@
+.git
+.github
+.agents
+.local
+.cache
+node_modules
+**/node_modules
+**/dist
+**/.expo
+**/static-build
+attached_assets
+**/attached_assets
+.env
+.env.*
+**/.env
+**/.env.*
+!deploy/oracle/.env.example

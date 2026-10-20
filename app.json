@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "6c88c5e3-e3ac-4ff1-9f16-2f4d51c4459f"
+      }
+    },
+    "android": {
+      "package": "com.boss.assistant"
+    }
+  }
+}

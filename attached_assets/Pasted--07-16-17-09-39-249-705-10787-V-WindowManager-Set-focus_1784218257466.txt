@@ -1,0 +1,84 @@
+=&
+07-16 17:09:39.249   705 10787 V WindowManager: Set focused app to: AppWindowToken{b3e47e2 token=Token{26068df ActivityRecord{7ecbb7e u0 com.boss.assistant/.MainActivity t91}}} old focus=AppWindowToken{2c3360d token=Token{af94bba ActivityRecord{ec044e5 u0 com.android.launcher3/.Launcher t26}}} moveFocusNow=true
+07-16 17:09:39.266   257   289 I vendor.mediatek.hardware.power@1.1-impl: notifyAppState pack:com.boss.assistant, act:com.boss.assistant.MainActivity, pid:20448, state:1
+07-16 17:09:39.268   257   288 I libPerfService: [perfNotifyAppState] foreground:com.boss.assistant, pid:20448
+07-16 17:09:39.282   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:39.299   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:39.314   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:39.332   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:39.350   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:39.392 20468 20468 I dex2oat : /system/bin/dex2oat --dex-file=/data/data/com.boss.assistant/ext_oat/com@system@framework@media@v2306.jar --output-vdex-fd=39 --oat-fd=40 --oat-location=/data/data/com.boss.assistant/ext_oat/oat/arm/com@system@framework@media@v2306.odex --compiler-filter=quicken --class-loader-context=&
+07-16 17:09:39.845 20448 20448 W SoLoader: Recording new base apk path: /data/app/com.boss.assistant-D5p0aVzRQLYQHaWsxCNC0g==/base.apk
+07-16 17:09:39.851 20448 20448 I SoLoader: Preparing SO source: DirectApkSoSource[root = [/data/app/com.boss.assistant-D5p0aVzRQLYQHaWsxCNC0g==/base.apk!/lib/armeabi-v7a]]
+07-16 17:09:39.935 20448 20448 I SoLoader: Preparing SO source: ApplicationSoSource[DirectorySoSource[root = /data/app/com.boss.assistant-D5p0aVzRQLYQHaWsxCNC0g==/lib/arm flags = 0]]
+07-16 17:09:40.271   705 10233 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784218180236 from system 1007:com.android.phone/1001 pkg com.android.phone
+07-16 17:09:40.276 20448 20448 D OpenGLRenderer: <com.boss.assistant> is running.
+07-16 17:09:40.286   705 10233 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784218180236 from system 1007:com.android.phone/1001 pkg com.android.phone
+07-16 17:09:40.293   705 10787 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784218180236 from system 18176:com.android.settings/1000 pkg com.android.settings
+07-16 17:09:40.302   705 10787 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784218180236 from system 18176:com.android.settings/1000 pkg com.android.settings
+07-16 17:09:40.318 20448 20448 V PhoneWindow: DecorView setVisiblity: visibility = 0, Parent = ViewRoot{57bff8 com.boss.assistant/com.boss.assistant.MainActivity,ident = 0}, this = DecorView@caa3055[MainActivity]
+07-16 17:09:40.345   705 10233 I WindowManager: Relayout Window{ff41cea u0 com.boss.assistant/com.boss.assistant.MainActivity}: oldVis=4 newVis=0 focusMayChange = true
+07-16 17:09:40.350   261   261 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xaf168000,id:651,api:0,p:-1,c:261) setConsumerName: com.boss.assistant/com.boss.assistant.MainActivity#0
+07-16 17:09:40.350   261   261 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xaf168000,id:651,api:0,p:-1,c:261) setDefaultBufferSize: width=384 height=854
+07-16 17:09:40.353   705 10233 V WindowManager: Changing focus from null to Window{ff41cea u0 com.boss.assistant/com.boss.assistant.MainActivity} Callers=com.android.server.wm.WindowManagerService.relayoutWindow:2169 com.android.server.wm.Session.relayout:239 android.view.IWindowSession$Stub.onTransact:286 com.android.server.wm.Session.onTransact:163
+07-16 17:09:40.354   705 10233 D WindowManager: Input focus has changed to Window{ff41cea u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-16 17:09:40.354   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:40.367   705   764 I WindowManager: Focus moving from null to Window{ff41cea u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-16 17:09:40.372   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:40.386 20448 20480 E         : appName=com.boss.assistant, acAppName=/system/bin/surfaceflinger
+07-16 17:09:40.390   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:40.394 20448 20480 I com.boss.assistant: android::hardware::configstore::V1_0::ISurfaceFlingerConfigs::hasWideColorDisplay retrieved: 0
+07-16 17:09:40.398 20448 20480 E         : appName=com.boss.assistant, acAppName=com.instagram.android
+07-16 17:09:40.409 20448 20480 D HWUIExtension: <com.boss.assistant> is running.
+07-16 17:09:40.412   261   873 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xaf168000,id:651,api:1,p:20448,c:261) connect(P): api=1 producer=(20448:com.boss.assistant) producerControlledByApp=true
+07-16 17:09:40.413   261  1210 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xaf168000,id:651,api:1,p:20448,c:261) setMaxDequeuedBufferCount: maxDequeuedBuffers = 3
+07-16 17:09:40.416   705 10233 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784218180236 from system 18176:com.android.settings/1000 pkg com.android.settings
+07-16 17:09:40.431  3078  3078 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1930 onStartInput(EditorInfo{inputType=0x0(NULL) imeOptions=0x0 privateImeOptions=null actionName=UNSPECIFIED actionLabel=null actionId=0 initialSelStart=-1 initialSelEnd=-1 initialCapsMode=0x0 hintText=null label=null packageName=com.boss.assistant fieldId=-1 fieldName=null extras=null}, false)
+07-16 17:09:40.438   705 10233 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784218180236 from system 18176:com.android.settings/1000 pkg com.android.settings
+07-16 17:09:40.444   705 10787 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784218180236 from system 1007:com.android.phone/1001 pkg com.android.phone
+07-16 17:09:40.448   705 10787 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1784218180236 from system 1007:com.android.phone/1001 pkg com.android.phone
+07-16 17:09:40.495   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:40.513   261   261 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-16 17:09:40.726 20448 20476 E AndroidRuntime: Process: com.boss.assistant, PID: 20448
+07-16 17:09:40.726 20448 20476 E AndroidRuntime:        at com.boss.assistant.CallScreeningModule$legacyListener$1.<init>(CallScreeningModule.kt:35)
+07-16 17:09:40.726 20448 20476 E AndroidRuntime:        at com.boss.assistant.CallScreeningModule.<init>(CallScreeningModule.kt:35)
+07-16 17:09:40.726 20448 20476 E AndroidRuntime:        at com.boss.assistant.CallScreeningPackage.createNativeModules(CallScreeningPackage.kt:10)
+07-16 17:09:40.732   705 10787 W ActivityManager:   Force finishing activity com.boss.assistant/.MainActivity
+07-16 17:09:40.746   705   750 I ActivityManager: Showing crash dialog for package com.boss.assistant u0
+07-16 17:09:40.748   261  1210 I BufferQueueProducer: [Splash Screen com.boss.assistant#0](this:0xadba9000,id:650,api:2,p:705,c:261) disconnect(P): api 2
+07-16 17:09:40.748   261  1210 I BufferQueueConsumer: [Splash Screen com.boss.assistant#0](this:0xadba9000,id:650,api:2,p:-1,c:261) getReleasedBuffers: returning mask 0xffffffffffffffff
+07-16 17:09:40.751   705   857 V WindowManager: Changing focus from Window{ff41cea u0 com.boss.assistant/com.boss.assistant.MainActivity} to null Callers=com.android.server.wm.WindowState.removeIfPossible:1990 com.android.server.wm.WindowState.removeIfPossible:1851 com.android.server.wm.WindowManagerService.removeWindow:1743 com.android.server.wm.Session.remove:222
+07-16 17:09:40.755   705   764 I WindowManager: Focus moving from Window{ff41cea u0 com.boss.assistant/com.boss.assistant.MainActivity} to null
+07-16 17:09:40.757   261   261 I BufferQueueConsumer: [Splash Screen com.boss.assistant#0](this:0xadba9000,id:650,api:2,p:-1,c:-1) disconnect(C)
+07-16 17:09:40.758   705 10233 V WindowManager: Set focused app to: AppWindowToken{2c3360d token=Token{af94bba ActivityRecord{ec044e5 u0 com.android.launcher3/.Launcher t26}}} old focus=AppWindowToken{b3e47e2 token=Token{26068df ActivityRecord{7ecbb7e u0 com.boss.assistant/.MainActivity t91}}} moveFocusNow=true
+07-16 17:09:40.759   261   261 I BufferQueue: [Splash Screen com.boss.assistant#0](this:0xadba9000,id:650,api:2,p:-1,c:-1) ~BufferQueueCore
+07-16 17:09:40.775   705 10233 I WindowManager: Failed to capture screenshot of Token{26068df ActivityRecord{7ecbb7e u0 com.boss.assistant/.MainActivity t91 f}} appWin=Window{ff41cea u0 com.boss.assistant/com.boss.assistant.MainActivity} drawState=1
+07-16 17:09:40.800   261  1211 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xaf168000,id:651,api:1,p:20448,c:261) disconnect(P): api 1
+07-16 17:09:40.801   261  1211 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xaf168000,id:651,api:1,p:-1,c:261) getReleasedBuffers: returning mask 0xffffffffffffffff
+07-16 17:09:40.805   705   750 V WindowManager: Changing focus from Window{85d9385 u0 com.android.launcher3/com.android.launcher3.Launcher} to Window{aaa2284 u0 Application Error: com.boss.assistant} Callers=com.android.server.wm.WindowManagerService.addWindow:1576 com.android.server.wm.Session.addToDisplay:202 android.view.ViewRootImpl.setView:732 android.view.WindowManagerGlobal.addView:359
+07-16 17:09:40.808   705   750 D WindowManager: Input focus has changed to Window{aaa2284 u0 Application Error: com.boss.assistant}
+07-16 17:09:40.828   705   764 I WindowManager: Focus moving from Window{85d9385 u0 com.android.launcher3/com.android.launcher3.Launcher} to Window{aaa2284 u0 Application Error: com.boss.assistant}
+07-16 17:09:40.836   261   261 I BufferQueueConsumer: [Application Error: com.boss.assistant#0](this:0xadba9000,id:652,api:0,p:-1,c:261) setConsumerName: Application Error: com.boss.assistant#0
+07-16 17:09:40.836   261   261 I BufferQueueConsumer: [Application Error: com.boss.assistant#0](this:0xadba9000,id:652,api:0,p:-1,c:261) setDefaultBufferSize: width=73 height=73
+07-16 17:09:40.845   261   261 I BufferQueueConsumer: [Application Error: com.boss.assistant#0](this:0xadba9000,id:652,api:0,p:-1,c:261) setDefaultBufferSize: width=436 height=298
+07-16 17:09:40.878   261   873 I BufferQueueProducer: [Application Error: com.boss.assistant#0](this:0xadba9000,id:652,api:1,p:705,c:261) connect(P): api=1 producer=(705:system_server) producerControlledByApp=false
+07-16 17:09:40.882   261  1211 I BufferQueueProducer: [Application Error: com.boss.assistant#0](this:0xadba9000,id:652,api:1,p:705,c:261) setMaxDequeuedBufferCount: maxDequeuedBuffers = 3
+07-16 17:09:40.939   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:40.953   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:40.971   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:40.990   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.004   261   261 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xaf168000,id:651,api:1,p:-1,c:-1) disconnect(C)
+07-16 17:09:41.004   261   261 I BufferQueue: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xaf168000,id:651,api:1,p:-1,c:-1) ~BufferQueueCore
+07-16 17:09:41.008   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.025   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.042   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.060   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.077   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.095   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.113   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.131   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.148   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.165   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.183   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.200   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0
+07-16 17:09:41.378   261   261 V SurfaceFlinger: Layer: Application Error: com.boss.assistant#0

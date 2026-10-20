@@ -1,0 +1,76 @@
+731:system_server) producerControlledByApp=false
+07-08 05:52:11.342 15782 15782 I dex2oat : /system/bin/dex2oat --dex-file=/data/data/com.boss.assistant/android_oat/com@boss@assistant@zygote.jar --output-vdex-fd=4 --oat-fd=8 --oat-location=/data/data/com.boss.assistant/android_oat/oat/arm/com@boss@assistant@zygote.odex --compiler-filter=quicken --class-loader-context=&
+07-08 05:52:11.601   731  4028 V WindowManager: Set focused app to: AppWindowToken{63ee440 token=Token{9b62f ActivityRecord{480ac0e u0 com.boss.assistant/.MainActivity t1674}}} old focus=AppWindowToken{3e1ec17 token=Token{6f1e896 ActivityRecord{2d01bb1 u0 com.android.launcher3/.Launcher t1565}}} moveFocusNow=true
+07-08 05:52:11.614   254  2351 I vendor.mediatek.hardware.power@1.1-impl: notifyAppState pack:com.boss.assistant, act:com.boss.assistant.MainActivity, pid:15771, state:1
+07-08 05:52:11.615   254   268 I libPerfService: [perfNotifyAppState] foreground:com.boss.assistant, pid:15771
+07-08 05:52:11.627   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:52:11.645   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:52:11.660   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:52:11.678   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:52:11.759 15793 15793 I dex2oat : /system/bin/dex2oat --dex-file=/data/data/com.boss.assistant/ext_oat/com@system@framework@media@v2306.jar --output-vdex-fd=39 --oat-fd=40 --oat-location=/data/data/com.boss.assistant/ext_oat/oat/arm/com@system@framework@media@v2306.odex --compiler-filter=quicken --class-loader-context=&
+07-08 05:52:12.430 15771 15771 W SoLoader: Recording new base apk path: /data/app/com.boss.assistant-uA7RKa_tN3U6BElvAswhTg==/base.apk
+07-08 05:52:12.436 15771 15771 I SoLoader: Preparing SO source: DirectApkSoSource[root = [/data/app/com.boss.assistant-uA7RKa_tN3U6BElvAswhTg==/base.apk!/lib/armeabi-v7a]]
+07-08 05:52:12.516 15771 15771 I SoLoader: Preparing SO source: ApplicationSoSource[DirectorySoSource[root = /data/app/com.boss.assistant-uA7RKa_tN3U6BElvAswhTg==/lib/arm flags = 0]]
+07-08 05:52:12.620   731  4028 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783486332588 from system 15467:com.android.settings/1000 pkg com.android.settings
+07-08 05:52:12.635   731  4028 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783486332588 from system 15467:com.android.settings/1000 pkg com.android.settings
+07-08 05:52:12.643   731  4311 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783486332588 from system 1033:com.android.phone/1001 pkg com.android.phone
+07-08 05:52:12.655   731  4311 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783486332588 from system 1033:com.android.phone/1001 pkg com.android.phone
+07-08 05:52:12.870   731   741 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:12.870   731   741 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:12.968   731  4027 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783486332944 from system 15467:com.android.settings/1000 pkg com.android.settings
+07-08 05:52:12.975   731  4027 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783486332944 from system 15467:com.android.settings/1000 pkg com.android.settings
+07-08 05:52:12.982   731  1751 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783486332944 from system 1033:com.android.phone/1001 pkg com.android.phone
+07-08 05:52:12.984   731  1751 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783486332944 from system 1033:com.android.phone/1001 pkg com.android.phone
+07-08 05:52:13.063 15771 15771 D OpenGLRenderer: <com.boss.assistant> is running.
+07-08 05:52:13.080 15771 15771 V PhoneWindow: DecorView setVisiblity: visibility = 0, Parent = ViewRoot{e6a90cf com.boss.assistant/com.boss.assistant.MainActivity,ident = 0}, this = DecorView@e6e6e8a[MainActivity]
+07-08 05:52:13.085 15771 15808 D jni_lib_merge: Preparing to register libhermes_executor_so.  onload_func: 0x8cf26365
+07-08 05:52:13.085 15771 15808 D jni_lib_merge: Preparing to register libhermesinstancejni_so.  onload_func: 0x8cf2b349
+07-08 05:52:13.118   731  1751 I WindowManager: Relayout Window{62b8a2a u0 com.boss.assistant/com.boss.assistant.MainActivity}: oldVis=4 newVis=0 focusMayChange = true
+07-08 05:52:13.124   258   258 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08f8000,id:2410,api:0,p:-1,c:258) setConsumerName: com.boss.assistant/com.boss.assistant.MainActivity#0
+07-08 05:52:13.124   258   258 I BufferQueueConsumer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08f8000,id:2410,api:0,p:-1,c:258) setDefaultBufferSize: width=384 height=854
+07-08 05:52:13.127   731  1751 V WindowManager: Changing focus from null to Window{62b8a2a u0 com.boss.assistant/com.boss.assistant.MainActivity} Callers=com.android.server.wm.WindowManagerService.relayoutWindow:2169 com.android.server.wm.Session.relayout:239 android.view.IWindowSession$Stub.onTransact:286 com.android.server.wm.Session.onTransact:163
+07-08 05:52:13.128   731  1751 D WindowManager: Input focus has changed to Window{62b8a2a u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-08 05:52:13.136   731   766 I WindowManager: Focus moving from null to Window{62b8a2a u0 com.boss.assistant/com.boss.assistant.MainActivity}
+07-08 05:52:13.141   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:52:13.158   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:52:13.175   731  4028 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783486332588 from system 15467:com.android.settings/1000 pkg com.android.settings
+07-08 05:52:13.180   731  4028 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783486332588 from system 15467:com.android.settings/1000 pkg com.android.settings
+07-08 05:52:13.181 15771 15811 E         : appName=com.boss.assistant, acAppName=/system/bin/surfaceflinger
+07-08 05:52:13.187 15771 15811 I com.boss.assistant: android::hardware::configstore::V1_0::ISurfaceFlingerConfigs::hasWideColorDisplay retrieved: 0
+07-08 05:52:13.191 15771 15811 E         : appName=com.boss.assistant, acAppName=com.instagram.android
+07-08 05:52:13.192   731  4311 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783486332588 from system 1033:com.android.phone/1001 pkg com.android.phone
+07-08 05:52:13.196   731  4311 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783486332588 from system 1033:com.android.phone/1001 pkg com.android.phone
+07-08 05:52:13.210 15771 15811 D HWUIExtension: <com.boss.assistant> is running.
+07-08 05:52:13.211   258   422 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08f8000,id:2410,api:1,p:15771,c:258) connect(P): api=1 producer=(15771:com.boss.assistant) producerControlledByApp=true
+07-08 05:52:13.213   258   422 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xb08f8000,id:2410,api:1,p:15771,c:258) setMaxDequeuedBufferCount: maxDequeuedBuffers = 3
+07-08 05:52:13.218   731  4028 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783486332944 from system 15467:com.android.settings/1000 pkg com.android.settings
+07-08 05:52:13.221   731  4028 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783486332944 from system 15467:com.android.settings/1000 pkg com.android.settings
+07-08 05:52:13.225   731  4311 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783486332944 from system 1033:com.android.phone/1001 pkg com.android.phone
+07-08 05:52:13.228   731  4311 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783486332944 from system 1033:com.android.phone/1001 pkg com.android.phone
+07-08 05:52:13.233  3300  3300 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1986 onStartInput(EditorInfo{EditorInfo{packageName=com.boss.assistant, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=-1, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+07-08 05:52:13.547 15771 15808 W unknown:BridgelessReact: ReactHost{0}.handleHostException(message = "Attempt to read from field 'android.os.MessageQueue android.os.Looper.mQueue' on a null object reference")
+07-08 05:52:14.872   731  4311 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:14.873   731  4311 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:16.874   731  1751 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:16.875   731  1751 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:18.743 15771 15822 D ProfileInstaller: Installing profile for com.boss.assistant
+07-08 05:52:18.877   731  1751 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:18.877   731  1751 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:20.879   731  4311 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:20.879   731  4311 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:22.882   731  4311 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:22.884   731  4311 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:24.889   731  4311 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:24.891   731  4311 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:26.897   731  1751 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:26.898   731  1751 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:28.905   731  1751 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:28.907   731  1751 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:29.099   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:52:30.155   258   258 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-08 05:52:30.913   731  1751 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:30.914   731  1751 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:32.921   731  1751 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:32.923   731  1751 W ActivityManager: Missing app error report, app = com.google.android.inputmethod.latin crashing = false notResponding = true
+07-08 05:52:34.930   731  4311 W ActivityManager: Missing app error report, app = com.android.gallery3d crashing = false notResponding = true
+07-08 05:52:34.930   731  4311 W ActivityManager: Missing app error report, app = c

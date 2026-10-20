@@ -1,0 +1,41 @@
+07-10 17:12:17.349 23059 23095 E         : appName=com.boss.assistant, acAppName=/system/bin/surfaceflinger
+07-10 17:12:17.356 23059 23095 I com.boss.assistant: android::hardware::configstore::V1_0::ISurfaceFlingerConfigs::hasWideColorDisplay retrieved: 0
+07-10 17:12:17.360 23059 23095 E         : appName=com.boss.assistant, acAppName=com.instagram.android
+07-10 17:12:17.364   259   259 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-10 17:12:17.373 23059 23095 D HWUIExtension: <com.boss.assistant> is running.
+07-10 17:12:17.374   259   433 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xa50c3000,id:300,api:1,p:23059,c:259) connect(P): api=1 producer=(23059:com.boss.assistant) producerControlledByApp=true
+07-10 17:12:17.379   259   433 I BufferQueueProducer: [com.boss.assistant/com.boss.assistant.MainActivity#0](this:0xa50c3000,id:300,api:1,p:23059,c:259) setMaxDequeuedBufferCount: maxDequeuedBuffers = 3
+07-10 17:12:17.387   733  4969 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783699937044 from system 1005:com.android.phone/1001 pkg com.android.phone
+07-10 17:12:17.392   733  4969 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783699937044 from system 1005:com.android.phone/1001 pkg com.android.phone
+07-10 17:12:17.396   733  3580 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783699937044 from system 22511:com.android.settings/1000 pkg com.android.settings
+07-10 17:12:17.399   733  3580 E ActivityManager: Sending non-protected broadcast com.boss.assistant.D9A574839165462C85637D1ACB99C242_1783699937044 from system 22511:com.android.settings/1000 pkg com.android.settings
+07-10 17:12:17.402  4521  4521 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1986 onStartInput(EditorInfo{EditorInfo{packageName=com.boss.assistant, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=-1, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+07-10 17:12:17.459   733  3580 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783699937429 from system 1005:com.android.phone/1001 pkg com.android.phone
+07-10 17:12:17.464   733  3580 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783699937429 from system 1005:com.android.phone/1001 pkg com.android.phone
+07-10 17:12:17.469   733  9590 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783699937429 from system 22511:com.android.settings/1000 pkg com.android.settings
+07-10 17:12:17.472   733  9590 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783699937429 from system 22511:com.android.settings/1000 pkg com.android.settings
+07-10 17:12:17.481   733  3333 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783699937429 from system 1005:com.android.phone/1001 pkg com.android.phone
+07-10 17:12:17.484   733  3333 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783699937429 from system 1005:com.android.phone/1001 pkg com.android.phone
+07-10 17:12:17.493   733  4877 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783699937429 from system 22511:com.android.settings/1000 pkg com.android.settings
+07-10 17:12:17.496   733  4877 E ActivityManager: Sending non-protected broadcast com.boss.assistant.EE9BF23065CFC1E5D7EE3550DA0EEBD2_1783699937429 from system 22511:com.android.settings/1000 pkg com.android.settings
+07-10 17:12:17.790 23059 23092 W unknown:BridgelessReact: ReactHost{0}.handleHostException(message = "Attempt to read from field 'android.os.MessageQueue android.os.Looper.mQueue' on a null object reference")
+07-10 17:12:22.916 23059 23108 D ProfileInstaller: Skipping profile installation for com.boss.assistant
+07-10 17:12:42.840   259   259 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-10 17:12:42.857   259   259 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-10 17:12:49.713 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+07-10 17:12:52.167 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+07-10 17:12:52.977 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+07-10 17:12:53.540 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+07-10 17:12:57.293 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+07-10 17:12:57.451 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+07-10 17:12:57.944 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+07-10 17:12:59.424 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+07-10 17:13:00.052   259   259 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-10 17:13:00.070   259   259 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-10 17:13:00.127 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+07-10 17:13:01.744   259   259 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-10 17:13:01.762   259   259 V SurfaceFlinger: Layer: Splash Screen com.boss.assistant#0
+07-10 17:13:03.264 23059 23059 E unknown:ReactNative: Got DOWN touch before receiving UP or CANCEL from last gesture
+^Z
+[1]+  Stopped                 adb logcat | grep -E "ReactNative|ReactHost|BridgelessReact|FATAL|boss.assistant"
+boss@q4os-desktop:~$    

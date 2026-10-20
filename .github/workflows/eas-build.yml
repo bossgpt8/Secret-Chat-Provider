@@ -1,0 +1,64 @@
+name: EAS Mobile Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Build profile
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - preview
+          - development
+      platform:
+        description: Platform
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - android
+          - ios
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: EAS Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build with EAS
+        working-directory: artifacts/mobile
+        run: |
+          PROFILE="${{ github.event.inputs.profile || 'production' }}"
+          PLATFORM="${{ github.event.inputs.platform || 'all' }}"
+          eas build --platform "$PLATFORM" --profile "$PROFILE" --non-interactive

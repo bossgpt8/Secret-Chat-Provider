@@ -1,0 +1,688 @@
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, LayoutAnimation, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useColors } from "@/hooks/useColors";
+import { NativeNotifications, VoxNotification } from "@/modules/NativeNotifications";
+
+const APP_META: Record<string, { name: string; color: string; icon: string }> = {
+  "com.whatsapp":                        { name: "WhatsApp",  color: "#25D366", icon: "logo-whatsapp" },
+  "com.whatsapp.w4b":                    { name: "WhatsApp Business", color: "#25D366", icon: "logo-whatsapp" },
+  "com.google.android.apps.messaging":   { name: "Messages",  color: "#4285F4", icon: "chatbubble-ellipses" },
+  "com.android.mms":                     { name: "SMS",       color: "#4285F4", icon: "chatbubble-ellipses" },
+  "com.samsung.android.messaging":       { name: "Messages",  color: "#1428A0", icon: "chatbubble-ellipses" },
+  "org.telegram.messenger":             { name: "Telegram",  color: "#2AABEE", icon: "paper-plane" },
+  "com.instagram.android":              { name: "Instagram", color: "#E1306C", icon: "logo-instagram" },
+  "com.facebook.orca":                  { name: "Messenger", color: "#0084FF", icon: "chatbubbles" },
+  "com.google.android.gm":              { name: "Gmail",     color: "#EA4335", icon: "mail" },
+  "com.snapchat.android":               { name: "Snapchat",  color: "#FFFC00", icon: "camera" },
+  "com.twitter.android":                { name: "Twitter",   color: "#1DA1F2", icon: "logo-twitter" },
+  "com.discord":                        { name: "Discord",   color: "#5865F2", icon: "chatbubbles" },
+};
+
+function getAppMeta(pkg: string, defaultName: string) {
+  return APP_META[pkg] ?? { name: defaultName || pkg, color: "#6366f1", icon: "notifications-outline" };
+}
+
+function resolveReplyDeepUrl(packageName: string, appName: string, sender: string, text: string): string | null {
+  const pkg = packageName.toLowerCase();
+  const app = appName.toLowerCase().trim();
+  const encoded = encodeURIComponent(text);
+  if (pkg.startsWith("org.telegram") || app === "telegram") {
+    return `tg://msg?text=${encoded}`;
+  }
+  if (pkg.startsWith("com.whatsapp") || app === "whatsapp") {
+    return `whatsapp://send?text=${encoded}`;
+  }
+  return null;
+}
+
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+function AppIcon({ pkg, appName, colors }: { pkg: string; appName: string; colors: ReturnType<typeof useColors> }) {
+  const meta = getAppMeta(pkg, appName);
+  const iconColor = meta.color === "#FFFC00" ? "#000" : "#fff";
+  return (
+    <View style={[styles.appIcon, { backgroundColor: meta.color }]}>
+      <Ionicons name={meta.icon as "mic"} size={16} color={iconColor} />
+    </View>
+  );
+}
+
+// Deduplication key: sender + first 80 chars of text + app package
+// This prevents the same message appearing multiple times when the native module
+// returns the same notification with a different `key` on each poll.
+function notifDedupeKey(n: VoxNotification): string {
+  return `${n.packageName}|${(n.sender ?? "").trim().toLowerCase()}|${(n.text ?? "").trim().slice(0, 80).toLowerCase()}`;
+}
+
+function dedupeNotifs(items: VoxNotification[]): VoxNotification[] {
+  const seen = new Set<string>();
+  const result: VoxNotification[] = [];
+  for (const item of items) {
+    const dk = notifDedupeKey(item);
+    if (!seen.has(dk)) {
+      seen.add(dk);
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+export default function MessagesScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const topPad = Platform.OS === "web" ? 67 : insets.top;
+  const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [notifications, setNotifications] = useState<VoxNotification[]>([]);
+  const [loading, setLoading] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Search + filter
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appFilter, setAppFilter] = useState<string | null>(null);
+
+  // Smart-reply state
+  const [replyExpanded, setReplyExpanded] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [replyStatus, setReplyStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [replyError, setReplyError] = useState<string | null>(null);
+
+  // Proactive AI suggestion state
+  const [aiSuggestLoading, setAiSuggestLoading] = useState<string | null>(null); // notification key being suggested
+
+  async function getApiBase(): Promise<string> {
+    const envUrl = process.env.EXPO_PUBLIC_API_URL;
+    if (envUrl) return envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
+    if (Platform.OS === "web") return "/api/";
+    return "https://secret-chat-provider--b-oss.replit.app/api/";
+  }
+
+  async function handleAiSuggestReply(n: VoxNotification) {
+    setAiSuggestLoading(n.key);
+    try {
+      const base = await getApiBase();
+      const r = await fetch(`${base}suggest-reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sender: n.sender ?? n.app,
+          app: getAppMeta(n.packageName, n.app).name,
+          text: n.text ?? "",
+        }),
+      });
+      if (!r.ok) throw new Error("suggest-reply failed");
+      const d = await r.json() as { suggestion?: string };
+      if (d.suggestion) setReplyText(d.suggestion);
+    } catch {
+      // Silently fail — user can still type manually
+    } finally {
+      setAiSuggestLoading(null);
+    }
+  }
+
+  // Derive unique apps for filter chips
+  const uniqueApps = useMemo(() => {
+    const seen = new Map<string, { pkg: string; name: string; color: string }>();
+    for (const n of notifications) {
+      if (!seen.has(n.packageName)) {
+        const meta = getAppMeta(n.packageName, n.app);
+        seen.set(n.packageName, { pkg: n.packageName, name: meta.name, color: meta.color });
+      }
+    }
+    return Array.from(seen.values());
+  }, [notifications]);
+
+  // Apply search + app filter
+  const displayed = useMemo(() => {
+    let list = notifications;
+    if (appFilter) list = list.filter((n) => n.packageName === appFilter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter((n) =>
+        (n.sender ?? "").toLowerCase().includes(q) ||
+        (n.text ?? "").toLowerCase().includes(q) ||
+        getAppMeta(n.packageName, n.app).name.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [notifications, appFilter, searchQuery]);
+
+  async function checkPermissionAndLoad() {
+    if (!NativeNotifications.isAvailable) {
+      setHasPermission(false);
+      return;
+    }
+    const granted = await NativeNotifications.hasPermission();
+    setHasPermission(granted);
+    if (granted) {
+      await loadNotifications();
+    }
+  }
+
+  async function loadNotifications() {
+    setLoading(true);
+    try {
+      const items = await NativeNotifications.getRecent();
+      const filtered = items.filter((n) => n.sender?.trim() || n.text?.trim());
+      setNotifications(dedupeNotifs(filtered));
+    } catch (e) {
+      console.warn("getRecent error", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSmartReply(n: VoxNotification) {
+    if (!replyText.trim()) return;
+    setReplyStatus("sending");
+    setReplyError(null);
+    try {
+      if (n.hasReply && NativeNotifications.isAvailable) {
+        const sent = await NativeNotifications.replyTo(n.key, replyText.trim()).catch(() => false);
+        if (sent) {
+          setReplyStatus("sent");
+          setReplyText("");
+          setTimeout(() => {
+            setReplyExpanded(null);
+            setReplyStatus("idle");
+          }, 1200);
+          return;
+        }
+      }
+      const deepUrl = resolveReplyDeepUrl(n.packageName, n.app, n.sender, replyText.trim());
+      if (deepUrl) {
+        const canOpen = await Linking.canOpenURL(deepUrl).catch(() => false);
+        if (canOpen) {
+          await Linking.openURL(deepUrl);
+          setReplyStatus("idle");
+          setReplyExpanded(null);
+          setReplyText("");
+          return;
+        }
+      }
+      setReplyStatus("error");
+      setReplyError("Could not send reply. Open the app directly.");
+    } catch {
+      setReplyStatus("error");
+      setReplyError("Send failed. Please try again.");
+    }
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      checkPermissionAndLoad();
+
+      if (NativeNotifications.isAvailable) {
+        pollRef.current = setInterval(() => {
+          if (hasPermission) loadNotifications();
+        }, 5000);
+      }
+
+      const unsub = NativeNotifications.onNotification((n) => {
+        setNotifications((prev) => {
+          const dk = notifDedupeKey(n);
+          // Remove any existing item with the same dedup key or same native key
+          const filtered = prev.filter(
+            (p) => p.key !== n.key && notifDedupeKey(p) !== dk
+          );
+          return [n, ...filtered].slice(0, 100);
+        });
+      });
+
+      return () => {
+        if (pollRef.current) clearInterval(pollRef.current);
+        unsub();
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasPermission])
+  );
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <Text style={[styles.title, { color: colors.foreground }]}>Messages</Text>
+        {hasPermission && notifications.length > 0 && (
+          <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+            <Text style={[styles.badgeText, { color: colors.primaryForeground }]}>{notifications.length}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* ── Search bar ─────────────────────────────────────────────── */}
+      {hasPermission === true && notifications.length > 0 && (
+        <View style={[styles.searchRow, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+          <View style={[styles.searchBox, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+            <Ionicons name="search-outline" size={16} color={colors.mutedForeground} />
+            <TextInput
+              style={[styles.searchInput, { color: colors.foreground }]}
+              placeholder="Search sender, message, app…"
+              placeholderTextColor={colors.mutedForeground}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
+                <Ionicons name="close-circle" size={16} color={colors.mutedForeground} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* ── App filter chips ──────────────────────────────────────── */}
+      {hasPermission === true && uniqueApps.length > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[styles.filterRow, { borderBottomColor: colors.border }]}
+        >
+          <Pressable
+            onPress={() => setAppFilter(null)}
+            style={[
+              styles.filterChip,
+              { backgroundColor: !appFilter ? colors.primary : colors.muted, borderColor: !appFilter ? colors.primary : colors.border },
+            ]}
+          >
+            <Text style={[styles.filterChipText, { color: !appFilter ? colors.primaryForeground : colors.foreground }]}>All</Text>
+          </Pressable>
+          {uniqueApps.map((a) => {
+            const active = appFilter === a.pkg;
+            return (
+              <Pressable
+                key={a.pkg}
+                onPress={() => setAppFilter(active ? null : a.pkg)}
+                style={[
+                  styles.filterChip,
+                  { backgroundColor: active ? a.color : colors.muted, borderColor: active ? a.color : colors.border },
+                ]}
+              >
+                <Text style={[styles.filterChipText, { color: active ? "#fff" : colors.foreground }]}>{a.name}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 80 }]} showsVerticalScrollIndicator={false}>
+
+        {/* ── Not on Android ─────────────────────────────────────────── */}
+        {Platform.OS !== "android" && (
+          <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border, borderLeftColor: colors.primary }]}>
+            <Ionicons name="phone-portrait-outline" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Android only</Text>
+              <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
+                Notification interception is only available in the Android APK. Install the APK on your device and grant Notification Access.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* ── Permission not granted ─────────────────────────────────── */}
+        {Platform.OS === "android" && hasPermission === false && (
+          <>
+            <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border, borderLeftColor: "#f59e0b" }]}>
+              <Ionicons name="notifications-off-outline" size={18} color="#f59e0b" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.noticeTitle, { color: colors.foreground }]}>Notification Access needed</Text>
+                <Text style={[styles.noticeText, { color: colors.mutedForeground }]}>
+                  Grant Notification Access so the assistant can read your incoming messages from WhatsApp, SMS, and other apps.
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              style={[styles.grantBtn, { backgroundColor: colors.primary }]}
+              onPress={async () => {
+                await NativeNotifications.requestPermission();
+                setTimeout(checkPermissionAndLoad, 1500);
+              }}
+            >
+              <Ionicons name="settings-outline" size={16} color={colors.primaryForeground} />
+              <Text style={[styles.grantBtnText, { color: colors.primaryForeground }]}>Grant Notification Access</Text>
+            </Pressable>
+            <View style={[styles.stepsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              {[
+                { step: "1", text: "Tap Grant above" },
+                { step: "2", text: "Find your assistant in the list and toggle it ON" },
+                { step: "3", text: "Come back — messages appear here automatically" },
+              ].map(({ step, text }) => (
+                <View key={step} style={styles.stepRow}>
+                  <View style={[styles.stepBadge, { backgroundColor: colors.primary }]}>
+                    <Text style={[styles.stepNum, { color: colors.primaryForeground }]}>{step}</Text>
+                  </View>
+                  <Text style={[styles.stepText, { color: colors.foreground }]}>{text}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* ── Loading ────────────────────────────────────────────────── */}
+        {hasPermission === true && loading && notifications.length === 0 && (
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>Loading notifications…</Text>
+          </View>
+        )}
+
+        {/* ── Empty state ────────────────────────────────────────────── */}
+        {hasPermission === true && !loading && notifications.length === 0 && (
+          <View style={styles.centered}>
+            <Ionicons name="notifications-outline" size={40} color={colors.mutedForeground} />
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No notifications yet</Text>
+            <Text style={[styles.emptySubText, { color: colors.mutedForeground }]}>
+              New messages from WhatsApp, SMS, and other apps will appear here.
+            </Text>
+          </View>
+        )}
+
+        {/* ── No results from filter/search ──────────────────────────── */}
+        {hasPermission === true && notifications.length > 0 && displayed.length === 0 && (
+          <View style={styles.centered}>
+            <Ionicons name="search-outline" size={36} color={colors.mutedForeground} />
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No matches</Text>
+            <Text style={[styles.emptySubText, { color: colors.mutedForeground }]}>
+              Try a different search term or clear the filter.
+            </Text>
+          </View>
+        )}
+
+        {/* ── Real notifications ─────────────────────────────────────── */}
+        {hasPermission === true && displayed.length > 0 && (
+          <>
+            <View style={[styles.liveRow, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "30" }]}>
+              <View style={[styles.liveDot, { backgroundColor: "#22c55e" }]} />
+              <Text style={[styles.liveText, { color: colors.primary }]}>
+                {displayed.length} {displayed.length === 1 ? "message" : "messages"} — refreshes automatically
+              </Text>
+              <Pressable onPress={loadNotifications}>
+                <Ionicons name="refresh" size={15} color={colors.primary} />
+              </Pressable>
+            </View>
+            {displayed.map((n) => {
+              const meta = getAppMeta(n.packageName, n.app);
+              const isExpanded = replyExpanded === n.key;
+              const canReply = n.hasReply || !!resolveReplyDeepUrl(n.packageName, n.app, n.sender, "");
+              return (
+                <Pressable
+                  key={n.key}
+                  onPress={() => {
+                    if (!canReply) return;
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    if (isExpanded) {
+                      setReplyExpanded(null);
+                      setReplyText("");
+                      setReplyStatus("idle");
+                      setReplyError(null);
+                    } else {
+                      setReplyExpanded(n.key);
+                      setReplyText("");
+                      setReplyStatus("idle");
+                      setReplyError(null);
+                    }
+                  }}
+                >
+                  <View style={[styles.msgCard, { backgroundColor: colors.card, borderColor: isExpanded ? colors.primary : colors.border }]}>
+                    <AppIcon pkg={n.packageName} appName={n.app} colors={colors} />
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.msgTop}>
+                        <Text style={[styles.sender, { color: colors.foreground }]} numberOfLines={1}>
+                          {n.sender || meta.name}
+                        </Text>
+                        <Text style={[styles.time, { color: colors.mutedForeground }]}>{timeAgo(n.timestamp)}</Text>
+                      </View>
+                      <Text style={[styles.appLabel, { color: colors.mutedForeground }]}>{meta.name}</Text>
+                      <Text style={[styles.preview, { color: colors.mutedForeground }]} numberOfLines={2}>
+                        {n.text || "(no text)"}
+                      </Text>
+                    </View>
+                    {canReply && (
+                      <View style={[styles.replyDot, { backgroundColor: isExpanded ? colors.primary : colors.primary + "50" }]}>
+                        <Ionicons name="return-down-back" size={10} color={colors.primaryForeground} />
+                      </View>
+                    )}
+                  </View>
+                  {/* ── Inline reply row ── */}
+                  {isExpanded && (
+                    <View style={[styles.replyCol, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                      {/* AI suggest button */}
+                      <Pressable
+                        style={[styles.aiSuggestBtn, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}
+                        onPress={() => handleAiSuggestReply(n)}
+                        disabled={aiSuggestLoading === n.key}
+                      >
+                        {aiSuggestLoading === n.key
+                          ? <ActivityIndicator size="small" color={colors.primary} />
+                          : <Ionicons name="sparkles" size={14} color={colors.primary} />}
+                        <Text style={[styles.aiSuggestText, { color: colors.primary }]}>
+                          {aiSuggestLoading === n.key ? "Thinking…" : "Suggest reply"}
+                        </Text>
+                      </Pressable>
+                      <View style={styles.replyRow}>
+                        <TextInput
+                          style={[styles.replyInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
+                          placeholder={`Reply to ${n.sender || meta.name}…`}
+                          placeholderTextColor={colors.mutedForeground}
+                          value={replyText}
+                          onChangeText={setReplyText}
+                          returnKeyType="send"
+                          onSubmitEditing={() => handleSmartReply(n)}
+                          autoFocus
+                          editable={replyStatus !== "sending"}
+                        />
+                        <Pressable
+                          style={[styles.replyBtn, { backgroundColor: replyStatus === "sent" ? colors.success : colors.primary, opacity: replyStatus === "sending" ? 0.6 : 1 }]}
+                          onPress={() => handleSmartReply(n)}
+                          disabled={replyStatus === "sending" || !replyText.trim()}
+                        >
+                          <Ionicons name={replyStatus === "sent" ? "checkmark" : "send"} size={16} color="#fff" />
+                        </Pressable>
+                      </View>
+                    </View>
+                  )}
+                  {isExpanded && replyStatus === "error" && replyError && (
+                    <View style={[styles.replyErrorRow, { backgroundColor: colors.destructive + "15" }]}>
+                      <Ionicons name="alert-circle-outline" size={13} color={colors.destructive} />
+                      <Text style={[styles.replyErrorText, { color: colors.destructive }]}>{replyError}</Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </>
+        )}
+
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  header: {
+    paddingBottom: 12,
+    paddingHorizontal: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+  },
+  title: { fontSize: 22, fontFamily: "Inter_700Bold" },
+  badge: { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
+  badgeText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+
+  // Search bar
+  searchRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    paddingVertical: 0,
+  },
+
+  // Filter chips
+  filterRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+
+  scroll: { paddingTop: 8 },
+  centered: { alignItems: "center", paddingVertical: 60, paddingHorizontal: 24, gap: 12 },
+  emptyText: { fontSize: 16, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  emptySubText: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19 },
+
+  notice: {
+    margin: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderLeftWidth: 4,
+    padding: 14,
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  noticeTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginBottom: 4 },
+  noticeText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+
+  grantBtn: {
+    marginHorizontal: 16,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  grantBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+
+  stepsCard: {
+    marginHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+  },
+  stepRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  stepBadge: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  stepNum: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  stepText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+
+  liveRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+  },
+  liveDot: { width: 7, height: 7, borderRadius: 4 },
+  liveText: { flex: 1, fontSize: 12, fontFamily: "Inter_500Medium" },
+
+  msgCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+  },
+  appIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 },
+  msgTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 2 },
+  sender: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1, marginRight: 8 },
+  time: { fontSize: 11, fontFamily: "Inter_400Regular", flexShrink: 0 },
+  appLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 4 },
+  preview: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  replyDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 6 },
+
+  replyCol: {
+    flexDirection: "column",
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: -4,
+    marginBottom: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 10,
+  },
+  aiSuggestBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignSelf: "flex-start",
+  },
+  aiSuggestText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  replyRow: { flexDirection: "row", gap: 8 },
+  replyInput: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    minHeight: 36,
+  },
+  replyBtn: { borderRadius: 8, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
+
+  replyErrorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginHorizontal: 16,
+    marginTop: -4,
+    marginBottom: 8,
+    borderRadius: 8,
+    padding: 8,
+  },
+  replyErrorText: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
+});

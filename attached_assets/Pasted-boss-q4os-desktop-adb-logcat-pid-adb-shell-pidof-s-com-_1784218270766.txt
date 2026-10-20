@@ -1,0 +1,38 @@
+boss@q4os-desktop:~$ adb logcat --pid=$(adb shell pidof -s com.boss.assistant) *:E *:W | grep -v "HWComposer"
+--------- beginning of main
+07-16 17:08:33.579 20342 20342 W FirebaseApp: Default FirebaseApp failed to initialize because no default options were found. This usually means that com.google.gms:google-services was not applied to your gradle project.
+07-16 17:08:33.636 20342 20342 W SoLoader: Initializing SoLoader: 0
+07-16 17:08:33.637 20342 20342 W SoLoader: Recording new base apk path: /data/app/com.boss.assistant-D5p0aVzRQLYQHaWsxCNC0g==/base.apk
+07-16 17:08:33.637 20342 20342 W SoLoader: Previously recorded 0 base apk paths.
+07-16 17:08:33.728 20342 20342 W SoLoader: SoLoader initialized: 8
+07-16 17:08:33.781 20342 20342 E ResourceType: Style contains key with bad entry: 0x01010586
+07-16 17:08:33.781 20342 20342 E ResourceType: Style contains key with bad entry: 0x01010668
+07-16 17:08:33.987 20342 20342 W SoLoader: SoLoader already initialized
+07-16 17:08:34.009 20342 20342 W SoLoader: SoLoader already initialized
+07-16 17:08:34.105 20342 20379 E         : appName=com.boss.assistant, acAppName=/system/bin/surfaceflinger
+07-16 17:08:34.105 20342 20379 E         : 0
+07-16 17:08:34.121 20342 20379 E         : appName=com.boss.assistant, acAppName=com.instagram.android
+07-16 17:08:34.121 20342 20379 E         : 0
+--------- beginning of crash
+07-16 17:08:34.406 20342 20376 E AndroidRuntime: FATAL EXCEPTION: create_react_context
+07-16 17:08:34.406 20342 20376 E AndroidRuntime: Process: com.boss.assistant, PID: 20342
+07-16 17:08:34.406 20342 20376 E AndroidRuntime: java.lang.NullPointerException: Attempt to read from field 'android.os.MessageQueue android.os.Looper.mQueue' on a null object reference
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at android.os.Handler.<init>(Handler.java:233)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at android.os.Handler.<init>(Handler.java:141)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at android.telephony.PhoneStateListener$1.<init>(PhoneStateListener.java:301)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at android.telephony.PhoneStateListener.<init>(PhoneStateListener.java:301)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at android.telephony.PhoneStateListener.<init>(PhoneStateListener.java:271)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.boss.assistant.CallScreeningModule$legacyListener$1.<init>(CallScreeningModule.kt:35)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.boss.assistant.CallScreeningModule.<init>(CallScreeningModule.kt:35)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.boss.assistant.CallScreeningPackage.createNativeModules(CallScreeningPackage.kt:10)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.facebook.react.ReactPackageHelper.getNativeModuleIterator(ReactPackageHelper.kt:32)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.facebook.react.NativeModuleRegistryBuilder.processPackage(NativeModuleRegistryBuilder.kt:43)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.facebook.react.ReactInstanceManager.processPackage(ReactInstanceManager.java:1571)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.facebook.react.ReactInstanceManager.processPackages(ReactInstanceManager.java:1542)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.facebook.react.ReactInstanceManager.createReactContext(ReactInstanceManager.java:1453)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.facebook.react.ReactInstanceManager.lambda$runCreateReactContextOnNewThread$2(ReactInstanceManager.java:1222)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.facebook.react.ReactInstanceManager.$r8$lambda$PrBhihCbbAFk4ZReAALGanVLCyc(Unknown Source:0)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at com.facebook.react.ReactInstanceManager$$ExternalSyntheticLambda1.run(D8$$SyntheticClass:0)
+07-16 17:08:34.406 20342 20376 E AndroidRuntime:        at java.lang.Thread.run(Thread.java:764)
+07-16 17:08:34.497 20342 20379 E [EGL-ERROR]: __egl_platform_cancel_buffers:644: surface->num_buffers(4)
+                           

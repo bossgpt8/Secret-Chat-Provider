@@ -1,3 +1,4 @@
 - [vox-upgrades-2026-07](vox-upgrades-2026-07.md) — Six upgrades to the Vox voice assistant; key patterns and gotchas for each.
 - [vox-offline-voice](vox-offline-voice.md) — Optional Android Whisper/Piper voice paths require native verification and do not make chat fully offline.
 - [oracle-vm-hosting](oracle-vm-hosting.md) — Oracle runs the lightweight API; Vox starts fresh on Neon without copying Replit data.
+- [vox-app-identity](vox-app-identity.md) — The app is Vox, not Zeno; use Vox when referring to the product.

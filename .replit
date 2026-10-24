@@ -94,7 +94,7 @@ timeoutMs = 20000
 [userenv]
 
 [userenv.shared]
-EXPO_PUBLIC_API_URL = "https://secret-chat-provider--b-oss.replit.app/api"
+EXPO_PUBLIC_API_URL = "https://vox.bossbot.me/api"
 KOKORO_URL = "http://102.37.153.141:8880"
 OLLAMA_URL = "http://102.37.153.141:11434"
 OLLAMA_MODEL = "llama3.2:1b"

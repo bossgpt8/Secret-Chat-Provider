@@ -8,6 +8,7 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAssistant } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
 import { NativeNotifications, VoxNotification } from "@/modules/NativeNotifications";
 
@@ -84,6 +85,7 @@ function dedupeNotifs(items: VoxNotification[]): VoxNotification[] {
 export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { customApiUrl } = useAssistant();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -106,10 +108,12 @@ export default function MessagesScreen() {
   const [aiSuggestLoading, setAiSuggestLoading] = useState<string | null>(null); // notification key being suggested
 
   async function getApiBase(): Promise<string> {
+    const customUrl = customApiUrl?.trim();
     const envUrl = process.env.EXPO_PUBLIC_API_URL;
-    if (envUrl) return envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
+    const configuredUrl = customUrl || envUrl;
+    if (configuredUrl) return configuredUrl.endsWith("/") ? configuredUrl : `${configuredUrl}/`;
     if (Platform.OS === "web") return "/api/";
-    return "https://secret-chat-provider--b-oss.replit.app/api/";
+    return "https://vox.bossbot.me/api/";
   }
 
   async function handleAiSuggestReply(n: VoxNotification) {

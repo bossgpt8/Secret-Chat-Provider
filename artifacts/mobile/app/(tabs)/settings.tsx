@@ -277,7 +277,7 @@ export default function SettingsScreen() {
     const envUrl = process.env.EXPO_PUBLIC_API_URL;
     if (envUrl) return envUrl.endsWith("/") ? envUrl : `${envUrl}/`;
     if (Platform.OS === "web") return "/api/";
-    return "https://secret-chat-provider--b-oss.replit.app/api/";
+    return "https://vox.bossbot.me/api/";
   }
 
   async function loadElVoices() {
@@ -447,7 +447,7 @@ export default function SettingsScreen() {
           ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`)
           : Platform.OS === "web"
             ? "/api/"
-            : "https://secret-chat-provider--b-oss.replit.app/api/";
+            : "https://vox.bossbot.me/api/";
       const resp = await fetch(`${resolvedBase}tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

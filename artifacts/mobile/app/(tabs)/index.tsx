@@ -3726,9 +3726,8 @@ export default function ChatScreen() {
         "Screen Share Unavailable",
         Platform.OS !== "android"
           ? "Screen Share is Android-only."
-          : "The VoxScreenCapture module isn't loaded.\n\n" +
-            "• If you're using Expo Go: scan the QR code with your EAS-built APK instead — Expo Go doesn't include custom native modules.\n\n" +
-            "• If you installed the EAS APK: open Settings → Apps → Vox → Permissions and make sure Display over other apps is allowed, then restart the app.",
+          : "The VoxScreenCapture native module isn't included in this app build.\n\n" +
+            "Expo Go and older APKs don't include it. Install a new Android APK built from the latest Vox code. Android permissions can't add a missing native module.",
         [{ text: "OK" }]
       );
       return;

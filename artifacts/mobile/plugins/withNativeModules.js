@@ -43,6 +43,9 @@ const KOTLIN_FILES = [
   "VoxPiperPackage.kt",
   "VoxPcmRecorderModule.kt",
   "VoxPcmRecorderPackage.kt",
+  "VoxScreenCaptureService.kt",
+  "VoxScreenCaptureModule.kt",
+  "VoxScreenCapturePackage.kt",
 ];
 
 function javaDir(projectRoot) {
@@ -99,6 +102,7 @@ const withAndroidManifestEntries = (config) =>
     };
     ensurePerm("android.permission.FOREGROUND_SERVICE");
     ensurePerm("android.permission.FOREGROUND_SERVICE_MICROPHONE");
+    ensurePerm("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION");
 
     // ── VoxOverlayService (floating bubble) ──────────────────────────────────
     const overlayServiceExists = app.service.some(
@@ -111,6 +115,21 @@ const withAndroidManifestEntries = (config) =>
           "android:label": "Vox Floating Bubble",
           "android:exported": "false",
           "android:foregroundServiceType": "microphone",
+        },
+      });
+    }
+
+    // Screen capture needs a declared mediaProjection foreground service.
+    const screenCaptureServiceExists = app.service.some(
+      (s) => s.$ && s.$["android:name"] === ".VoxScreenCaptureService"
+    );
+    if (!screenCaptureServiceExists) {
+      app.service.push({
+        $: {
+          "android:name": ".VoxScreenCaptureService",
+          "android:label": "Vox Screen Share",
+          "android:exported": "false",
+          "android:foregroundServiceType": "mediaProjection",
         },
       });
     }
@@ -222,6 +241,7 @@ const PACKAGES = [
   "MediaControlPackage()",
   "CallScreeningPackage()",
   "VoxOverlayPackage()",
+  "VoxScreenCapturePackage()",
   "VoxSpeechRecognizerPackage()",
   "VoxDownloadPackage()",
   "VoxPiperPackage()",

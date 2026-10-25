@@ -41,7 +41,7 @@ class VoxScreenCaptureModule(reactContext: ReactApplicationContext) :
      */
     @ReactMethod
     fun startCapture(promise: Promise) {
-        val activity = currentActivity
+        val activity = reactApplicationContext.currentActivity
         if (activity == null) {
             promise.reject("ERR_NO_ACTIVITY", "No current activity")
             return
@@ -143,7 +143,7 @@ class VoxScreenCaptureModule(reactContext: ReactApplicationContext) :
 
     // ── ActivityEventListener ────────────────────────────────────────────────
 
-    override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode != REQUEST_CODE) return
         val promise = capturePromise ?: return
         capturePromise = null
@@ -170,7 +170,7 @@ class VoxScreenCaptureModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {}
+    override fun onNewIntent(intent: Intent) {}
 
     // Required boilerplate for NativeEventEmitter even if unused
     @ReactMethod fun addListener(eventName: String) {}

@@ -696,6 +696,7 @@ const sidebarStyles = StyleSheet.create({
 // ─── Main chat screen ─────────────────────────────────────────────────────────
 
 const CALL_MODE_RETRY_DELAY_MS = 400;
+const CALL_MODE_SILENCE_MS = 600;
 
 // ─── In-app timer types ───────────────────────────────────────────────────────
 
@@ -1460,11 +1461,16 @@ export default function ChatScreen() {
 
   // Split a text buffer on sentence-ending punctuation followed by whitespace.
   // Returns completed sentences + whatever remains in the buffer.
-  function extractSentences(buf: string): { sentences: string[]; remainder: string } {
+  function extractSentences(buf: string, eagerVoice = false): { sentences: string[]; remainder: string } {
     const sentences: string[] = [];
     let last = 0;
     for (let i = 0; i < buf.length - 1; i++) {
-      if ('.!?'.includes(buf[i]) && (buf[i + 1] === ' ' || buf[i + 1] === '\n')) {
+      const followedBySpace = buf[i + 1] === ' ' || buf[i + 1] === '\n';
+      const sentenceEnd = '.!?'.includes(buf[i]) && followedBySpace;
+      // In call mode, hand off a substantial clause while the model keeps
+      // generating. Avoid tiny fragments such as "Sure," being voiced alone.
+      const earlyClause = eagerVoice && ',;:'.includes(buf[i]) && followedBySpace && i - last >= 36;
+      if (sentenceEnd || earlyClause) {
         const s = buf.slice(last, i + 1).trim();
         if (s) sentences.push(s);
         last = i + 2;
@@ -1738,7 +1744,7 @@ export default function ChatScreen() {
         return;
       }
       if (Platform.OS === "android" && NativeSpeechRecognizer.isAvailable) {
-        const started = await startNativeSpeech("turn", isCallModeRef.current ? 850 : 950);
+        const started = await startNativeSpeech("turn", isCallModeRef.current ? CALL_MODE_SILENCE_MS : 950);
         if (started) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           return;
@@ -3561,10 +3567,21 @@ export default function ChatScreen() {
       const KEEP_RECENT = 20;
       let chatHistory: { role: string; content: string }[];
 
-      if (withUser.length > SUMMARIZE_THRESHOLD) {
-        const oldMessages = withUser.slice(0, withUser.length - KEEP_RECENT);
+      const shouldSummarize = withUser.length > SUMMARIZE_THRESHOLD;
+      const oldMessages = shouldSummarize ? withUser.slice(0, withUser.length - KEEP_RECENT) : [];
+      const summaryPromise = shouldSummarize
+        ? summarizeOldMessages(oldMessages)
+        : Promise.resolve(null);
+      // These independent preparations used to run one after another. Overlap
+      // them so voice mode starts the model request as soon as the slower one
+      // is ready instead of paying both latencies in series.
+      const deviceContextPromise = contextEnabled
+        ? collectDeviceContext()
+        : Promise.resolve(undefined);
+      const [summary, deviceCtx] = await Promise.all([summaryPromise, deviceContextPromise]);
+
+      if (shouldSummarize) {
         const recentMessages = withUser.slice(-KEEP_RECENT);
-        const summary = await summarizeOldMessages(oldMessages);
         if (summary) {
           chatHistory = [
             { role: "user", content: `[Earlier conversation summary: ${summary}]` },
@@ -3578,9 +3595,6 @@ export default function ChatScreen() {
       } else {
         chatHistory = withUser.slice(-MAX_CHAT_HISTORY).map((m) => ({ role: m.role, content: m.content }));
       }
-
-      // Collect ambient device context to help the model give more relevant answers
-      const deviceCtx = contextEnabled ? await collectDeviceContext() : undefined;
 
       // Cancel any previous in-flight request and start a fresh AbortController
       chatAbortRef.current?.abort();
@@ -3654,7 +3668,7 @@ export default function ChatScreen() {
           }
           // Fire complete sentences to TTS immediately as they arrive —
           // user hears the first sentence while the rest is still generating
-          const { sentences, remainder } = extractSentences(ttsBuf);
+          const { sentences, remainder } = extractSentences(ttsBuf, isCallModeRef.current);
           ttsBuf = remainder;
           for (const s of sentences) {
             enqueueSentence(s); // fire-and-forget: TTS plays while streaming continues

@@ -80,3 +80,11 @@ Rolling summary prevents context loss from hard-truncation at 40 messages.
 - Context is opt-in per source. `contextScreen` and `contextLocation` default off (high sensitivity); battery/notifications default on.
 - `collectDeviceContext()` must only run on Android (`Platform.OS !== 'web'`).
 - When adding media metadata to `NativeMediaControl`, expose a `getPlaybackInfo()` method returning `{ title, artist, isPlaying }` and remove the `void contextMedia` placeholder.
+
+## Continuous call voice cost preference
+
+The user chose Groq's free tier for chat with local Phone/Piper speech in continuous call mode; do not default to a paid realtime voice API.
+
+**Why:** The user requires voice usage to remain free or self-hosted.
+
+**How to apply:** Keep cloud TTS providers available for regular replies, but route continuous call-mode speech to downloaded Piper when available and otherwise to the device's Phone TTS. Call mode may use Groq or configured Ollama, but must not fall back to potentially paid OpenRouter. Groq free-tier use remains subject to its model limits.

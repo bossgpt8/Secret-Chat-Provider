@@ -1536,19 +1536,33 @@ export default function ChatScreen() {
     return true;
   }
 
-  // Play one sentence immediately via cloud or phone TTS, then call onTtsDone.
-  // Used for queue draining — no Alert fallback dialog (would be jarring mid-response).
-  async function playSentenceNow(text: string): Promise<void> {
-    if (!text.trim()) { onTtsDone(); return; }
-    const gen = ttsGenerationRef.current;
-    if (ttsProvider === "piper") {
+  // Call mode stays on-device when the global voice setting points at a cloud
+  // engine. Prefer a downloaded Piper model when available; otherwise use the
+  // Android phone voice so an unavailable Kokoro endpoint cannot stall speech.
+  function shouldUseLocalCallVoice(): boolean {
+    return isCallModeRef.current && (ttsProvider === "kokoro" || ttsProvider === "elevenlabs");
+  }
+
+  async function playLocalVoice(text: string, gen: number): Promise<void> {
+    const usePiper = ttsProvider === "piper" || (shouldUseLocalCallVoice() && !!offlineTtsModelId);
+    if (usePiper) {
       try {
         if (await playPiperSentence(text, gen)) return;
       } catch (error) {
         console.warn("[tts] Piper unavailable, falling back to phone voice:", error);
       }
-      if (gen !== ttsGenerationRef.current) return;
-      try { await speakWithPhone(text); } catch { onTtsDone(); }
+    }
+    if (gen !== ttsGenerationRef.current) return;
+    try { await speakWithPhone(text); } catch { onTtsDone(); }
+  }
+
+  // Play one sentence immediately via cloud or phone TTS, then call onTtsDone.
+  // Used for queue draining — no Alert fallback dialog (would be jarring mid-response).
+  async function playSentenceNow(text: string): Promise<void> {
+    if (!text.trim()) { onTtsDone(); return; }
+    const gen = ttsGenerationRef.current;
+    if (ttsProvider === "piper" || shouldUseLocalCallVoice()) {
+      await playLocalVoice(text, gen);
       return;
     }
     if ((ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && Platform.OS !== "web") {
@@ -1617,14 +1631,8 @@ export default function ChatScreen() {
     // result is the barge-in signal and immediately cancels TTS + the stream.
     startBargeInListener().catch(() => {});
 
-    if (ttsProvider === "piper") {
-      try {
-        if (await playPiperSentence(text, gen)) return;
-      } catch (error) {
-        console.warn("[tts] Piper unavailable, falling back to phone voice:", error);
-      }
-      if (gen !== ttsGenerationRef.current) return;
-      try { await speakWithPhone(text); } catch { onTtsDone(); }
+    if (ttsProvider === "piper" || shouldUseLocalCallVoice()) {
+      await playLocalVoice(text, gen);
       return;
     }
 
@@ -3604,7 +3612,13 @@ export default function ChatScreen() {
       const response = await fetch(`${baseUrl}chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ messages: chatHistory, systemPrompt: chatSystemPrompt, deviceId, ...(deviceCtx && { deviceContext: deviceCtx }) }),
+        body: JSON.stringify({
+          messages: chatHistory,
+          systemPrompt: chatSystemPrompt,
+          deviceId,
+          callMode: isCallModeRef.current,
+          ...(deviceCtx && { deviceContext: deviceCtx }),
+        }),
         signal: abortCtrl.signal,
       });
 

@@ -581,13 +581,18 @@ export default function SettingsScreen() {
             </View>
             <Text style={[styles.rowValue, { color: colors.mutedForeground, paddingLeft: 0 }]}>
               {ttsProvider === "kokoro"
-                ? "⭐ Recommended — Kokoro AI voices, free & natural. Always falls back to phone voice if server is unavailable."
+                ? "Kokoro server voice. Requires a configured Kokoro endpoint; regular replies fall back to phone voice if unavailable."
                 : ttsProvider === "elevenlabs"
                 ? "High-quality ElevenLabs cloud voices. Falls back to phone TTS if unavailable."
                 : ttsProvider === "piper"
                 ? "Offline Piper voice. Download an offline voice model below to speak without internet."
                 : "Your device's built-in voice — works offline, always available."}
             </Text>
+            {(ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && (
+              <Text style={[styles.rowValue, { color: colors.mutedForeground, paddingLeft: 0 }]}>
+                Continuous Call mode uses Piper if downloaded, otherwise your phone voice. Regular replies still use this cloud voice.
+              </Text>
+            )}
           </View>
 
           {/* Speed (phone TTS only) */}

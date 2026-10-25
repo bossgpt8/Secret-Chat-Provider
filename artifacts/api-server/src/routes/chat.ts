@@ -278,7 +278,7 @@ const DEVICE_TOOLS = [
 
 router.post("/chat", async (req, res) => {
   const startMs = Date.now();
-  const { messages: rawMessages, systemPrompt, deviceId, deviceContext } = req.body;
+  const { messages: rawMessages, systemPrompt, deviceId, deviceContext, callMode } = req.body;
   if (!rawMessages || !Array.isArray(rawMessages)) {
     res.status(400).json({ error: "messages array is required" });
     return;
@@ -287,8 +287,13 @@ router.post("/chat", async (req, res) => {
 
   const groqKey = process.env.GROQ_API_KEY;
   const orKey = process.env.OPENROUTER_API_KEY;
-  if (!groqKey && !orKey) {
-    res.status(500).json({ error: "No AI API key configured" });
+  const hasAllowedProvider = Boolean(groqKey || OLLAMA_BASE || (!callMode && orKey));
+  if (!hasAllowedProvider) {
+    res.status(503).json({
+      error: callMode
+        ? "No free or self-hosted AI provider is available for call mode"
+        : "No AI API key configured",
+    });
     return;
   }
 
@@ -486,7 +491,7 @@ router.post("/chat", async (req, res) => {
     let ok = false;
     if (groqKey) ok = await streamFrom(GROQ_BASE, groqKey, GROQ_CHAT_MODEL);
     if (!ok && OLLAMA_BASE) ok = await streamFrom(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
-    if (!ok && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
+    if (!ok && !callMode && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
     if (!ok) {
       req.log.error({ latencyMs: Date.now() - startMs }, "All AI providers failed");
       res.write(`data: ${JSON.stringify({ error: "All AI providers failed" })}\n\n`);

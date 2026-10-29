@@ -708,6 +708,15 @@ interface ActiveTimer {
   done: boolean;
 }
 
+interface VoiceTurnTiming {
+  traceId: string;
+  speechFinalizedAtMs: number;
+  requestStartedAtMs?: number;
+  modelFirstTokenAtMs?: number;
+  serverModelFirstTokenMs?: number;
+  firstAudibleAtMs?: number;
+}
+
 // ─── Notification helper ──────────────────────────────────────────────────────
 
 Notifications.setNotificationHandler({
@@ -786,7 +795,7 @@ export default function ChatScreen() {
   const isSpeakingRef = useRef(false);
   // TTS sentence queue — lets us start speaking the first sentence while the
   // LLM is still generating the rest of the response
-  const ttsQueueRef = useRef<string[]>([]);
+  const ttsQueueRef = useRef<Array<{ text: string; voiceTiming: VoiceTurnTiming | null }>>([]);
   const ttsPlayingRef = useRef(false);
   // Incremented every time stopSpeaking() is called — used to cancel stale in-flight TTS fetches
   const ttsGenerationRef = useRef(0);
@@ -802,9 +811,37 @@ export default function ChatScreen() {
   const nativeSpeechActiveRef = useRef(false);
   const nativeSpeechModeRef = useRef<"turn" | "barge">("turn");
   const nativeSpeechTextRef = useRef("");
-  const handleSendRef = useRef<(overrideText?: string) => void>(() => {});
+  const handleSendRef = useRef<(overrideText?: string, speechFinalizedAtMs?: number) => void>(() => {});
   // Live audio amplitude (0–1) driven by VAD metering — feeds WaveformBars + SiriOrb
   const audioLevelAnim = useRef(new Animated.Value(0)).current;
+
+  function logVoiceTimingStage(
+    timing: VoiceTurnTiming,
+    stage: "speech_finalized" | "api_request_start" | "first_model_token" | "first_audible_output",
+    atMs: number,
+  ) {
+    const event: Record<string, string | number> = {
+      traceId: timing.traceId,
+      stage,
+      speechFinalizationToStageMs: Math.max(0, atMs - timing.speechFinalizedAtMs),
+    };
+    if (timing.requestStartedAtMs !== undefined) {
+      event.requestStartToStageMs = Math.max(0, atMs - timing.requestStartedAtMs);
+    }
+    if (timing.modelFirstTokenAtMs !== undefined) {
+      event.firstModelTokenToStageMs = Math.max(0, atMs - timing.modelFirstTokenAtMs);
+      if (timing.serverModelFirstTokenMs !== undefined) {
+        event.serverModelFirstTokenMs = timing.serverModelFirstTokenMs;
+      }
+    }
+    console.info("[voice-timing]", JSON.stringify(event));
+  }
+
+  function markFirstAudibleOutput(timing?: VoiceTurnTiming | null) {
+    if (!timing || timing.firstAudibleAtMs !== undefined || timing.modelFirstTokenAtMs === undefined) return;
+    timing.firstAudibleAtMs = Date.now();
+    logVoiceTimingStage(timing, "first_audible_output", timing.firstAudibleAtMs);
+  }
 
   // Wake word refs
   const wakeWordLoopRef = useRef(false);
@@ -908,7 +945,7 @@ export default function ChatScreen() {
       }
     });
 
-    const unsubResult = NativeSpeechRecognizer.onResult(({ text }) => {
+    const unsubResult = NativeSpeechRecognizer.onResult(({ text, finalizedAtMs }) => {
       if (!nativeSpeechActiveRef.current) return;
       const mode = nativeSpeechModeRef.current;
       const transcript = (text || nativeSpeechTextRef.current).trim();
@@ -923,7 +960,7 @@ export default function ChatScreen() {
 
       if (transcript.length > 1) {
         setIsTranscribing(false);
-        handleSendRef.current(transcript);
+        handleSendRef.current(transcript, finalizedAtMs ?? Date.now());
       } else if (isCallModeRef.current) {
         setTimeout(() => {
           if (isCallModeRef.current && !nativeSpeechActiveRef.current) startRecording();
@@ -1435,7 +1472,7 @@ export default function ChatScreen() {
     // Drain the sentence queue — play next sentence if one is waiting
     const next = ttsQueueRef.current.shift();
     if (next) {
-      playSentenceNow(next).catch(() => onTtsDone());
+      playSentenceNow(next.text, next.voiceTiming).catch(() => onTtsDone());
       return;
     }
     // Nothing left in sentence queue — check for queued notification announcements
@@ -1494,10 +1531,11 @@ export default function ChatScreen() {
   }
 
   // Attach playback listeners to a sound object and track it in elSoundRef.
-  function attachSoundListeners(sound: Audio.Sound, gen: number) {
+  function attachSoundListeners(sound: Audio.Sound, gen: number, voiceTiming?: VoiceTurnTiming | null) {
     elSoundRef.current = sound;
     sound.setOnPlaybackStatusUpdate((status) => {
       if (!status.isLoaded) return;
+      if (status.isPlaying) markFirstAudibleOutput(voiceTiming);
       if ((status as any).error) {
         console.warn("[tts] playback error:", (status as any).error);
         sound.unloadAsync().catch(() => {});
@@ -1513,7 +1551,7 @@ export default function ChatScreen() {
     });
   }
 
-  async function playPiperSentence(text: string, gen: number): Promise<boolean> {
+  async function playPiperSentence(text: string, gen: number, voiceTiming?: VoiceTurnTiming | null): Promise<boolean> {
     if (Platform.OS !== "android" || !NativePiper.isAvailable || !offlineTtsModelId) return false;
     const model = OFFLINE_MODELS.find((item) => item.id === offlineTtsModelId && item.kind === "tts");
     if (!model || !model.configFileName) return false;
@@ -1532,7 +1570,7 @@ export default function ChatScreen() {
       sound.unloadAsync().catch(() => {});
       return true;
     }
-    attachSoundListeners(sound, gen);
+    attachSoundListeners(sound, gen, voiceTiming);
     return true;
   }
 
@@ -1543,26 +1581,26 @@ export default function ChatScreen() {
     return isCallModeRef.current && (ttsProvider === "kokoro" || ttsProvider === "elevenlabs");
   }
 
-  async function playLocalVoice(text: string, gen: number): Promise<void> {
+  async function playLocalVoice(text: string, gen: number, voiceTiming?: VoiceTurnTiming | null): Promise<void> {
     const usePiper = ttsProvider === "piper" || (shouldUseLocalCallVoice() && !!offlineTtsModelId);
     if (usePiper) {
       try {
-        if (await playPiperSentence(text, gen)) return;
+        if (await playPiperSentence(text, gen, voiceTiming)) return;
       } catch (error) {
         console.warn("[tts] Piper unavailable, falling back to phone voice:", error);
       }
     }
     if (gen !== ttsGenerationRef.current) return;
-    try { await speakWithPhone(text); } catch { onTtsDone(); }
+    try { await speakWithPhone(text, voiceTiming); } catch { onTtsDone(); }
   }
 
   // Play one sentence immediately via cloud or phone TTS, then call onTtsDone.
   // Used for queue draining — no Alert fallback dialog (would be jarring mid-response).
-  async function playSentenceNow(text: string): Promise<void> {
+  async function playSentenceNow(text: string, voiceTiming?: VoiceTurnTiming | null): Promise<void> {
     if (!text.trim()) { onTtsDone(); return; }
     const gen = ttsGenerationRef.current;
     if (ttsProvider === "piper" || shouldUseLocalCallVoice()) {
-      await playLocalVoice(text, gen);
+      await playLocalVoice(text, gen, voiceTiming);
       return;
     }
     if ((ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && Platform.OS !== "web") {
@@ -1578,36 +1616,37 @@ export default function ChatScreen() {
           sound.unloadAsync().catch(() => {});
           return;
         }
-        attachSoundListeners(sound, gen);
+        attachSoundListeners(sound, gen, voiceTiming);
         return;
       } catch { /* fall through to phone TTS */ }
       if (gen !== ttsGenerationRef.current) return;
-      speakWithPhone(text);
+      speakWithPhone(text, voiceTiming);
       return;
     }
-    try { await speakWithPhone(text); } catch { onTtsDone(); }
+    try { await speakWithPhone(text, voiceTiming); } catch { onTtsDone(); }
   }
 
   // Enqueue a sentence from the streaming loop. Starts playback immediately
   // if nothing is playing; queues otherwise.
-  async function enqueueSentence(text: string) {
+  async function enqueueSentence(text: string, voiceTiming?: VoiceTurnTiming | null) {
     if (!isTtsEnabled || !text.trim()) return;
     if (!ttsPlayingRef.current) {
       ttsPlayingRef.current = true; // set synchronously before any await
       setIsSpeaking(true);
       if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
-      await playSentenceNow(text);
+      await playSentenceNow(text, voiceTiming);
     } else {
-      ttsQueueRef.current.push(text);
+      ttsQueueRef.current.push({ text, voiceTiming: voiceTiming ?? null });
     }
   }
 
-  async function speakWithPhone(text: string) {
+  async function speakWithPhone(text: string, voiceTiming?: VoiceTurnTiming | null) {
     if (Platform.OS === "web") { onTtsDone(); return; }
     const opts: Speech.SpeechOptions = {
       language: speechLanguage || "en-US",
       pitch: 1.05,
       rate: speechRate,
+      onStart: () => markFirstAudibleOutput(voiceTiming),
       onDone: onTtsDone,
       onError: onTtsDone,
       onStopped: () => setIsSpeaking(false),
@@ -1616,7 +1655,7 @@ export default function ChatScreen() {
     Speech.speak(text.slice(0, 800), opts);
   }
 
-  async function speakText(text: string) {
+  async function speakText(text: string, voiceTiming?: VoiceTurnTiming | null) {
     if (!isTtsEnabled || !text.trim()) {
       if (isCallModeRef.current) onTtsDone();
       return;
@@ -1632,7 +1671,7 @@ export default function ChatScreen() {
     startBargeInListener().catch(() => {});
 
     if (ttsProvider === "piper" || shouldUseLocalCallVoice()) {
-      await playLocalVoice(text, gen);
+      await playLocalVoice(text, gen, voiceTiming);
       return;
     }
 
@@ -1651,20 +1690,20 @@ export default function ChatScreen() {
           sound.unloadAsync().catch(() => {});
           return;
         }
-        attachSoundListeners(sound, gen);
+        attachSoundListeners(sound, gen, voiceTiming);
         return;
       } catch {
         // cloud TTS failed — silently fall back to phone TTS
       }
       if (gen !== ttsGenerationRef.current) return;
       // Cloud TTS unavailable — silently fall back to phone TTS (always works)
-      try { await speakWithPhone(text); } catch { onTtsDone(); }
+      try { await speakWithPhone(text, voiceTiming); } catch { onTtsDone(); }
       return;
     }
 
     // Phone TTS (user-selected provider)
     try {
-      await speakWithPhone(text);
+      await speakWithPhone(text, voiceTiming);
     } catch {
       onTtsDone();
     }
@@ -3471,9 +3510,20 @@ export default function ChatScreen() {
 
   // ── Send message ───────────────────────────────────────────────────────────
 
-  const handleSend = useCallback(async (overrideText?: string) => {
+  const handleSend = useCallback(async (overrideText?: string, speechFinalizedAtMs?: number) => {
     const text = (overrideText ?? (branchEditMsgId ? branchEditText : input)).trim();
     if (!text || isStreaming) return;
+
+    const voiceTiming: VoiceTurnTiming | null =
+      speechFinalizedAtMs !== undefined
+        ? {
+            traceId: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            speechFinalizedAtMs,
+          }
+        : null;
+    if (voiceTiming) {
+      logVoiceTimingStage(voiceTiming, "speech_finalized", voiceTiming.speechFinalizedAtMs);
+    }
 
     // Offline: only device commands work; block AI chat
     if (!isOnline) {
@@ -3611,9 +3661,18 @@ export default function ChatScreen() {
       const abortCtrl = new AbortController();
       chatAbortRef.current = abortCtrl;
 
+      if (voiceTiming) {
+        voiceTiming.requestStartedAtMs = Date.now();
+        logVoiceTimingStage(voiceTiming, "api_request_start", voiceTiming.requestStartedAtMs);
+      }
+      // expo/fetch preserves streaming response bodies on Android for SSE timing.
       const response = await fetch(`${baseUrl}chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          ...(voiceTiming && { "X-Vox-Trace-Id": voiceTiming.traceId }),
+        },
         body: JSON.stringify({
           messages: chatHistory,
           systemPrompt: chatSystemPrompt,
@@ -3626,23 +3685,34 @@ export default function ChatScreen() {
 
       if (!response.ok) throw new Error("Chat failed");
 
-      type SseChunkResult = { content: string; toolCall?: { name: string; params: Record<string, unknown> } };
+      type SseChunkResult = {
+        content: string;
+        toolCall?: { name: string; params: Record<string, unknown> };
+        modelFirstTokenMs?: number;
+      };
       const parseSseChunk = (chunk: string): SseChunkResult => {
         let content = "";
         let toolCall: SseChunkResult["toolCall"];
+        let modelFirstTokenMs: number | undefined;
         const lines = chunk.split("\n");
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const data = line.slice(6).trim();
           if (!data || data === "[DONE]") continue;
           try {
-            const parsed = JSON.parse(data) as { content?: string; error?: string; tool_call?: { name: string; params: Record<string, unknown> } };
+            const parsed = JSON.parse(data) as {
+              content?: string;
+              error?: string;
+              tool_call?: { name: string; params: Record<string, unknown> };
+              modelFirstTokenMs?: number;
+            };
             if (parsed.content) content += parsed.content;
             else if (parsed.error) content += parsed.error;
             if (parsed.tool_call) toolCall = parsed.tool_call;
+            if (typeof parsed.modelFirstTokenMs === "number") modelFirstTokenMs = parsed.modelFirstTokenMs;
           } catch { /* skip malformed lines */ }
         }
-        return { content, toolCall };
+        return { content, toolCall, modelFirstTokenMs };
       };
 
       const reader = response.body?.getReader();
@@ -3653,7 +3723,7 @@ export default function ChatScreen() {
       if (!reader) {
         // No streaming — get full text then speak it all at once
         fullContent = parseSseChunk(await response.text()).content;
-        speakText(fullContent);
+        speakText(fullContent, voiceTiming);
       } else {
         const decoder = new TextDecoder();
         let buf = "";       // SSE line buffer
@@ -3664,7 +3734,12 @@ export default function ChatScreen() {
           buf += decoder.decode(value, { stream: true });
           const lines = buf.split("\n");
           buf = lines.pop() ?? "";
-          const { content: delta, toolCall } = parseSseChunk(lines.join("\n"));
+          const { content: delta, toolCall, modelFirstTokenMs } = parseSseChunk(lines.join("\n"));
+          if (delta && voiceTiming && voiceTiming.modelFirstTokenAtMs === undefined) {
+            voiceTiming.modelFirstTokenAtMs = Date.now();
+            if (modelFirstTokenMs !== undefined) voiceTiming.serverModelFirstTokenMs = modelFirstTokenMs;
+            logVoiceTimingStage(voiceTiming, "first_model_token", voiceTiming.modelFirstTokenAtMs);
+          }
           // Execute device tool call silently — confirmation text streams as content
           if (toolCall) silentExecuteDeviceAction(toolCall.name, toolCall.params).catch(() => {});
           if (!delta) continue;
@@ -3687,12 +3762,12 @@ export default function ChatScreen() {
           const { sentences, remainder } = extractSentences(ttsBuf, isCallModeRef.current);
           ttsBuf = remainder;
           for (const s of sentences) {
-            enqueueSentence(s); // fire-and-forget: TTS plays while streaming continues
+            enqueueSentence(s, voiceTiming); // fire-and-forget: TTS plays while streaming continues
           }
         }
         if (buf) fullContent += parseSseChunk(buf).content;
         // Speak any trailing text that didn't end with sentence punctuation
-        if (ttsBuf.trim()) enqueueSentence(ttsBuf.trim());
+        if (ttsBuf.trim()) enqueueSentence(ttsBuf.trim(), voiceTiming);
       }
 
       if (!fullContent.trim()) throw new Error("No response received from chat service.");

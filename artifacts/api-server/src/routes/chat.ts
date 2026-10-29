@@ -330,6 +330,17 @@ router.post("/chat", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
+  const upstreamAbortController = new AbortController();
+  const abortUpstreamOnDisconnect = () => {
+    if (!res.writableEnded) upstreamAbortController.abort();
+  };
+  req.on("aborted", abortUpstreamOnDisconnect);
+  res.on("close", abortUpstreamOnDisconnect);
+  const writeSse = (payload: string): boolean => {
+    if (upstreamAbortController.signal.aborted || res.destroyed || res.writableEnded) return false;
+    return res.write(payload);
+  };
+
   // ── Device context block (battery, app, notifications, media, location) ────
   // Collected on-device by the mobile app and forwarded here as a short text
   // paragraph. We append it verbatim so the model has ambient awareness without
@@ -392,9 +403,10 @@ router.post("/chat", async (req, res) => {
         method: "POST",
         headers,
         body: requestBody(model, withTools),
+        signal: upstreamAbortController.signal,
       });
 
-      if (!response.ok) return false;
+      if (!response.ok || upstreamAbortController.signal.aborted) return false;
 
       const reader = response.body?.getReader();
       if (!reader) return false;
@@ -410,7 +422,7 @@ router.post("/chat", async (req, res) => {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done || upstreamAbortController.signal.aborted) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
@@ -431,9 +443,9 @@ router.post("/chat", async (req, res) => {
             if (delta?.content) {
               if (firstModelTokenMs === undefined) {
                 firstModelTokenMs = Date.now() - t0;
-                res.write(`data: ${JSON.stringify({ content: delta.content, modelFirstTokenMs: firstModelTokenMs })}\n\n`);
+                writeSse(`data: ${JSON.stringify({ content: delta.content, modelFirstTokenMs: firstModelTokenMs })}\n\n`);
               } else {
-                res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
+                writeSse(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
               }
             }
 
@@ -453,7 +465,7 @@ router.post("/chat", async (req, res) => {
               try { params = JSON.parse(toolCallArgs); } catch { /* malformed args */ }
 
               // Emit structured tool call event for the client
-              res.write(`data: ${JSON.stringify({ tool_call: { name: toolCallName, params } })}\n\n`);
+              writeSse(`data: ${JSON.stringify({ tool_call: { name: toolCallName, params } })}\n\n`);
 
               logMetrics(req, {
                 provider: providerName,
@@ -471,6 +483,7 @@ router.post("/chat", async (req, res) => {
                 const confirmResp = await fetch(`${url}/chat/completions`, {
                   method: "POST",
                   headers: confirmHeaders,
+                  signal: upstreamAbortController.signal,
                   body: JSON.stringify({
                     model,
                     messages: [
@@ -498,7 +511,7 @@ router.post("/chat", async (req, res) => {
                   const confirmData = await confirmResp.json() as { choices?: { message?: { content?: string } }[] };
                   const confirmation = confirmData.choices?.[0]?.message?.content?.trim();
                   if (confirmation) {
-                    res.write(`data: ${JSON.stringify({ content: confirmation })}\n\n`);
+                    writeSse(`data: ${JSON.stringify({ content: confirmation })}\n\n`);
                   }
                 }
               } catch { /* confirmation failed — client still has the tool_call */ }
@@ -508,6 +521,10 @@ router.post("/chat", async (req, res) => {
         }
       }
 
+      if (upstreamAbortController.signal.aborted) {
+        await reader.cancel().catch(() => {});
+        return false;
+      }
       if (!hasToolCall) {
         logMetrics(req, {
           provider: providerName,
@@ -520,6 +537,7 @@ router.post("/chat", async (req, res) => {
       }
       return true;
     } catch (err) {
+      if (upstreamAbortController.signal.aborted) return false;
       logMetrics(req, {
         provider: providerName,
         model,
@@ -535,20 +553,30 @@ router.post("/chat", async (req, res) => {
 
   try {
     let ok = false;
-    if (groqKey) ok = await streamFrom(GROQ_BASE, groqKey, callMode ? GROQ_CALL_MODEL : GROQ_CHAT_MODEL);
-    if (!ok && OLLAMA_BASE) ok = await streamFrom(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
-    if (!ok && !callMode && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
+    if (groqKey && !upstreamAbortController.signal.aborted) {
+      ok = await streamFrom(GROQ_BASE, groqKey, callMode ? GROQ_CALL_MODEL : GROQ_CHAT_MODEL);
+    }
+    if (!ok && !upstreamAbortController.signal.aborted && OLLAMA_BASE) {
+      ok = await streamFrom(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
+    }
+    if (!ok && !upstreamAbortController.signal.aborted && !callMode && orKey) {
+      ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
+    }
+    if (upstreamAbortController.signal.aborted) return;
     if (!ok) {
       req.log.error({ latencyMs: Date.now() - startMs }, "All AI providers failed");
-      res.write(`data: ${JSON.stringify({ error: "All AI providers failed" })}\n\n`);
+      writeSse(`data: ${JSON.stringify({ error: "All AI providers failed" })}\n\n`);
     }
   } catch (err) {
+    if (upstreamAbortController.signal.aborted) return;
     req.log.error({ err }, "Chat streaming error");
-    res.write(`data: ${JSON.stringify({ error: "Internal server error" })}\n\n`);
+    writeSse(`data: ${JSON.stringify({ error: "Internal server error" })}\n\n`);
   }
 
-  res.write("data: [DONE]\n\n");
-  res.end();
+  if (!upstreamAbortController.signal.aborted && !res.destroyed && !res.writableEnded) {
+    res.write("data: [DONE]\n\n");
+    res.end();
+  }
 });
 
 // ─── /summarize  (rolling conversation summary) ───────────────────────────────

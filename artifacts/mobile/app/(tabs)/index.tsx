@@ -697,6 +697,7 @@ const sidebarStyles = StyleSheet.create({
 
 const CALL_MODE_RETRY_DELAY_MS = 400;
 const CALL_MODE_SILENCE_MS = 500;
+const CALL_MODE_PARTIAL_STABILITY_MS = 360;
 
 // ─── In-app timer types ───────────────────────────────────────────────────────
 
@@ -811,6 +812,8 @@ export default function ChatScreen() {
   const nativeSpeechActiveRef = useRef(false);
   const nativeSpeechModeRef = useRef<"turn" | "barge">("turn");
   const nativeSpeechTextRef = useRef("");
+  const nativeSpeechCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingVoiceTurnRef = useRef<{ text: string; receivedAtMs: number } | null>(null);
   const handleSendRef = useRef<(overrideText?: string, speechFinalizedAtMs?: number) => void>(() => {});
   // Live audio amplitude (0–1) driven by VAD metering — feeds WaveformBars + SiriOrb
   const audioLevelAnim = useRef(new Animated.Value(0)).current;
@@ -927,14 +930,16 @@ export default function ChatScreen() {
 
   // Android SpeechRecognizer is the low-latency path for foreground voice
   // turns. Partials drive the live transcript and also provide barge-in while
-  // TTS is speaking; final text goes directly to the existing send pipeline.
+  // TTS is speaking. In call mode, a stable partial starts generation without
+  // waiting for Android's end-of-turn callback.
   useEffect(() => {
     if (!NativeSpeechRecognizer.isAvailable) return;
 
     const unsubPartial = NativeSpeechRecognizer.onPartial(({ text, level }) => {
       if (!nativeSpeechActiveRef.current || !text.trim()) return;
-      nativeSpeechTextRef.current = text.trim();
-      setInput(text.trim());
+      const partialText = text.trim();
+      nativeSpeechTextRef.current = partialText;
+      setInput(partialText);
       if (typeof level === "number") audioLevelAnim.setValue(level);
 
       if (nativeSpeechModeRef.current === "barge" && text.trim().length > 1) {
@@ -943,10 +948,43 @@ export default function ChatScreen() {
         NativeOverlay.setState("listening").catch(() => {});
         stopSpeaking().catch(() => {});
       }
+
+      if (!isCallModeRef.current || partialText.length < 2) return;
+      if (nativeSpeechCommitTimerRef.current) clearTimeout(nativeSpeechCommitTimerRef.current);
+      nativeSpeechCommitTimerRef.current = setTimeout(() => {
+        nativeSpeechCommitTimerRef.current = null;
+        if (
+          !nativeSpeechActiveRef.current ||
+          nativeSpeechModeRef.current !== "turn" ||
+          nativeSpeechTextRef.current !== partialText
+        ) return;
+
+        // Commit the latest stable hypothesis. Cancelling (rather than asking
+        // Android for a final result) avoids waiting for its longer silence
+        // threshold; a later spoken phrase is handled as barge-in.
+        nativeSpeechActiveRef.current = false;
+        nativeSpeechModeRef.current = "turn";
+        nativeSpeechTextRef.current = "";
+        NativeSpeechRecognizer.cancel().catch(() => {});
+        NativeAudioSession.endVoiceSession().catch(() => {});
+        setIsRecording(false);
+        setRecordingDuration(0);
+        audioLevelAnim.setValue(0);
+        const receivedAtMs = Date.now();
+        if (isStreamingRef.current) {
+          pendingVoiceTurnRef.current = { text: partialText, receivedAtMs };
+        } else {
+          handleSendRef.current(partialText, receivedAtMs);
+        }
+      }, CALL_MODE_PARTIAL_STABILITY_MS);
     });
 
     const unsubResult = NativeSpeechRecognizer.onResult(({ text, finalizedAtMs }) => {
       if (!nativeSpeechActiveRef.current) return;
+      if (nativeSpeechCommitTimerRef.current) {
+        clearTimeout(nativeSpeechCommitTimerRef.current);
+        nativeSpeechCommitTimerRef.current = null;
+      }
       const mode = nativeSpeechModeRef.current;
       const transcript = (text || nativeSpeechTextRef.current).trim();
       nativeSpeechActiveRef.current = false;
@@ -960,7 +998,11 @@ export default function ChatScreen() {
 
       if (transcript.length > 1) {
         setIsTranscribing(false);
-        handleSendRef.current(transcript, finalizedAtMs ?? Date.now());
+        if (isStreamingRef.current) {
+          pendingVoiceTurnRef.current = { text: transcript, receivedAtMs: finalizedAtMs ?? Date.now() };
+        } else {
+          handleSendRef.current(transcript, finalizedAtMs ?? Date.now());
+        }
       } else if (isCallModeRef.current) {
         setTimeout(() => {
           if (isCallModeRef.current && !nativeSpeechActiveRef.current) startRecording();
@@ -970,6 +1012,10 @@ export default function ChatScreen() {
 
     const unsubError = NativeSpeechRecognizer.onError(() => {
       if (!nativeSpeechActiveRef.current) return;
+      if (nativeSpeechCommitTimerRef.current) {
+        clearTimeout(nativeSpeechCommitTimerRef.current);
+        nativeSpeechCommitTimerRef.current = null;
+      }
       const mode = nativeSpeechModeRef.current;
       nativeSpeechActiveRef.current = false;
       nativeSpeechModeRef.current = "turn";
@@ -993,6 +1039,10 @@ export default function ChatScreen() {
       unsubPartial();
       unsubResult();
       unsubError();
+      if (nativeSpeechCommitTimerRef.current) {
+        clearTimeout(nativeSpeechCommitTimerRef.current);
+        nativeSpeechCommitTimerRef.current = null;
+      }
       if (nativeSpeechActiveRef.current) {
         nativeSpeechActiveRef.current = false;
         NativeSpeechRecognizer.cancel().catch(() => {});
@@ -1433,6 +1483,10 @@ export default function ChatScreen() {
 
   async function cancelNativeSpeech() {
     if (!nativeSpeechActiveRef.current) return;
+    if (nativeSpeechCommitTimerRef.current) {
+      clearTimeout(nativeSpeechCommitTimerRef.current);
+      nativeSpeechCommitTimerRef.current = null;
+    }
     nativeSpeechActiveRef.current = false;
     nativeSpeechModeRef.current = "turn";
     nativeSpeechTextRef.current = "";
@@ -1464,7 +1518,11 @@ export default function ChatScreen() {
   }
 
   async function startBargeInListener() {
-    if (Platform.OS !== "android" || !isCallModeRef.current || !isSpeakingRef.current) return;
+    if (
+      Platform.OS !== "android" ||
+      !isCallModeRef.current ||
+      (!isSpeakingRef.current && !ttsPlayingRef.current)
+    ) return;
     await startNativeSpeech("barge", 650);
   }
 
@@ -1634,6 +1692,7 @@ export default function ChatScreen() {
       ttsPlayingRef.current = true; // set synchronously before any await
       setIsSpeaking(true);
       if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
+      startBargeInListener().catch(() => {});
       await playSentenceNow(text, voiceTiming);
     } else {
       ttsQueueRef.current.push({ text, voiceTiming: voiceTiming ?? null });
@@ -1872,6 +1931,10 @@ export default function ChatScreen() {
     }
     if (nativeSpeechActiveRef.current) {
       nativeSpeechActiveRef.current = false;
+      if (nativeSpeechCommitTimerRef.current) {
+        clearTimeout(nativeSpeechCommitTimerRef.current);
+        nativeSpeechCommitTimerRef.current = null;
+      }
       NativeSpeechRecognizer.cancel().catch(() => {});
       NativeAudioSession.endVoiceSession().catch(() => {});
     }
@@ -3512,7 +3575,7 @@ export default function ChatScreen() {
 
   const handleSend = useCallback(async (overrideText?: string, speechFinalizedAtMs?: number) => {
     const text = (overrideText ?? (branchEditMsgId ? branchEditText : input)).trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreamingRef.current) return;
 
     const voiceTiming: VoiceTurnTiming | null =
       speechFinalizedAtMs !== undefined
@@ -3564,6 +3627,7 @@ export default function ChatScreen() {
     const withUser = [...baseSnapshot, userMsg];
     setMessages(withUser);
     setIsStreaming(true);
+    isStreamingRef.current = true;
     setShowTyping(true);
 
     try {
@@ -3815,7 +3879,17 @@ export default function ChatScreen() {
       speakText(errMsg);
     } finally {
       setIsStreaming(false);
+      isStreamingRef.current = false;
       setShowTyping(false);
+      const pendingVoiceTurn = pendingVoiceTurnRef.current;
+      if (pendingVoiceTurn) {
+        pendingVoiceTurnRef.current = null;
+        setTimeout(() => {
+          if (isCallModeRef.current && !isStreamingRef.current) {
+            handleSendRef.current(pendingVoiceTurn.text, pendingVoiceTurn.receivedAtMs);
+          }
+        }, 0);
+      }
     }
   }, [input, isStreaming, isSearchMode, messages, chatSystemPrompt, deviceId]);
 

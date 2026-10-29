@@ -13,6 +13,7 @@ export interface SpeechPartialEvent {
 
 export interface SpeechResultEvent {
   text: string;
+  finalizedAtMs?: number;
 }
 
 export const NativeSpeechRecognizer = {

@@ -121,6 +121,7 @@ class VoxSpeechRecognizerModule(
             if (text.isNotBlank()) {
                 val map = Arguments.createMap()
                 map.putString("text", text)
+                map.putDouble("finalizedAtMs", System.currentTimeMillis().toDouble())
                 sendEvent("onVoxSpeechResult", map)
             }
         }

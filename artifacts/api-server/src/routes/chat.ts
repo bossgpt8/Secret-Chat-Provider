@@ -23,6 +23,8 @@ interface RequestMetrics {
   provider: string;
   model: string;
   latencyMs: number;
+  firstModelTokenMs?: number;
+  traceId?: string;
   inputTokens?: number;
   success: boolean;
   toolCall?: string;
@@ -34,6 +36,8 @@ function logMetrics(req: { log: { info: (obj: object, msg: string) => void } }, 
       provider: metrics.provider,
       model: metrics.model,
       latencyMs: metrics.latencyMs,
+      ...(metrics.firstModelTokenMs !== undefined && { firstModelTokenMs: metrics.firstModelTokenMs }),
+      ...(metrics.traceId && { traceId: metrics.traceId }),
       success: metrics.success,
       ...(metrics.toolCall && { toolCall: metrics.toolCall }),
     },
@@ -279,6 +283,8 @@ const DEVICE_TOOLS = [
 
 router.post("/chat", async (req, res) => {
   const startMs = Date.now();
+  const rawTraceId = req.get("x-vox-trace-id") ?? "";
+  const traceId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawTraceId) ? rawTraceId : undefined;
   const { messages: rawMessages, systemPrompt, deviceId, deviceContext, callMode } = req.body;
   if (!rawMessages || !Array.isArray(rawMessages)) {
     res.status(400).json({ error: "messages array is required" });
@@ -367,6 +373,7 @@ router.post("/chat", async (req, res) => {
 
   async function streamFrom(url: string, key: string, model: string): Promise<boolean> {
     const t0 = Date.now();
+    let firstModelTokenMs: number | undefined;
     const providerName = url.includes("openrouter") ? "openrouter" : url.includes("groq") ? "groq" : "ollama";
     try {
       const headers: Record<string, string> = {
@@ -422,7 +429,12 @@ router.post("/chat", async (req, res) => {
 
             // Regular text content
             if (delta?.content) {
-              res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
+              if (firstModelTokenMs === undefined) {
+                firstModelTokenMs = Date.now() - t0;
+                res.write(`data: ${JSON.stringify({ content: delta.content, modelFirstTokenMs: firstModelTokenMs })}\n\n`);
+              } else {
+                res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
+              }
             }
 
             // Tool call chunks — accumulate
@@ -443,7 +455,15 @@ router.post("/chat", async (req, res) => {
               // Emit structured tool call event for the client
               res.write(`data: ${JSON.stringify({ tool_call: { name: toolCallName, params } })}\n\n`);
 
-              logMetrics(req, { provider: providerName, model, latencyMs: Date.now() - t0, success: true, toolCall: toolCallName });
+              logMetrics(req, {
+                provider: providerName,
+                model,
+                latencyMs: Date.now() - t0,
+                ...(firstModelTokenMs !== undefined && { firstModelTokenMs }),
+                ...(traceId && { traceId }),
+                success: true,
+                toolCall: toolCallName,
+              });
 
               // Follow-up call: get a short natural-language confirmation
               try {
@@ -489,11 +509,25 @@ router.post("/chat", async (req, res) => {
       }
 
       if (!hasToolCall) {
-        logMetrics(req, { provider: providerName, model, latencyMs: Date.now() - t0, success: true });
+        logMetrics(req, {
+          provider: providerName,
+          model,
+          latencyMs: Date.now() - t0,
+          ...(firstModelTokenMs !== undefined && { firstModelTokenMs }),
+          ...(traceId && { traceId }),
+          success: true,
+        });
       }
       return true;
     } catch (err) {
-      logMetrics(req, { provider: providerName, model, latencyMs: Date.now() - t0, success: false });
+      logMetrics(req, {
+        provider: providerName,
+        model,
+        latencyMs: Date.now() - t0,
+        ...(firstModelTokenMs !== undefined && { firstModelTokenMs }),
+        ...(traceId && { traceId }),
+        success: false,
+      });
       req.log.error({ err }, `${providerName} stream error`);
       return false;
     }

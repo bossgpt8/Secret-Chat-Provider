@@ -696,7 +696,7 @@ const sidebarStyles = StyleSheet.create({
 // ─── Main chat screen ─────────────────────────────────────────────────────────
 
 const CALL_MODE_RETRY_DELAY_MS = 400;
-const CALL_MODE_SILENCE_MS = 600;
+const CALL_MODE_SILENCE_MS = 500;
 
 // ─── In-app timer types ───────────────────────────────────────────────────────
 
@@ -3575,7 +3575,9 @@ export default function ChatScreen() {
       const KEEP_RECENT = 20;
       let chatHistory: { role: string; content: string }[];
 
-      const shouldSummarize = withUser.length > SUMMARIZE_THRESHOLD;
+      // Voice turns should not wait on a second LLM request to summarize old
+      // history. The recent conversation is enough to answer immediately.
+      const shouldSummarize = !isCallModeRef.current && withUser.length > SUMMARIZE_THRESHOLD;
       const oldMessages = shouldSummarize ? withUser.slice(0, withUser.length - KEEP_RECENT) : [];
       const summaryPromise = shouldSummarize
         ? summarizeOldMessages(oldMessages)
@@ -3583,7 +3585,7 @@ export default function ChatScreen() {
       // These independent preparations used to run one after another. Overlap
       // them so voice mode starts the model request as soon as the slower one
       // is ready instead of paying both latencies in series.
-      const deviceContextPromise = contextEnabled
+      const deviceContextPromise = contextEnabled && !isCallModeRef.current
         ? collectDeviceContext()
         : Promise.resolve(undefined);
       const [summary, deviceCtx] = await Promise.all([summaryPromise, deviceContextPromise]);

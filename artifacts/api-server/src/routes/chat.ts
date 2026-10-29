@@ -9,7 +9,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
-const GROQ_CHAT_MODEL = "llama-3.3-70b-versatile";
+const GROQ_CHAT_MODEL = "openai/gpt-oss-120b";
+const GROQ_CALL_MODEL = "openai/gpt-oss-20b";
 const GROQ_WHISPER_MODEL = "whisper-large-v3";
 const OR_CHAT_MODEL = "meta-llama/llama-3.3-70b-instruct";
 const OR_WHISPER_MODEL = "openai/whisper-large-v3";
@@ -299,7 +300,10 @@ router.post("/chat", async (req, res) => {
 
   // ── Load persistent memory facts for this device ───────────────────────────
   let memoryBlock = "";
-  if (deviceId && process.env.DATABASE_URL) {
+  // The mobile app already includes its cached memory facts in the system
+  // prompt. Avoid a database round-trip before starting a latency-sensitive
+  // voice response.
+  if (!callMode && deviceId && process.env.DATABASE_URL) {
     try {
       const facts = await db
         .select({ fact: memoryFactsTable.fact })
@@ -343,15 +347,23 @@ router.post("/chat", async (req, res) => {
     },
   ];
 
-  const requestBody = (model: string, withTools: boolean) =>
-    JSON.stringify({
+  const requestBody = (model: string, withTools: boolean) => {
+    const isGptOss = model.startsWith("openai/gpt-oss-");
+    return JSON.stringify({
       model,
       messages: [...systemMessages, ...messages],
       stream: true,
-      max_tokens: 512,
+      ...(isGptOss
+        ? {
+            max_completion_tokens: callMode ? 384 : 1024,
+            reasoning_effort: callMode ? "low" : "medium",
+            reasoning_format: "hidden",
+          }
+        : { max_tokens: callMode ? 160 : 512 }),
       temperature: 0.7,
       ...(withTools && { tools: DEVICE_TOOLS, tool_choice: "auto" }),
     });
+  };
 
   async function streamFrom(url: string, key: string, model: string): Promise<boolean> {
     const t0 = Date.now();
@@ -489,7 +501,7 @@ router.post("/chat", async (req, res) => {
 
   try {
     let ok = false;
-    if (groqKey) ok = await streamFrom(GROQ_BASE, groqKey, GROQ_CHAT_MODEL);
+    if (groqKey) ok = await streamFrom(GROQ_BASE, groqKey, callMode ? GROQ_CALL_MODEL : GROQ_CHAT_MODEL);
     if (!ok && OLLAMA_BASE) ok = await streamFrom(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
     if (!ok && !callMode && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
     if (!ok) {

@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { describeImage, VisionError } from "../lib/vision";
 import multer from "multer";
 import FormData from "form-data";
 import { db, memoryFactsTable } from "@workspace/db";
@@ -868,7 +869,7 @@ router.post("/transcribe", upload.single("audio"), async (req, res) => {
   }
 });
 
-// ─── /vision  (describe an image — OpenRouter vision model) ──────────────────
+// ─── /vision (Groq first, then configured OpenRouter fallback) ───────────────
 
 router.post("/vision", upload.single("image"), async (req, res) => {
   if (!req.file) {
@@ -876,58 +877,27 @@ router.post("/vision", upload.single("image"), async (req, res) => {
     return;
   }
 
-  const orKey = process.env.OPENROUTER_API_KEY;
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!orKey && !groqKey) {
-    res.status(500).json({ error: "No vision API key configured" });
-    return;
-  }
-
-  const { prompt = "Describe what you see in this image in 2-3 sentences, as if you are a voice assistant. Be concise and natural." } = req.body;
-
   try {
-    const base64 = req.file.buffer.toString("base64");
-    const mimeType = req.file.mimetype || "image/jpeg";
-
-    // Try Groq vision (llava) first, fall back to OpenRouter Gemini
-    const visionProviders: Array<{ url: string; key: string; model: string }> = [];
-    if (orKey) visionProviders.push({ url: OPENROUTER_BASE, key: orKey, model: "google/gemini-2.0-flash-001" });
-
-    for (const { url, key, model } of visionProviders) {
-      try {
-        const r = await fetch(`${url}/chat/completions`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${key}`,
-            "Content-Type": "application/json",
-            ...(url.includes("openrouter") && { "HTTP-Referer": "https://replit.com", "X-Title": "Vox Voice Assistant" }),
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: prompt },
-                  { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
-                ],
-              },
-            ],
-            max_tokens: 256,
-            temperature: 0.4,
-          }),
-        });
-
-        if (!r.ok) continue;
-        const d = await r.json() as { choices?: { message?: { content?: string } }[] };
-        const description = d.choices?.[0]?.message?.content ?? "I couldn't describe the image.";
-        res.json({ description });
-        return;
-      } catch { continue; }
-    }
-
-    res.status(500).json({ error: "Vision API failed" });
+    const rawPrompt = req.body?.prompt;
+    const prompt = typeof rawPrompt === "string" && rawPrompt.trim()
+      ? rawPrompt.trim().slice(0, 2000)
+      : "Describe what you see in this image in 2-3 sentences, as if you are a voice assistant. Be concise and natural.";
+    const description = await describeImage({
+      image: req.file.buffer,
+      mimeType: req.file.mimetype || "image/jpeg",
+      prompt,
+      groqKey: process.env.GROQ_API_KEY,
+      openRouterKey: process.env.OPENROUTER_API_KEY,
+      groqModel: process.env.GROQ_VISION_MODEL,
+      openRouterModel: process.env.OPENROUTER_VISION_MODEL,
+      onFailure: (details) => req.log.warn(details, "Vision provider failed"),
+    });
+    res.json({ description });
   } catch (err) {
+    if (err instanceof VisionError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
     req.log.error({ err }, "Vision error");
     res.status(500).json({ error: "Vision failed" });
   }

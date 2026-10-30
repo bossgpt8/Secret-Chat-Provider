@@ -41,6 +41,8 @@ import { NativeScreenCapture } from "@/modules/NativeScreenCapture";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeAudioSession } from "@/modules/NativeAudioSession";
 import { NativeSpeechRecognizer } from "@/modules/NativeSpeechRecognizer";
+import { splitPiperText } from "@/modules/speechChunks";
+import { File } from "expo-file-system";
 import {
   NativeOfflineModels,
   NativePcmRecorder,
@@ -755,6 +757,10 @@ export default function ChatScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [visionMode, setVisionMode] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+  const cameraStartedRef = useRef(false);
+  const cameraErrorRef = useRef<string | null>(null);
+  const visionBusyRef = useRef(false);
+  const [isDescribingImage, setIsDescribingImage] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [notifPermGranted, setNotifPermGranted] = useState(false);
   const [lastNotification, setLastNotification] = useState<VoxNotification | null>(null);
@@ -1287,27 +1293,70 @@ export default function ChatScreen() {
       speakText(reply);
     }
 
-    if (!cameraRef.current) {
-      visionRespond("I need the camera to be active. Please open the camera first.");
+    if (visionBusyRef.current) return;
+    if (Platform.OS === "web") {
+      visionRespond("Use the installed mobile app to take a photo for me.");
       return;
     }
+    visionBusyRef.current = true;
+    setIsDescribingImage(true);
+    let photoUri: string | undefined;
+    let requestTimer: ReturnType<typeof setTimeout> | undefined;
+    let requestTimedOut = false;
     try {
+      if (!cameraPermission?.granted) {
+        const { granted } = await requestCameraPermission();
+        if (!granted) throw new Error("Camera permission is needed. Enable it in your phone's Settings.");
+      }
+      cameraErrorRef.current = null;
+      if (!cameraRef.current) cameraStartedRef.current = false;
+      setCameraReady(true);
+      setVisionMode(true);
       setMessages((prev) => [
         ...prev,
         { id: generateMsgId(), role: "user", content: userQuestion ?? "What do you see?", timestamp: Date.now() },
       ]);
       setShowTyping(true);
-      const photo = await cameraRef.current.takePictureAsync({ base64: false, quality: 0.6, skipProcessing: true });
-      if (!photo?.uri) throw new Error("no photo uri");
+      // A fixed delay can fire before the camera has actually initialized.
+      const deadline = Date.now() + 6000;
+      while (!cameraStartedRef.current || !cameraRef.current) {
+        if (cameraErrorRef.current) throw new Error("The camera could not start. Close other apps using it and try again.");
+        if (Date.now() > deadline) throw new Error("The camera took too long to start. Please try again.");
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      }
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.5 });
+      if (!photo?.uri) throw new Error("The camera did not return a photo. Please try again.");
+      photoUri = photo.uri;
       const base = await getApiBase();
       const fd = new FormData();
-      fd.append("image", { uri: photo.uri, type: "image/jpeg", name: "photo.jpg" } as unknown as Blob);
+      fd.append("image", new File(photo.uri), "photo.jpg");
       if (userQuestion) fd.append("prompt", userQuestion);
-      const r = await globalThis.fetch(`${base}vision`, { method: "POST", body: fd });
-      const { description = "I couldn't describe the image." } = await r.json() as { description?: string };
-      visionRespond(description);
-    } catch {
-      visionRespond("I couldn't capture or describe the image. Make sure the camera is active.");
+      const controller = new AbortController();
+      requestTimer = setTimeout(() => { requestTimedOut = true; controller.abort(); }, 45000);
+      const r = await fetch(`${base}vision`, { method: "POST", body: fd, signal: controller.signal });
+      const data = await r.json().catch(() => null) as { description?: string; error?: string } | null;
+      if (!data) throw new Error("The camera AI server returned an invalid response. Check the API connection.");
+      if (!r.ok) throw new Error(data.error || "The camera AI server could not process the photo.");
+      if (!data.description?.trim()) throw new Error("The camera AI returned an empty answer. Please try again.");
+      visionRespond(data.description);
+    } catch (error) {
+      console.warn("[vision] capture/description failed:", error);
+      visionRespond(!requestTimedOut && error instanceof Error && error.name !== "AbortError" && error.name !== "TimeoutError"
+        ? error.message
+        : "The camera AI timed out. Check your connection and try again.");
+    } finally {
+      if (requestTimer) clearTimeout(requestTimer);
+      setShowTyping(false);
+      setVisionMode(false);
+      if (!torchOn) {
+        setCameraReady(false);
+        cameraStartedRef.current = false;
+      }
+      visionBusyRef.current = false;
+      setIsDescribingImage(false);
+      if (photoUri) {
+        try { new File(photoUri).delete(); } catch { /* Cache cleanup must not hide the result. */ }
+      }
     }
   }
 
@@ -1559,7 +1608,7 @@ export default function ChatScreen() {
     const configPath = await NativeOfflineModels.getPath(model.configFileName);
     if (!modelPath || !configPath) return false;
 
-    const wavPath = await NativePiper.synthesize(text.slice(0, 800), modelPath, configPath);
+    const wavPath = await NativePiper.synthesize(text, modelPath, configPath);
     if (gen !== ttsGenerationRef.current) return true;
     await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
     const { sound } = await Audio.Sound.createAsync(
@@ -1574,18 +1623,23 @@ export default function ChatScreen() {
     return true;
   }
 
-  // Call mode stays on-device when the global voice setting points at a cloud
-  // engine. Prefer a downloaded Piper model when available; otherwise use the
-  // Android phone voice so an unavailable Kokoro endpoint cannot stall speech.
+  // Downloading a model must not silently activate heavy neural inference.
+  // A cloud selection uses the lightweight phone voice during calls.
   function shouldUseLocalCallVoice(): boolean {
     return isCallModeRef.current && (ttsProvider === "kokoro" || ttsProvider === "elevenlabs");
   }
 
   async function playLocalVoice(text: string, gen: number, voiceTiming?: VoiceTurnTiming | null): Promise<void> {
-    const usePiper = ttsProvider === "piper" || (shouldUseLocalCallVoice() && !!offlineTtsModelId);
+    const usePiper = ttsProvider === "piper";
     if (usePiper) {
       try {
-        if (await playPiperSentence(text, gen, voiceTiming)) return;
+        const [first, ...remaining] = splitPiperText(text);
+        if (first && await playPiperSentence(first, gen, voiceTiming)) {
+          if (gen === ttsGenerationRef.current) {
+            ttsQueueRef.current.unshift(...remaining.map((chunk) => ({ text: chunk, voiceTiming: voiceTiming ?? null })));
+          }
+          return;
+        }
       } catch (error) {
         console.warn("[tts] Piper unavailable, falling back to phone voice:", error);
       }
@@ -3152,19 +3206,7 @@ export default function ChatScreen() {
 
       case "photo_capture": {
         const question = intent.extra ?? undefined;
-        if (!cameraPermission?.granted) {
-          const { granted } = await requestCameraPermission();
-          if (!granted) {
-            await respond("I need camera permission to see what's around you. Please grant it in Settings.");
-            break;
-          }
-        }
-        setCameraReady(true);
-        setVisionMode(true);
-        // Small delay so camera warms up before capture
-        await new Promise<void>((r) => setTimeout(r, 800));
         await captureAndDescribe(question);
-        setVisionMode(false);
         break;
       }
 
@@ -3969,6 +4011,8 @@ export default function ChatScreen() {
               : { position: "absolute", width: 1, height: 1, opacity: 0 }
           }
           facing="back"
+          onCameraReady={() => { cameraStartedRef.current = true; }}
+          onMountError={(event) => { cameraErrorRef.current = event.message; cameraStartedRef.current = false; }}
           enableTorch={torchOn}
         />
       )}
@@ -4241,20 +4285,12 @@ export default function ChatScreen() {
             {/* Camera shortcut button */}
             <Pressable
               style={[styles.cameraBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={async () => {
-                if (!cameraPermission?.granted) {
-                  const { granted } = await requestCameraPermission();
-                  if (!granted) return;
-                }
-                setCameraReady(true);
-                setVisionMode(true);
-                await new Promise<void>((r) => setTimeout(r, 800));
-                await captureAndDescribe();
-                setVisionMode(false);
-              }}
-              disabled={isStreaming || isRecording}
+              onPress={() => captureAndDescribe()}
+              disabled={isStreaming || isRecording || isDescribingImage}
             >
-              <Ionicons name="camera-outline" size={22} color={colors.mutedForeground} />
+              {isDescribingImage
+                ? <ActivityIndicator size="small" color={colors.primary} />
+                : <Ionicons name="camera-outline" size={22} color={colors.mutedForeground} />}
             </Pressable>
 
             {/* Mic button */}

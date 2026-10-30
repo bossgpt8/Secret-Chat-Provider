@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { Audio } from "expo-av";
@@ -47,6 +47,22 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
   const [activeIds, setActiveIds] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [testingPiper, setTestingPiper] = useState(false);
+  const testBusyRef = useRef(false);
+  const testSoundRef = useRef<Audio.Sound | null>(null);
+  const aliveRef = useRef(true);
+
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      const sound = testSoundRef.current;
+      testSoundRef.current = null;
+      if (sound) {
+        sound.setOnPlaybackStatusUpdate(null);
+        sound.unloadAsync().catch(() => {});
+      }
+    };
+  }, []);
 
   const sttModels = useMemo(() => OFFLINE_MODELS.filter((m) => m.kind === "stt"), []);
   const ttsModels = useMemo(() => OFFLINE_MODELS.filter((m) => m.kind === "tts"), []);
@@ -165,6 +181,7 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
   }
 
   async function testPiperVoice() {
+    if (testBusyRef.current) return;
     const model = OFFLINE_MODELS.find((item) => item.id === offlineTtsModelId && item.kind === "tts");
     if (!model?.configFileName) {
       Alert.alert("Choose a Piper voice", "Select a downloaded Piper voice from the Offline voice dropdown first.");
@@ -174,6 +191,7 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
       Alert.alert("Android build required", "Piper voice playback is available in the installed Android build, not Expo Go or the web preview.");
       return;
     }
+    testBusyRef.current = true;
     setTestingPiper(true);
     try {
       const modelPath = await NativeOfflineModels.getPath(model.fileName);
@@ -185,24 +203,36 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
         configPath,
       );
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      if (!aliveRef.current) { testBusyRef.current = false; return; }
       const { sound } = await Audio.Sound.createAsync(
         { uri: wavPath.startsWith("file://") ? wavPath : `file://${wavPath}` },
         { shouldPlay: true, volume: 1 },
       );
+      if (!aliveRef.current) {
+        await sound.unloadAsync();
+        testBusyRef.current = false;
+        return;
+      }
+      testSoundRef.current = sound;
       sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish) {
-          sound.unloadAsync().catch(() => {});
+        if ((status.isLoaded && status.didJustFinish) || (!status.isLoaded && status.error)) {
+          testBusyRef.current = false;
           setTestingPiper(false);
+          testSoundRef.current = null;
+          sound.setOnPlaybackStatusUpdate(null);
+          sound.unloadAsync().catch(() => {});
         }
       });
     } catch (error) {
+      testBusyRef.current = false;
+      if (!aliveRef.current) return;
       setTestingPiper(false);
       const message = error instanceof Error ? error.message : String(error);
       Alert.alert("Piper could not speak", message || "The native Piper synthesis failed. Rebuild the Android app after installing the latest Vox changes.");
     }
   }
 
-  function ModelPicker({ kind, models }: { kind: "stt" | "tts"; models: OfflineModelDefinition[] }) {
+  function renderModelPicker(kind: "stt" | "tts", models: OfflineModelDefinition[]) {
     return (
       <View style={[styles.block, { borderBottomColor: colors.border }]}>
         <Text style={[styles.label, { color: colors.foreground }]}>
@@ -287,8 +317,8 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
       {Platform.OS === "web" && (
         <Text style={[styles.webNote, { color: colors.accent }]}>Install the Android build to download and run these models on-device.</Text>
       )}
-      <ModelPicker kind="stt" models={sttModels} />
-      <ModelPicker kind="tts" models={ttsModels} />
+      {renderModelPicker("stt", sttModels)}
+      {renderModelPicker("tts", ttsModels)}
       <View style={[styles.testRow, { borderTopColor: colors.border }]}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.label, { color: colors.foreground }]}>Test offline Piper</Text>

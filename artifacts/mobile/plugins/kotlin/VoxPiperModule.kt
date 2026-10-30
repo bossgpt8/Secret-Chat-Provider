@@ -11,6 +11,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * VoxPiperModule — offline TTS using Piper ONNX voice models.
@@ -27,99 +30,138 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
     override fun getName() = "VoxPiperModule"
 
     // Keep at most one OrtSession loaded to save RAM.
-    private var loadedModelPath: String? = null
-    private var session: OrtSession? = null
+    @Volatile private var loadedModelPath: String? = null
+    @Volatile private var session: OrtSession? = null
     private val ortEnv: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
+    private val worker = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "VoxPiper").apply { priority = Thread.MIN_PRIORITY }
+    }
+    private val watchdog = Executors.newSingleThreadScheduledExecutor()
+    private val busy = AtomicBoolean(false)
 
     // ── Public API ────────────────────────────────────────────────────────────
 
     @ReactMethod
     fun synthesize(text: String, modelPath: String, configPath: String, promise: Promise) {
-        Thread {
+        if (text.isBlank() || text.length > 180) {
+            promise.reject("ERR_PIPER_INPUT", "Piper requires a short phrase of 1–180 characters.")
+            return
+        }
+        if (!busy.compareAndSet(false, true)) {
+            promise.reject("ERR_PIPER_BUSY", "Piper is already generating speech.")
+            return
+        }
+        worker.execute {
             try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                require(File(modelPath).isFile && File(configPath).isFile) { "Voice model or config is missing." }
                 val config = JSONObject(File(configPath).readText())
                 val audio = config.getJSONObject("audio")
                 val sampleRate = audio.getInt("sample_rate")
+                require(sampleRate in 8000..48000) { "Invalid voice sample rate." }
                 val phonemeIdMap = parsePhonemeIdMap(config)
 
                 // Phonemise text → flat list of Long IDs
                 val ids = phonemise(text, phonemeIdMap)
-                if (ids.isEmpty()) throw Exception("Phonemiser produced no output for: $text")
+                require(ids.size in 3..768) { "Voice input is empty or too long." }
 
                 // Load session lazily, swap if model changed
-                if (loadedModelPath != modelPath) {
-                    session?.close()
-                    session = ortEnv.createSession(modelPath)
+                if (loadedModelPath != modelPath || session == null) {
+                    closeSession()
+                    OrtSession.SessionOptions().use { options ->
+                        // Do not let inference use every core or retain large
+                        // arenas while Android is trying to render the UI.
+                        options.setIntraOpNumThreads(2)
+                        options.setInterOpNumThreads(1)
+                        options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+                        options.setMemoryPatternOptimization(false)
+                        options.setCPUArenaAllocator(false)
+                        options.addConfigEntry("session.intra_op.allow_spinning", "0")
+                        session = ortEnv.createSession(modelPath, options)
+                    }
                     loadedModelPath = modelPath
                 }
                 val sess = session!!
 
-                // Build input tensors
-                val inputTensor = OnnxTensor.createTensor(
-                    ortEnv,
-                    LongBuffer.wrap(ids),
-                    longArrayOf(1L, ids.size.toLong())
-                )
-                val lengthTensor = OnnxTensor.createTensor(
-                    ortEnv,
-                    LongBuffer.wrap(longArrayOf(ids.size.toLong())),
-                    longArrayOf(1L)
-                )
-                // scales: [noise_scale, length_scale, noise_w]
-                val scalesTensor = OnnxTensor.createTensor(
-                    ortEnv,
-                    FloatBuffer.wrap(floatArrayOf(0.667f, 1.0f, 0.8f)),
-                    longArrayOf(3L)
-                )
-
-                val inputs = mapOf(
-                    "input" to inputTensor,
-                    "input_lengths" to lengthTensor,
-                    "scales" to scalesTensor
-                )
-
-                val result = sess.run(inputs)
-                val rawValue = result[0].value
-
-                // The output tensor shape can be [1,1,T] or [1,T] depending on the Piper version.
-                val samples: FloatArray = when (rawValue) {
-                    is FloatArray -> rawValue
-                    is Array<*> -> {
-                        @Suppress("UNCHECKED_CAST")
-                        val arr = rawValue as Array<*>
-                        when (val inner = arr[0]) {
-                            is FloatArray -> inner
-                            is Array<*> -> (inner as Array<FloatArray>)[0]
-                            else -> throw Exception("Unknown output tensor inner type")
-                        }
-                    }
-                    else -> throw Exception("Unknown output tensor type: ${rawValue?.javaClass}")
-                }
-
-                result.close()
-                inputTensor.close()
-                lengthTensor.close()
-                scalesTensor.close()
-
-                // Write WAV
+                val samples = runInference(sess, ids, sampleRate)
                 val outFile = File(
                     reactApplicationContext.cacheDir,
                     "piper_${System.currentTimeMillis()}.wav"
                 )
                 writeWav(outFile, samples, sampleRate)
                 promise.resolve(outFile.absolutePath)
+            } catch (e: OutOfMemoryError) {
+                closeSession()
+                promise.reject("ERR_PIPER_MEMORY", "Not enough memory for Piper. Use the Phone voice on this device.")
             } catch (e: Exception) {
-                promise.reject("ERR_PIPER_SYNTH", "Piper synthesis failed: ${e.message}")
+                promise.reject("ERR_PIPER_SYNTH", "Piper could not generate speech. Try the Phone voice.", e)
+            } finally {
+                busy.set(false)
             }
-        }.start()
+        }
     }
 
     @ReactMethod
     fun unloadModel(promise: Promise) {
+        // Closing a session concurrently with run() can crash in native code.
+        worker.execute {
+            try {
+                closeSession()
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.reject("ERR_PIPER_UNLOAD", e)
+            }
+        }
+    }
+
+    private fun closeSession() {
         session?.close()
         session = null
         loadedModelPath = null
-        promise.resolve(true)
+    }
+
+    private fun runInference(sess: OrtSession, ids: LongArray, sampleRate: Int): FloatArray {
+        // use{} closes all native allocations on both success and failure.
+        OnnxTensor.createTensor(ortEnv, LongBuffer.wrap(ids), longArrayOf(1L, ids.size.toLong())).use { input ->
+            OnnxTensor.createTensor(ortEnv, LongBuffer.wrap(longArrayOf(ids.size.toLong())), longArrayOf(1L)).use { lengths ->
+                OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(floatArrayOf(0.667f, 1.0f, 0.8f)), longArrayOf(3L)).use { scales ->
+                    OrtSession.RunOptions().use { options ->
+                        var finished = false
+                        val deadline = watchdog.schedule(Runnable {
+                            synchronized(options) {
+                                if (!finished) {
+                                    try { options.setTerminate(true) } catch (_: Exception) {}
+                                }
+                            }
+                        }, 12, TimeUnit.SECONDS)
+                        try {
+                            sess.run(mapOf("input" to input, "input_lengths" to lengths, "scales" to scales), options).use { result ->
+                                val output = result[0] as OnnxTensor
+                                require(output.info.numElements in 1L..(sampleRate * 30L)) { "Voice output exceeded the safe length." }
+                                // Flatten [1,1,T], [1,T], or [T] only after
+                                // checking the size, before copying into Java.
+                                var value: Any? = output.value
+                                while (value is Array<*>) value = value.firstOrNull()
+                                return value as? FloatArray ?: throw Exception("Unexpected Piper output shape.")
+                            }
+                        } finally {
+                            // Prevent setTerminate from racing RunOptions.close().
+                            synchronized(options) {
+                                finished = true
+                                deadline.cancel(false)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun invalidate() {
+        worker.execute { closeSession() }
+        worker.shutdown()
+        watchdog.shutdown()
+        super.invalidate()
     }
 
     @ReactMethod
@@ -185,27 +227,30 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
         val normalised = normaliseText(text)
         val tokens = tokenise(normalised)
         val allIds = mutableListOf<Long>()
+        fun appendPhoneme(phoneme: String) {
+            phonemeIdMap[phoneme]?.let {
+                allIds.addAll(it)
+                allIds.addAll(phonemeIdMap["_"] ?: emptyList())
+            }
+        }
 
         phonemeIdMap["^"]?.let { allIds.addAll(it) }   // start of utterance
+        phonemeIdMap["_"]?.let { allIds.addAll(it) }
 
         var wordCount = 0
         for (token in tokens) {
             when (token) {
-                "." -> phonemeIdMap["."]?.let { allIds.addAll(it) }
-                "," -> phonemeIdMap[","]?.let { allIds.addAll(it) }
-                "!" -> phonemeIdMap["!"]?.let { allIds.addAll(it) }
-                "?" -> phonemeIdMap["?"]?.let { allIds.addAll(it) }
-                "-" -> phonemeIdMap["-"]?.let { allIds.addAll(it) }
+                ".", ",", "!", "?", "-" -> appendPhoneme(token)
                 else -> {
-                    if (wordCount > 0) phonemeIdMap[" "]?.let { allIds.addAll(it) }
+                    if (wordCount > 0) appendPhoneme(" ")
                     val phones = wordToPhonemes(token)
                     for (ph in phones) {
                         val ids = phonemeIdMap[ph]
                         if (ids != null) {
-                            allIds.addAll(ids)
+                            appendPhoneme(ph)
                         } else if (ph.length > 1) {
                             // diphthong not in map — split into individual chars
-                            for (c in ph) phonemeIdMap[c.toString()]?.let { allIds.addAll(it) }
+                            for (c in ph) appendPhoneme(c.toString())
                         }
                         // unknown single char: silently skip
                     }

@@ -5,7 +5,7 @@ import * as Contacts from "expo-contacts";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import { fetch } from "expo/fetch";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   AppState,
@@ -89,6 +89,63 @@ function StatusBadge({ status, colors }: { status: PermStatus; colors: ReturnTyp
   );
 }
 
+// Stable component identities: defining these inside SettingsScreen remounts
+// the whole section (including native model listeners) on every state change.
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const colors = useColors();
+  return (
+    <View style={styles.section}>
+      <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>{title}</Text>
+      <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>{children}</View>
+    </View>
+  );
+}
+
+function Row({ icon, label, value, onPress, destructive, children }: {
+  icon?: string; label: string; value?: string; onPress?: () => void; destructive?: boolean; children?: React.ReactNode;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable style={[styles.row, { borderBottomColor: colors.border }]} onPress={onPress} disabled={!onPress}>
+      {icon && <View style={[styles.rowIconBg, { backgroundColor: destructive ? colors.destructive + "18" : colors.primary + "15" }]}>
+        <Ionicons name={icon as "mic"} size={16} color={destructive ? colors.destructive : colors.primary} />
+      </View>}
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.rowLabel, { color: destructive ? colors.destructive : colors.foreground }]}>{label}</Text>
+        {value && <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{value}</Text>}
+        {children}
+      </View>
+      {onPress && !destructive && <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />}
+    </Pressable>
+  );
+}
+
+function ProviderTab({ p, label, icon }: { p: TtsProvider; label: string; icon: string }) {
+  const colors = useColors();
+  const { ttsProvider, setTtsProvider } = useAssistant();
+  const active = ttsProvider === p;
+  return (
+    <Pressable style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+      onPress={() => { void setTtsProvider(p); Haptics.selectionAsync(); }}>
+      <Ionicons name={icon as "mic"} size={14} color={active ? "#fff" : colors.mutedForeground} />
+      <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function ThemeTab({ t, label, icon }: { t: ThemeOverride; label: string; icon: string }) {
+  const colors = useColors();
+  const { themeOverride, setThemeOverride } = useAssistant();
+  const active = themeOverride === t;
+  return (
+    <Pressable style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
+      onPress={() => { void setThemeOverride(t); Haptics.selectionAsync(); }}>
+      <Ionicons name={icon as "mic"} size={14} color={active ? "#fff" : colors.mutedForeground} />
+      <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -119,7 +176,12 @@ export default function SettingsScreen() {
   const [nameInput, setNameInput] = useState(assistantName);
 
   const [phoneVoices, setPhoneVoices] = useState<Speech.Voice[]>([]);
-  const [loadingPhoneVoices, setLoadingPhoneVoices] = useState(true);
+  const [loadingPhoneVoices, setLoadingPhoneVoices] = useState(false);
+  const [visiblePhoneVoiceCount, setVisiblePhoneVoiceCount] = useState(12);
+  const voiceRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settingsAliveRef = useRef(true);
+  const previewSoundRef = useRef<Audio.Sound | null>(null);
+  const previewGenerationRef = useRef(0);
 
   const [editingApiUrl, setEditingApiUrl] = useState(false);
   const [apiUrlInput, setApiUrlInput] = useState(customApiUrl ?? "");
@@ -146,9 +208,26 @@ export default function SettingsScreen() {
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   useEffect(() => {
-    loadPhoneVoices();
+    settingsAliveRef.current = true;
     refreshPermissions();
+    return () => {
+      settingsAliveRef.current = false;
+      if (voiceRetryRef.current) clearTimeout(voiceRetryRef.current);
+      stopPreviewAudio();
+    };
   }, []);
+
+  useEffect(() => {
+    // Avoid initializing Android's TTS engine for an unrelated provider.
+    if (ttsProvider === "phone" && phoneVoices.length === 0) void loadPhoneVoices();
+    stopPreviewAudio();
+    setPreviewingElId(null);
+    setPreviewingKokoroId(null);
+    setPreviewingPhoneId(null);
+    return () => {
+      if (voiceRetryRef.current) clearTimeout(voiceRetryRef.current);
+    };
+  }, [ttsProvider]);
 
   // Re-check permissions whenever the app returns to the foreground (e.g. after
   // the user grants write-settings / overlay in system settings and comes back).
@@ -244,8 +323,11 @@ export default function SettingsScreen() {
   }
 
   async function loadPhoneVoices(attempt = 0) {
+    if (!settingsAliveRef.current) return;
+    setLoadingPhoneVoices(true);
     try {
       const all = await Speech.getAvailableVoicesAsync();
+      if (!settingsAliveRef.current) return;
       const english = all
         .filter((v) => v.language?.startsWith("en"))
         .sort((a, b) => {
@@ -255,13 +337,13 @@ export default function SettingsScreen() {
         });
       if (english.length === 0 && attempt < 3) {
         // Android TTS engine sometimes needs a moment to initialize — retry
-        setTimeout(() => loadPhoneVoices(attempt + 1), 1500);
+        voiceRetryRef.current = setTimeout(() => loadPhoneVoices(attempt + 1), 1500);
         return;
       }
       setPhoneVoices(english);
     } catch {
       if (attempt < 3) {
-        setTimeout(() => loadPhoneVoices(attempt + 1), 1500);
+        voiceRetryRef.current = setTimeout(() => loadPhoneVoices(attempt + 1), 1500);
         return;
       }
       setPhoneVoices([]);
@@ -309,35 +391,58 @@ export default function SettingsScreen() {
   }
 
   async function previewKokoroVoice(v: ElVoice) {
-    if (previewingKokoroId === v.id) { setPreviewingKokoroId(null); return; }
-    setPreviewingKokoroId(v.id);
+    await previewCloudVoice(v, "kokoro", previewingKokoroId === v.id);
+  }
+
+  function stopPreviewAudio(): number {
+    const generation = ++previewGenerationRef.current;
+    const sound = previewSoundRef.current;
+    previewSoundRef.current = null;
+    if (sound) {
+      sound.setOnPlaybackStatusUpdate(null);
+      sound.unloadAsync().catch(() => {});
+    }
+    return generation;
+  }
+
+  async function previewCloudVoice(v: ElVoice, provider: "kokoro" | "elevenlabs", stop: boolean) {
+    const generation = stopPreviewAudio();
+    setPreviewingKokoroId(null);
+    setPreviewingElId(null);
+    if (stop) return;
+    const setPreviewId = provider === "kokoro" ? setPreviewingKokoroId : setPreviewingElId;
+    setPreviewId(v.id);
     Haptics.selectionAsync();
     try {
-      const base = resolveBase();
-      const resp = await fetch(`${base}tts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: `Hi, I'm ${assistantName}. This is the ${v.name} voice.`, provider: "kokoro", voiceId: v.id }),
+      // Native streaming avoids copying MP3 bytes/base64 on the UI's JS thread.
+      const params = new URLSearchParams({
+        text: `Hi, I'm ${assistantName}. This is the ${v.name} voice.`,
+        provider,
+        voiceId: v.id,
       });
-      if (resp.ok) {
-        const { Audio } = await import("expo-av");
-        const arrayBuffer = await resp.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = "";
-        const chunkSize = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-          binary += String.fromCharCode(...Array.from(bytes.slice(i, i + chunkSize)));
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: `${resolveBase()}tts?${params}` },
+        { shouldPlay: false },
+      );
+      if (generation !== previewGenerationRef.current) {
+        await sound.unloadAsync();
+        return;
+      }
+      previewSoundRef.current = sound;
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (generation !== previewGenerationRef.current) return;
+        if ((status.isLoaded && status.didJustFinish) || (!status.isLoaded && status.error)) {
+          setPreviewId(null);
+          stopPreviewAudio();
         }
-        const base64 = btoa(binary);
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: `data:audio/mpeg;base64,${base64}` },
-          { shouldPlay: true }
-        );
-        sound.setOnPlaybackStatusUpdate((s) => {
-          if (s.isLoaded && s.didJustFinish) { setPreviewingKokoroId(null); sound.unloadAsync().catch(() => {}); }
-        });
-      } else { setPreviewingKokoroId(null); }
-    } catch { setPreviewingKokoroId(null); }
+      });
+      await sound.playAsync();
+    } catch {
+      if (generation !== previewGenerationRef.current) return;
+      setPreviewId(null);
+      stopPreviewAudio();
+      Alert.alert("Voice preview failed", "The server could not play this voice. Check the voice provider and API connection.");
+    }
   }
 
   async function saveName() {
@@ -434,101 +539,7 @@ export default function SettingsScreen() {
   }
 
   async function previewElVoice(v: ElVoice) {
-    if (previewingElId === v.id) {
-      setPreviewingElId(null); return;
-    }
-    setPreviewingElId(v.id);
-    Haptics.selectionAsync();
-    try {
-      const envUrl = process.env.EXPO_PUBLIC_API_URL;
-      const resolvedBase = customApiUrl?.trim()
-        ? (customApiUrl.trim().endsWith("/") ? customApiUrl.trim() : `${customApiUrl.trim()}/`)
-        : envUrl
-          ? (envUrl.endsWith("/") ? envUrl : `${envUrl}/`)
-          : Platform.OS === "web"
-            ? "/api/"
-            : "https://vox.bossbot.me/api/";
-      const resp = await fetch(`${resolvedBase}tts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: `Hi, I'm ${assistantName}. This is the ${v.name} voice from ElevenLabs.`, voiceId: v.id }),
-      });
-      if (resp.ok) {
-        const { Audio } = await import("expo-av");
-        const arrayBuffer = await resp.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = "";
-        const chunkSize = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-          binary += String.fromCharCode(...Array.from(bytes.slice(i, i + chunkSize)));
-        }
-        const base64 = btoa(binary);
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: `data:audio/mpeg;base64,${base64}` },
-          { shouldPlay: true }
-        );
-        sound.setOnPlaybackStatusUpdate((s) => {
-          if (s.isLoaded && s.didJustFinish) { setPreviewingElId(null); sound.unloadAsync().catch(() => {}); }
-        });
-      } else { setPreviewingElId(null); }
-    } catch { setPreviewingElId(null); }
-  }
-
-  function Section({ title, children }: { title: string; children: React.ReactNode }) {
-    return (
-      <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>{title}</Text>
-        <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {children}
-        </View>
-      </View>
-    );
-  }
-
-  function Row({ icon, label, value, onPress, destructive, children }: {
-    icon?: string; label: string; value?: string; onPress?: () => void; destructive?: boolean; children?: React.ReactNode;
-  }) {
-    return (
-      <Pressable style={[styles.row, { borderBottomColor: colors.border }]} onPress={onPress} disabled={!onPress}>
-        {icon && (
-          <View style={[styles.rowIconBg, { backgroundColor: destructive ? colors.destructive + "18" : colors.primary + "15" }]}>
-            <Ionicons name={icon as "mic"} size={16} color={destructive ? colors.destructive : colors.primary} />
-          </View>
-        )}
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.rowLabel, { color: destructive ? colors.destructive : colors.foreground }]}>{label}</Text>
-          {value && <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{value}</Text>}
-          {children}
-        </View>
-        {onPress && !destructive && <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />}
-      </Pressable>
-    );
-  }
-
-  function ProviderTab({ p, label, icon }: { p: TtsProvider; label: string; icon: string }) {
-    const active = ttsProvider === p;
-    return (
-      <Pressable
-        style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
-        onPress={async () => { await setTtsProvider(p); Haptics.selectionAsync(); }}
-      >
-        <Ionicons name={icon as "mic"} size={14} color={active ? "#fff" : colors.mutedForeground} />
-        <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
-      </Pressable>
-    );
-  }
-
-  function ThemeTab({ t, label, icon }: { t: ThemeOverride; label: string; icon: string }) {
-    const active = themeOverride === t;
-    return (
-      <Pressable
-        style={[styles.provTab, { backgroundColor: active ? colors.primary : colors.muted, borderColor: active ? colors.primary : colors.border }]}
-        onPress={async () => { await setThemeOverride(t); Haptics.selectionAsync(); }}
-      >
-        <Ionicons name={icon as "mic"} size={14} color={active ? "#fff" : colors.mutedForeground} />
-        <Text style={[styles.provTabText, { color: active ? "#fff" : colors.foreground }]}>{label}</Text>
-      </Pressable>
-    );
+    await previewCloudVoice(v, "elevenlabs", previewingElId === v.id);
   }
 
   return (
@@ -590,7 +601,7 @@ export default function SettingsScreen() {
             </Text>
             {(ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && (
               <Text style={[styles.rowValue, { color: colors.mutedForeground, paddingLeft: 0 }]}>
-                Continuous Call mode uses Piper if downloaded, otherwise your phone voice. Regular replies still use this cloud voice.
+                Continuous Call mode uses your phone voice. Select Piper explicitly to use the downloaded neural voice.
               </Text>
             )}
           </View>
@@ -772,7 +783,7 @@ export default function SettingsScreen() {
                   </Text>
                 </View>
               ) : (
-                phoneVoices.map((v) => {
+                phoneVoices.slice(0, visiblePhoneVoiceCount).map((v) => {
                   const isSelected = phoneVoiceId === v.identifier;
                   const isPreviewing = previewingPhoneId === v.identifier;
                   const qualityLabel = v.quality === Speech.VoiceQuality.Enhanced ? "Enhanced" : "";
@@ -802,6 +813,12 @@ export default function SettingsScreen() {
                     </Pressable>
                   );
                 })
+              )}
+              {!loadingPhoneVoices && phoneVoices.length > visiblePhoneVoiceCount && (
+                <Pressable style={[styles.row, { borderBottomColor: colors.border }]}
+                  onPress={() => setVisiblePhoneVoiceCount((count) => count + 12)}>
+                  <Text style={[styles.rowLabel, { color: colors.primary }]}>Show more voices ({phoneVoices.length - visiblePhoneVoiceCount} remaining)</Text>
+                </Pressable>
               )}
             </>
           )}

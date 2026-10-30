@@ -136,6 +136,16 @@ const withKotlinSources: ConfigPlugin = (config) =>
 const withAndroidManifestEntries: ConfigPlugin = (config) =>
   withAndroidManifest(config, (config) => {
     const manifest = config.modResults;
+    // Android 11+: discover launcher activities, without QUERY_ALL_PACKAGES.
+    const queries = (manifest.manifest.queries ??= []);
+    if (!queries.some((query) => query.intent?.some((intent) =>
+      intent.category?.some((category) => category.$["android:name"] === "android.intent.category.LAUNCHER")
+    ))) {
+      queries.push({ intent: [{
+        action: [{ $: { "android:name": "android.intent.action.MAIN" } }],
+        category: [{ $: { "android:name": "android.intent.category.LAUNCHER" } }],
+      }] });
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const app: any =
       AndroidConfig.Manifest.getMainApplicationOrThrow(manifest);

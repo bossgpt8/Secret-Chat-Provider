@@ -28,6 +28,19 @@ export interface VolumeState {
 export const NativeSystemPermissions = {
   isAvailable: Platform.OS === "android" && !!SystemPermissionsModule,
 
+  canLaunchApps: Platform.OS === "android" && typeof SystemPermissionsModule?.launchApp === "function",
+  canControlTorch: Platform.OS === "android" && typeof SystemPermissionsModule?.setTorch === "function",
+
+  async launchApp(name: string): Promise<boolean> {
+    if (!SystemPermissionsModule?.launchApp) return false;
+    return SystemPermissionsModule.launchApp(name);
+  },
+
+  async setTorch(enabled: boolean): Promise<boolean> {
+    if (!SystemPermissionsModule?.setTorch) return false;
+    return SystemPermissionsModule.setTorch(enabled);
+  },
+
   // ── Overlay ────────────────────────────────────────────────────────────────
 
   async hasOverlayPermission(): Promise<boolean> {

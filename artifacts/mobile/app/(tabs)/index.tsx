@@ -42,6 +42,8 @@ import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeAudioSession } from "@/modules/NativeAudioSession";
 import { NativeSpeechRecognizer } from "@/modules/NativeSpeechRecognizer";
 import { splitPiperText } from "@/modules/speechChunks";
+import { detectImmediateDeviceIntent } from "@/modules/immediateCommands";
+import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
 import { File } from "expo-file-system";
 import {
   NativeOfflineModels,
@@ -2056,6 +2058,7 @@ export default function ChatScreen() {
     type:
       | "flashlight_on" | "flashlight_off" | "flashlight_toggle"
       | "brightness_up" | "brightness_down" | "brightness_max" | "brightness_min" | "brightness_set"
+      | "volume_up" | "volume_down" | "volume_mute" | "volume_unmute"
       | "battery_check"
       | "call" | "sms"
       | "send_app_message"
@@ -2484,7 +2487,30 @@ export default function ChatScreen() {
     return null;
   }
 
-  async function handleDeviceCommand(intent: DeviceIntent, text: string): Promise<void> {
+  async function applyFlashlight(on: boolean): Promise<void> {
+    // A camera already used for vision owns the torch until it closes.
+    // Otherwise use CameraManager directly: no CameraView warm-up.
+    if (cameraRef.current) {
+      setTorchOn(on);
+      if (!on && !visionBusyRef.current) setCameraReady(false);
+      return;
+    }
+    if (NativeSystemPermissions.canControlTorch) {
+      const applied = await NativeSystemPermissions.setTorch(on);
+      if (!applied) throw new Error("This device does not have a rear flashlight.");
+      setTorchOn(on);
+      return;
+    }
+    // Compatibility with older installed APKs / Expo Go.
+    setTorchOn(on);
+    setCameraReady(on || visionBusyRef.current);
+  }
+
+  async function handleDeviceCommand(
+    intent: DeviceIntent,
+    text: string,
+    immediate?: { speechReady: Promise<void>; startedAtMs: number },
+  ): Promise<void> {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setInput("");
 
@@ -2497,17 +2523,28 @@ export default function ChatScreen() {
       const aMsg: Message = { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() };
       const final = [...withUser, aMsg];
       setMessages(final);
-      await saveMessages(convId, final);
-      speakText(reply);
+      if (immediate) {
+        console.log("[device-command]", JSON.stringify({ type: intent.type, actionMs: Date.now() - immediate.startedAtMs }));
+        // Neither storage nor a network TTS request should delay feedback.
+        saveMessages(convId, final).catch((error) => console.warn("[device-command] save failed:", error));
+        await immediate.speechReady;
+        if (isTtsEnabled) {
+          ttsPlayingRef.current = true;
+          setIsSpeaking(true);
+          await speakWithPhone(reply);
+        } else if (isCallModeRef.current) {
+          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+        }
+      } else {
+        await saveMessages(convId, final);
+        speakText(reply);
+      }
     }
 
     if (Platform.OS === "web") {
       await respond("Device controls are only available on a real Android device.");
       return;
     }
-
-    const Brightness = await import("expo-brightness");
-    const Battery = await import("expo-battery");
 
     switch (intent.type) {
 
@@ -2522,8 +2559,7 @@ export default function ChatScreen() {
           }
         }
         const next = intent.type === "flashlight_on" ? true : intent.type === "flashlight_off" ? false : !torchOn;
-        setTorchOn(next);
-        if (next) setCameraReady(true); else setTimeout(() => setCameraReady(false), 500);
+        await applyFlashlight(next);
         await respond(next ? "Flashlight is on." : "Flashlight is off.");
         break;
       }
@@ -2534,6 +2570,7 @@ export default function ChatScreen() {
       case "brightness_max":
       case "brightness_min": {
         try {
+          const Brightness = await import("expo-brightness");
           const current = await Brightness.getBrightnessAsync();
           let next = current;
           if (intent.type === "brightness_set") next = Math.max(0.05, Math.min(1, (intent.value ?? 50) / 100));
@@ -2551,6 +2588,7 @@ export default function ChatScreen() {
 
       case "battery_check": {
         try {
+          const Battery = await import("expo-battery");
           const level = await Battery.getBatteryLevelAsync();
           const state = await Battery.getBatteryStateAsync();
           const pct = Math.round(level * 100);
@@ -2601,8 +2639,29 @@ export default function ChatScreen() {
         break;
       }
 
+      case "volume_up":
+      case "volume_down":
+      case "volume_mute":
+      case "volume_unmute": {
+        const direction = intent.type.slice("volume_".length) as "up" | "down" | "mute" | "unmute";
+        const state = await NativeSystemPermissions.adjustVolume(direction).catch(() => null);
+        await respond(state
+          ? direction === "mute" ? "Volume muted." : direction === "unmute" ? "Volume unmuted." : `Volume ${direction}.`
+          : "I couldn't change the volume on this device.");
+        break;
+      }
+
       case "open_app": {
         const app = intent.app ?? "";
+        if (NativeSystemPermissions.canLaunchApps) {
+          try {
+            const opened = await NativeSystemPermissions.launchApp(app);
+            await respond(opened ? `Opening ${app}.` : `I couldn't find ${app} installed on this device.`);
+          } catch {
+            await respond(`I couldn't open ${app}.`);
+          }
+          break;
+        }
         const appUrls: Record<string, string[]> = {
           YouTube:    ["youtube://", "https://youtube.com"],
           WhatsApp:   ["whatsapp://send", "https://wa.me"],
@@ -3287,8 +3346,6 @@ export default function ChatScreen() {
     if (Platform.OS === "web") return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    const Brightness = await import("expo-brightness").catch(() => null);
-
     switch (name) {
       case "flashlight": {
         if (!cameraPermission?.granted) {
@@ -3296,11 +3353,11 @@ export default function ChatScreen() {
           if (!granted) return;
         }
         const on = params.on as boolean;
-        setTorchOn(on);
-        if (on) setCameraReady(true); else setTimeout(() => setCameraReady(false), 500);
+        await applyFlashlight(on);
         break;
       }
       case "set_brightness": {
+        const Brightness = await import("expo-brightness").catch(() => null);
         if (!Brightness) break;
         try {
           const current = await Brightness.getBrightnessAsync();
@@ -3331,6 +3388,11 @@ export default function ChatScreen() {
       }
       case "open_app": {
         const appName = params.app as string;
+        if (NativeSystemPermissions.canLaunchApps) {
+          const opened = await NativeSystemPermissions.launchApp(appName);
+          if (!opened) console.warn("[device-command] Installed app not found:", appName);
+          break;
+        }
         const appUrls: Record<string, string[]> = {
           YouTube: ["youtube://", "https://youtube.com"],
           WhatsApp: ["whatsapp://send", "https://wa.me"],
@@ -3552,9 +3614,33 @@ export default function ChatScreen() {
 
   // ── Send message ───────────────────────────────────────────────────────────
 
-  const handleSend = useCallback(async (overrideText?: string, speechFinalizedAtMs?: number) => {
+  const handleSend = async (overrideText?: string, speechFinalizedAtMs?: number) => {
     const text = (overrideText ?? (branchEditMsgId ? branchEditText : input)).trim();
-    if (!text || isStreaming) return;
+    if (!text) return;
+
+    // Clear, finalized device commands never go through chat, summarization,
+    // context collection or cloud TTS, whether the connection is online or not.
+    const immediate = !isSearchMode && !branchEditMsgId
+      ? detectImmediateDeviceIntent(text, assistantName)
+      : null;
+    if (immediate) {
+      const startedAtMs = Date.now();
+      const speechReady = stopSpeaking();
+      setIsStreaming(false);
+      isStreamingRef.current = false;
+      setShowTyping(false);
+      try {
+        await handleDeviceCommand(immediate, text, { speechReady, startedAtMs });
+      } catch (error) {
+        console.warn("[device-command] Failed:", error);
+        await speechReady;
+        const reply = "I couldn't complete that device command. Please check the app's permissions.";
+        setMessages((prev) => [...prev, { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() }]);
+        if (isTtsEnabled) await speakWithPhone(reply);
+      }
+      return;
+    }
+    if (isStreaming) return;
 
     const voiceTiming: VoiceTurnTiming | null =
       speechFinalizedAtMs !== undefined
@@ -3772,6 +3858,7 @@ export default function ChatScreen() {
         let ttsBuf = "";    // sentence accumulation buffer for TTS
         while (true) {
           const { done, value } = await reader.read();
+          if (abortCtrl.signal.aborted) return;
           if (done) break;
           buf += decoder.decode(value, { stream: true });
           const lines = buf.split("\n");
@@ -3859,7 +3946,7 @@ export default function ChatScreen() {
       setIsStreaming(false);
       setShowTyping(false);
     }
-  }, [input, isStreaming, isSearchMode, messages, chatSystemPrompt, deviceId]);
+  };
 
   // Native SpeechRecognizer callbacks are registered once, so route their
   // final transcript through the latest callback/render.

@@ -2,6 +2,8 @@ package com.boss.assistant
 
 import android.content.Context
 import android.content.Intent
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -11,11 +13,105 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.UiThreadUtil
+import java.util.Locale
+import java.util.concurrent.Executors
 
 class SystemPermissionsModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     override fun getName(): String = "SystemPermissionsModule"
+
+    private val appWorker = Executors.newSingleThreadExecutor()
+
+    @ReactMethod
+    fun setTorch(enabled: Boolean, promise: Promise) {
+        try {
+            val manager = reactApplicationContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val id = manager.cameraIdList.firstOrNull { cameraId ->
+                val info = manager.getCameraCharacteristics(cameraId)
+                info.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true &&
+                    info.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+            }
+            if (id == null) { promise.resolve(false); return }
+            manager.setTorchMode(id, enabled)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_TORCH", "Could not control the torch.", e)
+        }
+    }
+
+    @ReactMethod
+    fun launchApp(name: String, promise: Promise) {
+        appWorker.execute {
+            try {
+                val pm = reactApplicationContext.packageManager
+                val key = normalizeAppName(name)
+                val known = mapOf(
+                    "whatsapp" to listOf("com.whatsapp", "com.whatsapp.w4b"),
+                    "youtube" to listOf("com.google.android.youtube"),
+                    "maps" to listOf("com.google.android.apps.maps"),
+                    "spotify" to listOf("com.spotify.music"),
+                    "instagram" to listOf("com.instagram.android"),
+                    "twitter" to listOf("com.twitter.android"),
+                    "facebook" to listOf("com.facebook.katana", "com.facebook.lite"),
+                    "netflix" to listOf("com.netflix.mediaclient"),
+                    "tiktok" to listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill"),
+                    "gmail" to listOf("com.google.android.gm"),
+                    "telegram" to listOf("org.telegram.messenger"),
+                    "chrome" to listOf("com.android.chrome"),
+                    "browser" to listOf("com.android.chrome", "com.sec.android.app.sbrowser"),
+                    "firefox" to listOf("org.mozilla.firefox"),
+                    "playstore" to listOf("com.android.vending"),
+                    "calculator" to listOf("com.google.android.calculator", "com.sec.android.app.popupcalculator", "com.android.calculator2"),
+                    "clock" to listOf("com.google.android.deskclock", "com.sec.android.app.clockpackage"),
+                    "camera" to listOf("com.google.android.GoogleCamera", "com.sec.android.app.camera", "com.android.camera2"),
+                    "gallery" to listOf("com.google.android.apps.photos", "com.sec.android.gallery3d", "com.android.gallery3d")
+                )
+                var launch: Intent? = if (key == "settings") Intent(Settings.ACTION_SETTINGS) else null
+                for (pkg in known[key] ?: listOf(name)) {
+                    if (launch != null) break
+                    launch = pm.getLaunchIntentForPackage(pkg)
+                }
+                if (launch == null) {
+                    // Exact installed labels only. Never guess a website for
+                    // an app that isn't installed.
+                    val query = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                    val matches = pm.queryIntentActivities(query, 0).filter {
+                        normalizeAppName(it.loadLabel(pm).toString()) == key
+                    }
+                    if (matches.size == 1) {
+                        val activity = matches.first().activityInfo
+                        launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                            .setClassName(activity.packageName, activity.name)
+                    }
+                }
+                val intent = launch
+                if (intent == null) {
+                    promise.resolve(false)
+                } else {
+                    UiThreadUtil.runOnUiThread {
+                        try {
+                            reactApplicationContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            promise.resolve(true)
+                        } catch (e: Exception) {
+                            promise.reject("ERR_LAUNCH_APP", "Could not open the installed app.", e)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                promise.reject("ERR_LAUNCH_APP", "Could not find the installed app.", e)
+            }
+        }
+    }
+
+    private fun normalizeAppName(name: String): String =
+        name.lowercase(Locale.ROOT).replace(" ", "").replace("-", "").replace(".", "")
+
+    override fun invalidate() {
+        appWorker.shutdown()
+        super.invalidate()
+    }
 
     // ── Overlay ───────────────────────────────────────────────────────────────
 

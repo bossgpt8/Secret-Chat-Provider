@@ -2,3 +2,4 @@
 - [vox-offline-voice](vox-offline-voice.md) — Optional Android Whisper/Piper voice paths require native verification and do not make chat fully offline.
 - [oracle-vm-hosting](oracle-vm-hosting.md) — Oracle runs the lightweight API; Vox starts fresh on Neon without copying Replit data.
 - [vox-app-identity](vox-app-identity.md) — The app is Vox, not Zeno; use Vox when referring to the product.
+- [Device-command latency](vox-command-latency.md) — Device controls must act locally without waiting for AI or cloud speech.

@@ -1947,6 +1947,7 @@ export default function ChatScreen() {
       pcmLevelUnsubscribeRef.current?.();
       pcmLevelUnsubscribeRef.current = null;
       if (durationTimerRef.current) { clearInterval(durationTimerRef.current); durationTimerRef.current = null; }
+      const speechFinalizedAtMs = Date.now();
       setIsRecording(false);
       setRecordingDuration(0);
       audioLevelAnim.setValue(0);
@@ -1965,7 +1966,7 @@ export default function ChatScreen() {
         const transcript = await transcribeWithWhisper(modelPath, uri, language);
         setIsTranscribing(false);
         if (transcript.length > 1) {
-          await handleSend(transcript);
+          await handleSend(transcript, speechFinalizedAtMs);
         } else if (isCallModeRef.current) {
           setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
         }
@@ -1990,6 +1991,7 @@ export default function ChatScreen() {
 
     const rec = recordingRef.current;
     recordingRef.current = null;
+    const speechFinalizedAtMs = Date.now();
     setIsRecording(false);
     setRecordingDuration(0);
     audioLevelAnim.setValue(0);
@@ -2002,14 +2004,14 @@ export default function ChatScreen() {
         if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
         return;
       }
-      await transcribeAndSend(uri);
+      await transcribeAndSend(uri, speechFinalizedAtMs);
     } catch {
       setIsTranscribing(false);
       if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
     }
   }
 
-  async function transcribeAndSend(uri: string) {
+  async function transcribeAndSend(uri: string, speechFinalizedAtMs: number) {
     setIsTranscribing(true);
     try {
       const base = await getApiBase();
@@ -2032,7 +2034,7 @@ export default function ChatScreen() {
       const transcript = data.text?.trim();
       if (transcript && transcript.length > 1) {
         setIsTranscribing(false);
-        await handleSend(transcript);
+        await handleSend(transcript, speechFinalizedAtMs);
       } else {
         setIsTranscribing(false);
         if (isCallModeRef.current) {
@@ -3608,7 +3610,9 @@ export default function ChatScreen() {
         " Weave this in naturally — don't recite it robotically."
       );
     }
-    parts.push("Keep responses to 1-3 sentences. No markdown.");
+    parts.push(
+      "Answer at the depth the question deserves: be brief for simple requests, but give clear explanations, steps, and examples when the topic is complex or the user asks for detail. Lead with the direct answer. Use formatting when it makes a written reply easier to follow; keep spoken replies natural and easy to listen to. Do not force every response into a fixed sentence limit."
+    );
     return parts.join(" ");
   }, [assistantName, assistantPersonality, userProfile, memoryFacts]);
 
@@ -3755,7 +3759,7 @@ export default function ChatScreen() {
 
       // Voice turns should not wait on a second LLM request to summarize old
       // history. The recent conversation is enough to answer immediately.
-      const shouldSummarize = !isCallModeRef.current && withUser.length > SUMMARIZE_THRESHOLD;
+      const shouldSummarize = !voiceTiming && !isCallModeRef.current && withUser.length > SUMMARIZE_THRESHOLD;
       const oldMessages = shouldSummarize ? withUser.slice(0, withUser.length - KEEP_RECENT) : [];
       const summaryPromise = shouldSummarize
         ? summarizeOldMessages(oldMessages)

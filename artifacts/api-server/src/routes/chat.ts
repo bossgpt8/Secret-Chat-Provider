@@ -402,13 +402,30 @@ router.post("/chat", async (req, res) => {
       // OpenRouter & Ollama may not support these device tools reliably.
       const withTools = url.includes("groq") || providerName === "gemini";
 
-      const response = await fetch(`${url}/chat/completions`, {
-        method: "POST",
-        headers,
-        body: requestBody(model, withTools),
-      });
+      const connectionController = new AbortController();
+      const connectionTimer = setTimeout(
+        () => connectionController.abort(),
+        providerName === "ollama" ? 2500 : 8000,
+      );
+      let response: Response;
+      try {
+        response = await fetch(`${url}/chat/completions`, {
+          method: "POST",
+          headers,
+          body: requestBody(model, withTools),
+          signal: connectionController.signal,
+        });
+      } finally {
+        clearTimeout(connectionTimer);
+      }
 
       if (!response.ok) {
+        // Log only machine-readable codes, never provider bodies or keys.
+        const failure = await response.json().catch(() => null) as {
+          error?: { status?: string; details?: Array<{ reason?: string }> };
+        } | null;
+        const safeCode = (value: unknown) =>
+          typeof value === "string" && /^[A-Z0-9_]{1,80}$/.test(value) ? value : undefined;
         logMetrics(req, {
           provider: providerName,
           model,
@@ -417,7 +434,12 @@ router.post("/chat", async (req, res) => {
           success: false,
         });
         req.log.warn(
-          { provider: providerName, statusCode: response.status },
+          {
+            provider: providerName,
+            statusCode: response.status,
+            errorStatus: safeCode(failure?.error?.status),
+            errorReason: safeCode(failure?.error?.details?.find((detail) => detail.reason)?.reason),
+          },
           "AI provider rejected the chat request",
         );
         return false;

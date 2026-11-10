@@ -10,6 +10,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai";
+const GEMINI_CHAT_MODEL = "gemini-3.8-flash";
 const GROQ_CHAT_MODEL = "openai/gpt-oss-120b";
 const GROQ_CALL_MODEL = "openai/gpt-oss-20b";
 const GROQ_WHISPER_MODEL = "whisper-large-v3";
@@ -293,9 +295,12 @@ router.post("/chat", async (req, res) => {
   }
   const messages = trimMessages(rawMessages);
 
+  const geminiKey = process.env.GEMINI_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
   const orKey = process.env.OPENROUTER_API_KEY;
-  const hasAllowedProvider = Boolean(groqKey || OLLAMA_BASE || (!callMode && orKey));
+  const hasAllowedProvider = Boolean(
+    groqKey || OLLAMA_BASE || (!callMode && (geminiKey || orKey))
+  );
   if (!hasAllowedProvider) {
     res.status(503).json({
       error: callMode
@@ -366,7 +371,7 @@ router.post("/chat", async (req, res) => {
             reasoning_effort: callMode ? "low" : "medium",
             reasoning_format: "hidden",
           }
-        : { max_tokens: callMode ? 160 : 512 }),
+        : { max_tokens: callMode ? 160 : 1024 }),
       temperature: 0.7,
       ...(withTools && { tools: DEVICE_TOOLS, tool_choice: "auto" }),
     });
@@ -375,7 +380,14 @@ router.post("/chat", async (req, res) => {
   async function streamFrom(url: string, key: string, model: string): Promise<boolean> {
     const t0 = Date.now();
     let firstModelTokenMs: number | undefined;
-    const providerName = url.includes("openrouter") ? "openrouter" : url.includes("groq") ? "groq" : "ollama";
+    let emittedOutput = false;
+    const providerName = url.includes("generativelanguage.googleapis.com")
+      ? "gemini"
+      : url.includes("openrouter")
+        ? "openrouter"
+        : url.includes("groq")
+          ? "groq"
+          : "ollama";
     try {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${key}`,
@@ -386,8 +398,9 @@ router.post("/chat", async (req, res) => {
         headers["X-Title"] = "Vox Voice Assistant";
       }
 
-      // Only use tools with Groq (OpenRouter & Ollama may not support them reliably)
-      const withTools = url.includes("groq");
+      // Gemini and Groq both support the OpenAI-compatible tool format.
+      // OpenRouter & Ollama may not support these device tools reliably.
+      const withTools = url.includes("groq") || providerName === "gemini";
 
       const response = await fetch(`${url}/chat/completions`, {
         method: "POST",
@@ -395,7 +408,20 @@ router.post("/chat", async (req, res) => {
         body: requestBody(model, withTools),
       });
 
-      if (!response.ok) return false;
+      if (!response.ok) {
+        logMetrics(req, {
+          provider: providerName,
+          model,
+          latencyMs: Date.now() - t0,
+          ...(traceId && { traceId }),
+          success: false,
+        });
+        req.log.warn(
+          { provider: providerName, statusCode: response.status },
+          "AI provider rejected the chat request",
+        );
+        return false;
+      }
 
       const reader = response.body?.getReader();
       if (!reader) return false;
@@ -436,6 +462,7 @@ router.post("/chat", async (req, res) => {
               } else {
                 res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
               }
+              emittedOutput = true;
             }
 
             // Tool call chunks — accumulate
@@ -455,6 +482,7 @@ router.post("/chat", async (req, res) => {
 
               // Emit structured tool call event for the client
               res.write(`data: ${JSON.stringify({ tool_call: { name: toolCallName, params } })}\n\n`);
+              emittedOutput = true;
 
               logMetrics(req, {
                 provider: providerName,
@@ -530,13 +558,18 @@ router.post("/chat", async (req, res) => {
         success: false,
       });
       req.log.error({ err }, `${providerName} stream error`);
-      return false;
+      // Once the client has seen output (or a device command), do not start a
+      // second provider and duplicate the response or action.
+      return emittedOutput;
     }
   }
 
   try {
     let ok = false;
-    if (groqKey) ok = await streamFrom(GROQ_BASE, groqKey, callMode ? GROQ_CALL_MODEL : GROQ_CHAT_MODEL);
+    if (!callMode && geminiKey) {
+      ok = await streamFrom(GEMINI_BASE, geminiKey, GEMINI_CHAT_MODEL);
+    }
+    if (!ok && groqKey) ok = await streamFrom(GROQ_BASE, groqKey, callMode ? GROQ_CALL_MODEL : GROQ_CHAT_MODEL);
     if (!ok && OLLAMA_BASE) ok = await streamFrom(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
     if (!ok && !callMode && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
     if (!ok) {

@@ -4,6 +4,7 @@ import multer from "multer";
 import FormData from "form-data";
 import { db, memoryFactsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { readProviderEvents, ToolAccumulator } from "../lib/chat-stream";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -11,7 +12,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai";
-const GEMINI_CHAT_MODEL = "gemini-3.8-flash";
+const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash";
 const GROQ_CHAT_MODEL = "openai/gpt-oss-120b";
 const GROQ_CALL_MODEL = "openai/gpt-oss-20b";
 const GROQ_WHISPER_MODEL = "whisper-large-v3";
@@ -288,8 +289,13 @@ router.post("/chat", async (req, res) => {
   const startMs = Date.now();
   const rawTraceId = req.get("x-vox-trace-id") ?? "";
   const traceId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawTraceId) ? rawTraceId : undefined;
-  const { messages: rawMessages, systemPrompt, deviceId, deviceContext, callMode } = req.body;
-  if (!rawMessages || !Array.isArray(rawMessages)) {
+  const { messages: rawMessages, systemPrompt, deviceId, deviceContext } = req.body;
+  const callMode = req.body.callMode === true;
+  const voiceTurn = callMode || req.body.voiceTurn === true;
+  if (!Array.isArray(rawMessages) || !rawMessages.length ||
+      rawMessages.some((message) => !message || !["user", "assistant"].includes(message.role) ||
+        typeof message.content !== "string" || message.content.length > 32000) ||
+      (systemPrompt !== undefined && (typeof systemPrompt !== "string" || systemPrompt.length > 16000))) {
     res.status(400).json({ error: "messages array is required" });
     return;
   }
@@ -315,12 +321,17 @@ router.post("/chat", async (req, res) => {
   // The mobile app already includes its cached memory facts in the system
   // prompt. Avoid a database round-trip before starting a latency-sensitive
   // voice response.
-  if (!callMode && deviceId && process.env.DATABASE_URL) {
+  if (!voiceTurn && req.body.clientMemoryProvided !== true && deviceId && process.env.DATABASE_URL) {
     try {
-      const facts = await db
+      const pendingFacts = db
         .select({ fact: memoryFactsTable.fact })
         .from(memoryFactsTable)
         .where(eq(memoryFactsTable.deviceId, deviceId));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const facts = await Promise.race([
+        pendingFacts,
+        new Promise<never[]>((resolve) => { timer = setTimeout(() => resolve([]), 250); }),
+      ]).finally(() => { if (timer) clearTimeout(timer); });
       if (facts.length > 0) {
         memoryBlock =
           " Here is what you know about the user from previous conversations: " +
@@ -355,7 +366,9 @@ router.post("/chat", async (req, res) => {
   const systemMessages = [
     {
       role: "system",
-      content: baseSystemContent + memoryBlock + contextBlock,
+      content: baseSystemContent + memoryBlock + contextBlock +
+        " Never invent current device readings or claim an action succeeded. Request device actions with tools; the phone reports the actual outcome. SMS tools open a composer, not a sent message." +
+        (voiceTurn ? " This is a spoken conversation: lead with the answer, use natural short clauses, and avoid markdown. Expand when the user asks for detail." : ""),
     },
   ];
 
@@ -368,7 +381,7 @@ router.post("/chat", async (req, res) => {
       ...(isGptOss
         ? {
             max_completion_tokens: callMode ? 384 : 1024,
-            reasoning_effort: callMode ? "low" : "medium",
+            reasoning_effort: voiceTurn ? "low" : "medium",
             reasoning_format: "hidden",
           }
         : { max_tokens: callMode ? 160 : 1024 }),
@@ -381,6 +394,14 @@ router.post("/chat", async (req, res) => {
     const t0 = Date.now();
     let firstModelTokenMs: number | undefined;
     let emittedOutput = false;
+    const connectionController = new AbortController();
+    let deadlineExpired = false;
+    const totalDeadline = setTimeout(() => {
+      deadlineExpired = true;
+      connectionController.abort();
+    }, voiceTurn ? 30000 : 90000);
+    const disconnect = () => connectionController.abort();
+    res.once("close", disconnect);
     const providerName = url.includes("generativelanguage.googleapis.com")
       ? "gemini"
       : url.includes("openrouter")
@@ -402,7 +423,6 @@ router.post("/chat", async (req, res) => {
       // OpenRouter & Ollama may not support these device tools reliably.
       const withTools = url.includes("groq") || providerName === "gemini";
 
-      const connectionController = new AbortController();
       const connectionTimer = setTimeout(
         () => connectionController.abort(),
         providerName === "ollama" ? 2500 : 8000,
@@ -445,31 +465,12 @@ router.post("/chat", async (req, res) => {
         return false;
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) return false;
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      // Tool call accumulator
-      let toolCallName = "";
-      let toolCallArgs = "";
-      let toolCallId = "";
+      if (!response.body) return false;
+      const tools = new ToolAccumulator();
       let hasToolCall = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") continue;
-          try {
-            const parsed = JSON.parse(data);
+      const allowedNames = new Set(DEVICE_TOOLS.map((tool) => tool.function.name));
+      for await (const parsed of readProviderEvents(response.body, 15000, connectionController.signal)) {
+            if (res.destroyed) return true;
             const choice = parsed.choices?.[0];
             if (!choice) continue;
 
@@ -490,72 +491,30 @@ router.post("/chat", async (req, res) => {
             // Tool call chunks — accumulate
             if (delta?.tool_calls) {
               hasToolCall = true;
-              for (const tc of delta.tool_calls) {
-                if (tc.id) toolCallId = tc.id;
-                if (tc.function?.name) toolCallName = tc.function.name;
-                if (tc.function?.arguments) toolCallArgs += tc.function.arguments;
-              }
+              tools.add(delta.tool_calls);
             }
 
             // Tool call complete
             if (finishReason === "tool_calls" && hasToolCall) {
-              let params: Record<string, unknown> = {};
-              try { params = JSON.parse(toolCallArgs); } catch { /* malformed args */ }
-
-              // Emit structured tool call event for the client
-              res.write(`data: ${JSON.stringify({ tool_call: { name: toolCallName, params } })}\n\n`);
-              emittedOutput = true;
-
-              logMetrics(req, {
-                provider: providerName,
-                model,
-                latencyMs: Date.now() - t0,
-                ...(firstModelTokenMs !== undefined && { firstModelTokenMs }),
-                ...(traceId && { traceId }),
-                success: true,
-                toolCall: toolCallName,
-              });
-
-              // Follow-up call: get a short natural-language confirmation
-              try {
-                const confirmHeaders = { ...headers, "Content-Type": "application/json" };
-                const confirmResp = await fetch(`${url}/chat/completions`, {
-                  method: "POST",
-                  headers: confirmHeaders,
-                  body: JSON.stringify({
-                    model,
-                    messages: [
-                      ...systemMessages,
-                      ...messages,
-                      {
-                        role: "assistant",
-                        content: null,
-                        tool_calls: [
-                          {
-                            id: toolCallId || "call_0",
-                            type: "function",
-                            function: { name: toolCallName, arguments: toolCallArgs },
-                          },
-                        ],
-                      },
-                      { role: "tool", tool_call_id: toolCallId || "call_0", content: "executed" },
-                    ],
-                    max_tokens: 80,
-                    temperature: 0.5,
-                    stream: false,
-                  }),
+              for (const tool of tools.finish(allowedNames)) {
+                res.write(`data: ${JSON.stringify({ tool_call: tool })}\n\n`);
+                emittedOutput = true;
+                logMetrics(req, {
+                  provider: providerName, model, latencyMs: Date.now() - t0,
+                  ...(firstModelTokenMs !== undefined && { firstModelTokenMs }),
+                  ...(traceId && { traceId }), success: true, toolCall: tool.name,
                 });
-                if (confirmResp.ok) {
-                  const confirmData = await confirmResp.json() as { choices?: { message?: { content?: string } }[] };
-                  const confirmation = confirmData.choices?.[0]?.message?.content?.trim();
-                  if (confirmation) {
-                    res.write(`data: ${JSON.stringify({ content: confirmation })}\n\n`);
-                  }
-                }
-              } catch { /* confirmation failed — client still has the tool_call */ }
+              }
             }
-
-          } catch { /* skip malformed lines */ }
+      }
+      if (res.destroyed) return true;
+      if (deadlineExpired) throw new Error("AI response exceeded its time limit");
+      // Some compatible providers finish tool requests with "stop" instead
+      // of "tool_calls". Flush once at EOF as well; finish() clears the batch.
+      if (hasToolCall) {
+        for (const tool of tools.finish(allowedNames)) {
+          res.write(`data: ${JSON.stringify({ tool_call: tool })}\n\n`);
+          emittedOutput = true;
         }
       }
 
@@ -569,7 +528,7 @@ router.post("/chat", async (req, res) => {
           success: true,
         });
       }
-      return true;
+      return emittedOutput;
     } catch (err) {
       logMetrics(req, {
         provider: providerName,
@@ -582,7 +541,14 @@ router.post("/chat", async (req, res) => {
       req.log.error({ err }, `${providerName} stream error`);
       // Once the client has seen output (or a device command), do not start a
       // second provider and duplicate the response or action.
-      return emittedOutput;
+      if (emittedOutput && !res.destroyed) {
+        res.write(`data: ${JSON.stringify({ error: "The response was interrupted. Please try again." })}\n\n`);
+      }
+      return emittedOutput || res.destroyed;
+    } finally {
+      clearTimeout(totalDeadline);
+      res.off("close", disconnect);
+      connectionController.abort();
     }
   }
 
@@ -591,20 +557,22 @@ router.post("/chat", async (req, res) => {
     if (!callMode && geminiKey) {
       ok = await streamFrom(GEMINI_BASE, geminiKey, GEMINI_CHAT_MODEL);
     }
-    if (!ok && groqKey) ok = await streamFrom(GROQ_BASE, groqKey, callMode ? GROQ_CALL_MODEL : GROQ_CHAT_MODEL);
-    if (!ok && OLLAMA_BASE) ok = await streamFrom(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
-    if (!ok && !callMode && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
-    if (!ok) {
+    if (!ok && !res.destroyed && groqKey) ok = await streamFrom(GROQ_BASE, groqKey, callMode ? GROQ_CALL_MODEL : GROQ_CHAT_MODEL);
+    if (!ok && !res.destroyed && OLLAMA_BASE) ok = await streamFrom(OLLAMA_BASE, "ollama", OLLAMA_MODEL);
+    if (!ok && !res.destroyed && !callMode && orKey) ok = await streamFrom(OPENROUTER_BASE, orKey, OR_CHAT_MODEL);
+    if (!ok && !res.destroyed) {
       req.log.error({ latencyMs: Date.now() - startMs }, "All AI providers failed");
       res.write(`data: ${JSON.stringify({ error: "All AI providers failed" })}\n\n`);
     }
   } catch (err) {
     req.log.error({ err }, "Chat streaming error");
-    res.write(`data: ${JSON.stringify({ error: "Internal server error" })}\n\n`);
+    if (!res.destroyed) res.write(`data: ${JSON.stringify({ error: "Internal server error" })}\n\n`);
   }
 
-  res.write("data: [DONE]\n\n");
-  res.end();
+    if (!res.destroyed) {
+      res.write("data: [DONE]\n\n");
+      res.end();
+    }
 });
 
 // ─── /summarize  (rolling conversation summary) ───────────────────────────────

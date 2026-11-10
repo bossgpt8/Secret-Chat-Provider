@@ -42,6 +42,7 @@ import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeAudioSession } from "@/modules/NativeAudioSession";
 import { NativeSpeechRecognizer } from "@/modules/NativeSpeechRecognizer";
 import { splitPiperText } from "@/modules/speechChunks";
+import { isPlaybackEcho, parseAssistantEvents, splitSpokenChunks, withinBudget, type AssistantEvent } from "@/modules/assistantStream";
 import { detectImmediateDeviceIntent } from "@/modules/immediateCommands";
 import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
 import { File } from "expo-file-system";
@@ -284,12 +285,12 @@ const waveStyles = StyleSheet.create({
 
 function VoiceCallOverlay({
   isRecording, isSpeaking, isStreaming, isTranscribing,
-  audioLevelAnim, colors, assistantName, lastMessage, onEnd,
+  audioLevelAnim, colors, assistantName, lastMessage, transcript, onInterrupt, onEnd,
 }: {
   isRecording: boolean; isSpeaking: boolean; isStreaming: boolean;
   isTranscribing: boolean; audioLevelAnim: Animated.Value;
   colors: ReturnType<typeof useColors>; assistantName: string;
-  lastMessage: string; onEnd: () => void;
+  lastMessage: string; transcript: string; onInterrupt: () => void; onEnd: () => void;
 }) {
   const [minimized, setMinimized] = useState(false);
 
@@ -358,9 +359,18 @@ function VoiceCallOverlay({
 
       {/* State label */}
       <Text style={[voiceOverlayStyles.stateLabel, { color: stateColor }]}>{stateLabel}</Text>
+      {isRecording && !!transcript && (
+        <Text style={voiceOverlayStyles.lastMsg} numberOfLines={4}>{transcript}</Text>
+      )}
+      {(isSpeaking || isStreaming) && (
+        <Pressable accessibilityRole="button" accessibilityLabel="Interrupt and speak"
+          onPress={onInterrupt} style={{ padding: 16 }}>
+          <Text style={{ color: colors.primary }}>Tap to interrupt</Text>
+        </Pressable>
+      )}
 
       {/* Last spoken / streamed text */}
-      {!!lastMessage && (
+      {!isRecording && !!lastMessage && (
         <Text style={voiceOverlayStyles.lastMsg} numberOfLines={5}>{lastMessage}</Text>
       )}
 
@@ -809,6 +819,9 @@ export default function ChatScreen() {
   const ttsGenerationRef = useRef(0);
   // AbortController for the active /chat SSE stream — aborted when user interrupts
   const chatAbortRef = useRef<AbortController | null>(null);
+  const summaryCacheRef = useRef(new Map<string, { text: string; throughId: string }>());
+  const summaryPendingRef = useRef(new Set<string>());
+  const contextCacheRef = useRef<{ key: string; at: number; text?: string } | null>(null);
   // Notification announcements queued while TTS is already playing (played after current speech ends)
   const pendingNotifSpeechRef = useRef<string[]>([]);
   // VAD polling interval (replaces fixed silence timer)
@@ -819,6 +832,12 @@ export default function ChatScreen() {
   const nativeSpeechActiveRef = useRef(false);
   const nativeSpeechModeRef = useRef<"turn" | "barge">("turn");
   const nativeSpeechTextRef = useRef("");
+  const currentSpokenTextRef = useRef("");
+  const nativeSpeechStartingRef = useRef(false);
+  const nativeSpeechAttemptRef = useRef(0);
+  const recognitionFailuresRef = useRef(0);
+  const startRecordingRef = useRef<() => Promise<void>>(async () => {});
+  const transcriptionAbortRef = useRef<AbortController | null>(null);
   const handleSendRef = useRef<(overrideText?: string, speechFinalizedAtMs?: number) => void>(() => {});
   // Live audio amplitude (0–1) driven by VAD metering — feeds WaveformBars + SiriOrb
   const audioLevelAnim = useRef(new Animated.Value(0)).current;
@@ -939,11 +958,13 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!NativeSpeechRecognizer.isAvailable) return;
 
-    const unsubPartial = NativeSpeechRecognizer.onPartial(({ text, level }) => {
-      if (!nativeSpeechActiveRef.current || !text.trim()) return;
+    const unsubPartial = NativeSpeechRecognizer.onPartial(({ text = "", level }) => {
+      if (!nativeSpeechActiveRef.current) return;
+      if (typeof level === "number") audioLevelAnim.setValue(level);
+      if (!text.trim()) return;
+      if (nativeSpeechModeRef.current === "barge" && isPlaybackEcho(text, currentSpokenTextRef.current)) return;
       nativeSpeechTextRef.current = text.trim();
       setInput(text.trim());
-      if (typeof level === "number") audioLevelAnim.setValue(level);
 
       if (nativeSpeechModeRef.current === "barge" && text.trim().length > 1) {
         nativeSpeechModeRef.current = "turn";
@@ -956,7 +977,10 @@ export default function ChatScreen() {
     const unsubResult = NativeSpeechRecognizer.onResult(({ text, finalizedAtMs }) => {
       if (!nativeSpeechActiveRef.current) return;
       const mode = nativeSpeechModeRef.current;
-      const transcript = (text || nativeSpeechTextRef.current).trim();
+      // Partial hypotheses are display/interruption hints, never finalized
+      // commands. An empty final result must not execute a speculative action.
+      const transcript = (text || "").trim();
+      const playbackEcho = mode === "barge" && isPlaybackEcho(transcript, currentSpokenTextRef.current);
       nativeSpeechActiveRef.current = false;
       nativeSpeechModeRef.current = "turn";
       nativeSpeechTextRef.current = "";
@@ -964,19 +988,21 @@ export default function ChatScreen() {
       setRecordingDuration(0);
       audioLevelAnim.setValue(0);
       NativeAudioSession.endVoiceSession().catch(() => {});
+      if (playbackEcho) return;
       if (mode === "barge") stopSpeaking().catch(() => {});
 
       if (transcript.length > 1) {
+        recognitionFailuresRef.current = 0;
         setIsTranscribing(false);
         handleSendRef.current(transcript, finalizedAtMs ?? Date.now());
       } else if (isCallModeRef.current) {
         setTimeout(() => {
-          if (isCallModeRef.current && !nativeSpeechActiveRef.current) startRecording();
+          if (isCallModeRef.current && !nativeSpeechActiveRef.current) void startRecordingRef.current();
         }, CALL_MODE_RETRY_DELAY_MS);
       }
     });
 
-    const unsubError = NativeSpeechRecognizer.onError(() => {
+    const unsubError = NativeSpeechRecognizer.onError(({ code }) => {
       if (!nativeSpeechActiveRef.current) return;
       const mode = nativeSpeechModeRef.current;
       nativeSpeechActiveRef.current = false;
@@ -988,12 +1014,21 @@ export default function ChatScreen() {
       NativeAudioSession.endVoiceSession().catch(() => {});
       if (mode === "barge") {
         if (isCallModeRef.current && !isSpeakingRef.current) {
-          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+          setTimeout(() => { if (isCallModeRef.current) void startRecordingRef.current(); }, CALL_MODE_RETRY_DELAY_MS);
         }
       } else if (isCallModeRef.current) {
+        recognitionFailuresRef.current += 1;
+        if (recognitionFailuresRef.current >= 3) {
+          endCallMode();
+          Alert.alert("Voice recognition unavailable", "Android's speech service failed repeatedly. Check microphone permission and the installed speech-recognition service, then try again.");
+          return;
+        }
         setTimeout(() => {
-          if (isCallModeRef.current && !nativeSpeechActiveRef.current) startRecording();
-        }, CALL_MODE_RETRY_DELAY_MS);
+          if (isCallModeRef.current && !nativeSpeechActiveRef.current) void startRecordingRef.current();
+        }, 1000);
+      } else {
+        console.warn("[voice] speech recognition failed:", code);
+        Alert.alert("Couldn't recognize speech", "Please try speaking again. Check microphone permission and Android's speech service if this continues.");
       }
     });
 
@@ -1251,15 +1286,20 @@ export default function ChatScreen() {
 
   // ── Push notification helper ───────────────────────────────────────────────
 
-  async function schedulePushNotification(title: string, body: string, triggerMs?: number) {
+  async function schedulePushNotification(title: string, body: string, triggerMs?: number, signal?: AbortSignal) {
     try {
       const { status } = await Notifications.requestPermissionsAsync();
-      if (status !== "granted") return;
+      if (signal?.aborted) return false;
+      if (status !== "granted") return false;
       await Notifications.scheduleNotificationAsync({
         content: { title, body, sound: true },
         trigger: triggerMs ? { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: Math.max(1, Math.round(triggerMs / 1000)) } : null,
       });
-    } catch { /* ignore */ }
+      return true;
+    } catch (error) {
+      console.warn("[notifications] scheduling failed:", error);
+      return false;
+    }
   }
 
   function getOrCreateConvId(): string {
@@ -1285,14 +1325,15 @@ export default function ChatScreen() {
   }, [bubbleCmd, bubbleCmdTs]);
 
   // ── Vision AI — capture a photo and describe it ──────────────────────────────
-  async function captureAndDescribe(userQuestion?: string) {
+  async function captureAndDescribe(userQuestion?: string, fromTool = false, parentSignal?: AbortSignal) {
     function visionRespond(reply: string) {
-      setShowTyping(false);
+      if (!fromTool) setShowTyping(false);
       setMessages((prev) => [
         ...prev,
         { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() },
       ]);
-      speakText(reply);
+      if (fromTool) void enqueueSentence(reply);
+      else speakText(reply);
     }
 
     if (visionBusyRef.current) return;
@@ -1305,6 +1346,7 @@ export default function ChatScreen() {
     let photoUri: string | undefined;
     let requestTimer: ReturnType<typeof setTimeout> | undefined;
     let requestTimedOut = false;
+    let removeAbortListener: (() => void) | undefined;
     try {
       if (!cameraPermission?.granted) {
         const { granted } = await requestCameraPermission();
@@ -1322,6 +1364,7 @@ export default function ChatScreen() {
       // A fixed delay can fire before the camera has actually initialized.
       const deadline = Date.now() + 6000;
       while (!cameraStartedRef.current || !cameraRef.current) {
+        if (parentSignal?.aborted) return;
         if (cameraErrorRef.current) throw new Error("The camera could not start. Close other apps using it and try again.");
         if (Date.now() > deadline) throw new Error("The camera took too long to start. Please try again.");
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
@@ -1329,26 +1372,33 @@ export default function ChatScreen() {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.5 });
       if (!photo?.uri) throw new Error("The camera did not return a photo. Please try again.");
       photoUri = photo.uri;
+      if (parentSignal?.aborted) return;
       const base = await getApiBase();
       const fd = new FormData();
       fd.append("image", new File(photo.uri), "photo.jpg");
       if (userQuestion) fd.append("prompt", userQuestion);
       const controller = new AbortController();
+      const abort = () => controller.abort();
+      parentSignal?.addEventListener("abort", abort, { once: true });
+      removeAbortListener = () => parentSignal?.removeEventListener("abort", abort);
       requestTimer = setTimeout(() => { requestTimedOut = true; controller.abort(); }, 45000);
       const r = await fetch(`${base}vision`, { method: "POST", body: fd, signal: controller.signal });
       const data = await r.json().catch(() => null) as { description?: string; error?: string } | null;
+      if (parentSignal?.aborted) return;
       if (!data) throw new Error("The camera AI server returned an invalid response. Check the API connection.");
       if (!r.ok) throw new Error(data.error || "The camera AI server could not process the photo.");
       if (!data.description?.trim()) throw new Error("The camera AI returned an empty answer. Please try again.");
       visionRespond(data.description);
     } catch (error) {
+      if (parentSignal?.aborted) return;
       console.warn("[vision] capture/description failed:", error);
       visionRespond(!requestTimedOut && error instanceof Error && error.name !== "AbortError" && error.name !== "TimeoutError"
         ? error.message
         : "The camera AI timed out. Check your connection and try again.");
     } finally {
       if (requestTimer) clearTimeout(requestTimer);
-      setShowTyping(false);
+      removeAbortListener?.();
+      if (!fromTool) setShowTyping(false);
       setVisionMode(false);
       if (!torchOn) {
         setCameraReady(false);
@@ -1469,21 +1519,28 @@ export default function ChatScreen() {
     // Cancel any in-flight chat/SSE fetch so the network request actually stops
     chatAbortRef.current?.abort();
     chatAbortRef.current = null;
+    isStreamingRef.current = false;
+    isSpeakingRef.current = false;
+    setIsStreaming(false);
+    setShowTyping(false);
     ttsGenerationRef.current++;          // invalidate any in-flight TTS fetches
     pendingNotifSpeechRef.current = [];  // also clear queued notification announcements
     ttsQueueRef.current = [];
+    currentSpokenTextRef.current = "";
     ttsPlayingRef.current = false;
-    if (Platform.OS !== "web") Speech.stop().catch(() => {});
-    if (elSoundRef.current) {
-      await elSoundRef.current.stopAsync().catch(() => {});
-      await elSoundRef.current.unloadAsync().catch(() => {});
-      elSoundRef.current = null;
-    }
+    const sound = elSoundRef.current;
+    elSoundRef.current = null;
     setIsSpeaking(false);
+    if (Platform.OS !== "web") await Speech.stop().catch(() => {});
+    if (sound) {
+      await sound.stopAsync().catch(() => {});
+      await sound.unloadAsync().catch(() => {});
+    }
   }
 
   async function cancelNativeSpeech() {
-    if (!nativeSpeechActiveRef.current) return;
+    nativeSpeechAttemptRef.current++;
+    if (!nativeSpeechActiveRef.current && !nativeSpeechStartingRef.current) return;
     nativeSpeechActiveRef.current = false;
     nativeSpeechModeRef.current = "turn";
     nativeSpeechTextRef.current = "";
@@ -1495,27 +1552,38 @@ export default function ChatScreen() {
   }
 
   async function startNativeSpeech(mode: "turn" | "barge", silenceMs = 850): Promise<boolean> {
-    if (!NativeSpeechRecognizer.isAvailable || nativeSpeechActiveRef.current) return false;
+    if (!NativeSpeechRecognizer.isAvailable) return false;
+    if (nativeSpeechActiveRef.current || nativeSpeechStartingRef.current) return true;
+    nativeSpeechStartingRef.current = true;
+    const attempt = ++nativeSpeechAttemptRef.current;
+    try {
     const focusGranted = await NativeAudioSession.beginVoiceSession().catch(() => false);
+    if (attempt !== nativeSpeechAttemptRef.current) return true;
     if (!focusGranted && NativeAudioSession.isAvailable) return false;
 
     nativeSpeechModeRef.current = mode;
     nativeSpeechTextRef.current = "";
+    nativeSpeechActiveRef.current = true;
     const started = await NativeSpeechRecognizer.start(speechLanguage || "en-US", silenceMs).catch(() => false);
+    if (attempt !== nativeSpeechAttemptRef.current) return true;
     if (!started) {
+      nativeSpeechActiveRef.current = false;
       await NativeAudioSession.endVoiceSession().catch(() => {});
       return false;
     }
-    nativeSpeechActiveRef.current = true;
+    if (!nativeSpeechActiveRef.current) return true;
     setIsRecording(true);
     setRecordingDuration(0);
     setIsTranscribing(false);
     if (Platform.OS === "android") NativeOverlay.setState("listening").catch(() => {});
     return true;
+    } finally {
+      nativeSpeechStartingRef.current = false;
+    }
   }
 
   async function startBargeInListener() {
-    if (Platform.OS !== "android" || !isCallModeRef.current || !isSpeakingRef.current) return;
+    if (Platform.OS !== "android" || !isCallModeRef.current || !ttsPlayingRef.current) return;
     await startNativeSpeech("barge", 650);
   }
 
@@ -1534,7 +1602,12 @@ export default function ChatScreen() {
     }
     // Fully done
     ttsPlayingRef.current = false;
+    isSpeakingRef.current = false;
     setIsSpeaking(false);
+    if (nativeSpeechActiveRef.current && nativeSpeechModeRef.current === "barge") {
+      awaitBargeCleanup();
+      return;
+    }
     // Reset native overlay bubble back to idle state
     if (Platform.OS === "android") NativeOverlay.setState("idle").catch(() => {});
     if (pendingCallModeAfterTtsRef.current && !isStreamingRef.current) {
@@ -1545,27 +1618,10 @@ export default function ChatScreen() {
     }
   }
 
-  // ── Sentence helpers ──────────────────────────────────────────────────────
-
-  // Split a text buffer on sentence-ending punctuation followed by whitespace.
-  // Returns completed sentences + whatever remains in the buffer.
-  function extractSentences(buf: string, eagerVoice = false): { sentences: string[]; remainder: string } {
-    const sentences: string[] = [];
-    let last = 0;
-    for (let i = 0; i < buf.length - 1; i++) {
-      const followedBySpace = buf[i + 1] === ' ' || buf[i + 1] === '\n';
-      const sentenceEnd = '.!?'.includes(buf[i]) && followedBySpace;
-      // In call mode, hand off a substantial clause while the model keeps
-      // generating. Avoid tiny fragments such as "Sure," being voiced alone.
-      const earlyClause = eagerVoice && ',;:'.includes(buf[i]) && followedBySpace && i - last >= 36;
-      if (sentenceEnd || earlyClause) {
-        const s = buf.slice(last, i + 1).trim();
-        if (s) sentences.push(s);
-        last = i + 2;
-        i++; // skip the space
-      }
-    }
-    return { sentences, remainder: buf.slice(last) };
+  function awaitBargeCleanup() {
+    cancelNativeSpeech().finally(() => {
+      if (isCallModeRef.current && !isStreamingRef.current) startRecording();
+    });
   }
 
   // Build a streaming GET URL for the TTS endpoint.
@@ -1582,17 +1638,22 @@ export default function ChatScreen() {
   }
 
   // Attach playback listeners to a sound object and track it in elSoundRef.
-  function attachSoundListeners(sound: Audio.Sound, gen: number, voiceTiming?: VoiceTurnTiming | null) {
+  function attachSoundListeners(sound: Audio.Sound, gen: number, voiceTiming?: VoiceTurnTiming | null, spokenText = "") {
+    currentSpokenTextRef.current = spokenText;
     elSoundRef.current = sound;
     sound.setOnPlaybackStatusUpdate((status) => {
-      if (!status.isLoaded) return;
-      if (status.isPlaying) markFirstAudibleOutput(voiceTiming);
-      if ((status as any).error) {
-        console.warn("[tts] playback error:", (status as any).error);
+      if (gen !== ttsGenerationRef.current) return;
+      if (!status.isLoaded) {
+        if (!status.error) return;
+        console.warn("[tts] playback error:", status.error);
         sound.unloadAsync().catch(() => {});
         if (elSoundRef.current === sound) elSoundRef.current = null;
         onTtsDone();
         return;
+      }
+      if (status.isPlaying) {
+        markFirstAudibleOutput(voiceTiming);
+        void startBargeInListener();
       }
       if (status.didJustFinish) {
         sound.unloadAsync().catch(() => {});
@@ -1621,14 +1682,14 @@ export default function ChatScreen() {
       sound.unloadAsync().catch(() => {});
       return true;
     }
-    attachSoundListeners(sound, gen, voiceTiming);
+    attachSoundListeners(sound, gen, voiceTiming, text);
     return true;
   }
 
   // Downloading a model must not silently activate heavy neural inference.
   // A cloud selection uses the lightweight phone voice during calls.
-  function shouldUseLocalCallVoice(): boolean {
-    return isCallModeRef.current && (ttsProvider === "kokoro" || ttsProvider === "elevenlabs");
+  function shouldUseLocalCallVoice(voiceTiming?: VoiceTurnTiming | null): boolean {
+    return (isCallModeRef.current || Boolean(voiceTiming)) && (ttsProvider === "kokoro" || ttsProvider === "elevenlabs");
   }
 
   async function playLocalVoice(text: string, gen: number, voiceTiming?: VoiceTurnTiming | null): Promise<void> {
@@ -1655,7 +1716,7 @@ export default function ChatScreen() {
   async function playSentenceNow(text: string, voiceTiming?: VoiceTurnTiming | null): Promise<void> {
     if (!text.trim()) { onTtsDone(); return; }
     const gen = ttsGenerationRef.current;
-    if (ttsProvider === "piper" || shouldUseLocalCallVoice()) {
+    if (ttsProvider === "piper" || shouldUseLocalCallVoice(voiceTiming)) {
       await playLocalVoice(text, gen, voiceTiming);
       return;
     }
@@ -1672,7 +1733,7 @@ export default function ChatScreen() {
           sound.unloadAsync().catch(() => {});
           return;
         }
-        attachSoundListeners(sound, gen, voiceTiming);
+        attachSoundListeners(sound, gen, voiceTiming, text);
         return;
       } catch { /* fall through to phone TTS */ }
       if (gen !== ttsGenerationRef.current) return;
@@ -1688,6 +1749,7 @@ export default function ChatScreen() {
     if (!isTtsEnabled || !text.trim()) return;
     if (!ttsPlayingRef.current) {
       ttsPlayingRef.current = true; // set synchronously before any await
+      isSpeakingRef.current = true;
       setIsSpeaking(true);
       if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
       await playSentenceNow(text, voiceTiming);
@@ -1698,17 +1760,26 @@ export default function ChatScreen() {
 
   async function speakWithPhone(text: string, voiceTiming?: VoiceTurnTiming | null) {
     if (Platform.OS === "web") { onTtsDone(); return; }
+    const generation = ttsGenerationRef.current;
     const opts: Speech.SpeechOptions = {
       language: speechLanguage || "en-US",
       pitch: 1.05,
       rate: speechRate,
-      onStart: () => markFirstAudibleOutput(voiceTiming),
-      onDone: onTtsDone,
-      onError: onTtsDone,
-      onStopped: () => setIsSpeaking(false),
+      onStart: () => {
+        if (generation !== ttsGenerationRef.current) return;
+        markFirstAudibleOutput(voiceTiming);
+        startBargeInListener().catch((error) => console.warn("[voice] interruption listener:", error));
+      },
+      onDone: () => { if (generation === ttsGenerationRef.current) onTtsDone(); },
+      onError: () => { if (generation === ttsGenerationRef.current) onTtsDone(); },
+      onStopped: () => { if (generation === ttsGenerationRef.current) setIsSpeaking(false); },
     };
     if (phoneVoiceId) opts.voice = phoneVoiceId;
-    Speech.speak(text.slice(0, 800), opts);
+    const [first, ...remaining] = splitPiperText(text, 500);
+    currentSpokenTextRef.current = first ?? "";
+    ttsQueueRef.current.unshift(...remaining.map((chunk) => ({ text: chunk, voiceTiming: voiceTiming ?? null })));
+    if (first) Speech.speak(first, opts);
+    else onTtsDone();
   }
 
   async function speakText(text: string, voiceTiming?: VoiceTurnTiming | null) {
@@ -1726,7 +1797,7 @@ export default function ChatScreen() {
     // result is the barge-in signal and immediately cancels TTS + the stream.
     startBargeInListener().catch(() => {});
 
-    if (ttsProvider === "piper" || shouldUseLocalCallVoice()) {
+    if (ttsProvider === "piper" || shouldUseLocalCallVoice(voiceTiming)) {
       await playLocalVoice(text, gen, voiceTiming);
       return;
     }
@@ -1746,7 +1817,7 @@ export default function ChatScreen() {
           sound.unloadAsync().catch(() => {});
           return;
         }
-        attachSoundListeners(sound, gen, voiceTiming);
+        attachSoundListeners(sound, gen, voiceTiming, text);
         return;
       } catch {
         // cloud TTS failed — silently fall back to phone TTS
@@ -1768,6 +1839,7 @@ export default function ChatScreen() {
   // ── Call mode ──────────────────────────────────────────────────────────────
 
   async function startCallMode() {
+    recognitionFailuresRef.current = 0;
     isCallModeRef.current = true;
     setIsCallMode(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1818,7 +1890,8 @@ export default function ChatScreen() {
   }
 
   async function startRecording() {
-    if (isStreamingRef.current || isTranscribingRef.current) return;
+    if (isTranscribingRef.current || nativeSpeechActiveRef.current || recordingRef.current || pcmRecordingActiveRef.current) return;
+    if (isStreamingRef.current || isSpeakingRef.current) await stopSpeaking();
     // If wake word loop is mid-recording, stop it first
     if (isWakeListeningRef.current) {
       wakeWordLoopRef.current = false;
@@ -1917,6 +1990,10 @@ export default function ChatScreen() {
   }
 
   function stopRecordingCleanup() {
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
+    isTranscribingRef.current = false;
+    setIsTranscribing(false);
     if (durationTimerRef.current) { clearInterval(durationTimerRef.current); durationTimerRef.current = null; }
     if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null; }
     audioLevelAnim.setValue(0);
@@ -2012,6 +2089,11 @@ export default function ChatScreen() {
   }
 
   async function transcribeAndSend(uri: string, speechFinalizedAtMs: number) {
+    transcriptionAbortRef.current?.abort();
+    const controller = new AbortController();
+    transcriptionAbortRef.current = controller;
+    const timer = setTimeout(() => controller.abort(), 15000);
+    isTranscribingRef.current = true;
     setIsTranscribing(true);
     try {
       const base = await getApiBase();
@@ -2028,11 +2110,17 @@ export default function ChatScreen() {
       const response = await globalThis.fetch(`${base}transcribe`, {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
 
       const data = await response.json() as { text?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || "Speech transcription failed.");
+      if (controller.signal.aborted) return;
       const transcript = data.text?.trim();
       if (transcript && transcript.length > 1) {
+        clearTimeout(timer);
+        transcriptionAbortRef.current = null;
+        isTranscribingRef.current = false;
         setIsTranscribing(false);
         await handleSend(transcript, speechFinalizedAtMs);
       } else {
@@ -2041,7 +2129,9 @@ export default function ChatScreen() {
           setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
         }
       }
-    } catch {
+    } catch (error) {
+      if (transcriptionAbortRef.current !== controller) return;
+      console.warn("[voice] transcription failed:", error instanceof Error ? error.name : "unknown");
       setIsTranscribing(false);
       if (isCallModeRef.current) {
         setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
@@ -2051,8 +2141,16 @@ export default function ChatScreen() {
           { id: generateMsgId(), role: "assistant", content: "Sorry, I couldn't transcribe that. Please try again.", timestamp: Date.now() },
         ]);
       }
+    } finally {
+      clearTimeout(timer);
+      if (transcriptionAbortRef.current === controller) {
+        transcriptionAbortRef.current = null;
+        isTranscribingRef.current = false;
+        setIsTranscribing(false);
+      }
     }
   }
+  startRecordingRef.current = startRecording;
 
   // ── Device intent detection ─────────────────────────────────────────────────
 
@@ -2616,8 +2714,8 @@ export default function ChatScreen() {
         const url = phone ? `tel:${phone}` : "tel:";
         const canOpen = await Linking.canOpenURL(url).catch(() => false);
         if (canOpen || !phone) {
-          await Linking.openURL(url).catch(() => {});
-          await respond(phone ? `Calling ${intent.name ?? phone}.` : "Opening the phone dialer.");
+          await Linking.openURL(url);
+          await respond(phone ? `Opened the dialer for ${intent.name ?? phone}. Complete the call there.` : "Opened the phone dialer.");
         } else {
           await respond("I couldn't open the phone dialer on this device.");
         }
@@ -2636,8 +2734,8 @@ export default function ChatScreen() {
         const base = phone ? `sms:${phone}` : "sms:";
         const sep = Platform.OS === "ios" ? "&" : "?";
         const url = intent.message ? `${base}${sep}body=${encodeURIComponent(intent.message)}` : base;
-        await Linking.openURL(url).catch(() => {});
-        await respond(phone ? `Opening messages for ${intent.name ?? phone}.` : "Opening the messages app.");
+        await Linking.openURL(url);
+        await respond(phone ? `Opened messages for ${intent.name ?? phone}. Review and send it there.` : "Opened the messages app.");
         break;
       }
 
@@ -2664,42 +2762,12 @@ export default function ChatScreen() {
           }
           break;
         }
-        const appUrls: Record<string, string[]> = {
-          YouTube:    ["youtube://", "https://youtube.com"],
-          WhatsApp:   ["whatsapp://send", "https://wa.me"],
-          Maps:       ["geo:0,0", "https://maps.google.com"],
-          Spotify:    ["spotify://", "https://open.spotify.com"],
-          Instagram:  ["instagram://", "https://instagram.com"],
-          Twitter:    ["twitter://", "https://x.com"],
-          Facebook:   ["fb://", "https://facebook.com"],
-          Netflix:    ["nflx://", "https://netflix.com"],
-          TikTok:     ["tiktok://", "https://tiktok.com"],
-          Gmail:      ["googlegmail://", "https://mail.google.com"],
-          Telegram:   ["tg://", "https://t.me"],
-          Calculator: ["android-app://com.android.calculator2", ""],
-          Clock:      ["android-app://com.google.android.deskclock", ""],
-          Gallery:    ["content://media/external/images/media", "https://photos.google.com"],
-          Browser:    ["https://google.com"],
-          Camera:     ["android.media.action.IMAGE_CAPTURE", ""],
-          "Play Store": ["market://", "https://play.google.com"],
-        };
         try {
           if (app === "Settings") {
             await Linking.openSettings();
             await respond("Opening settings.");
           } else {
-            const urls = appUrls[app] ?? [`https://${app.toLowerCase().replace(/\s/g, "")}.com`];
-            let opened = false;
-            for (const u of urls) {
-              if (!u) continue;
-              const ok = await Linking.canOpenURL(u).catch(() => false);
-              if (ok) { await Linking.openURL(u); opened = true; break; }
-            }
-            if (!opened) {
-              const fallback = urls.find(u => u.startsWith("http"));
-              if (fallback) { await Linking.openURL(fallback).catch(() => {}); opened = true; }
-            }
-            await respond(opened ? `Opening ${app}.` : `I couldn't find ${app} on this device.`);
+            await respond(`Opening ${app} requires the latest Vox Android build. I did not open a substitute website.`);
           }
         } catch {
           await respond(`I couldn't open ${app}.`);
@@ -3344,40 +3412,48 @@ export default function ChatScreen() {
   // Performs the native action without adding messages — the LLM's confirmation
   // text streams in as content separately and becomes the assistant bubble.
 
-  async function silentExecuteDeviceAction(name: string, params: Record<string, unknown>): Promise<void> {
-    if (Platform.OS === "web") return;
+  async function silentExecuteDeviceAction(name: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<string | undefined> {
+    if (signal?.aborted) return;
+    if (Platform.OS === "web") return "Device actions require the installed Android app.";
+    const number = (value: unknown, min: number, max: number) => {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+        throw new Error("That command has an invalid number or time.");
+      }
+      return value;
+    };
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     switch (name) {
       case "flashlight": {
         if (!cameraPermission?.granted) {
           const { granted } = await requestCameraPermission();
-          if (!granted) return;
+          if (!granted) throw new Error("Camera permission is required for the flashlight.");
         }
-        const on = params.on as boolean;
+        if (typeof params.on !== "boolean") throw new Error("Specify whether the flashlight should be on or off.");
+        const on = params.on;
         await applyFlashlight(on);
-        break;
+        return on ? "Flashlight is on." : "Flashlight is off.";
       }
       case "set_brightness": {
-        const Brightness = await import("expo-brightness").catch(() => null);
-        if (!Brightness) break;
-        try {
+        const Brightness = await import("expo-brightness");
           const current = await Brightness.getBrightnessAsync();
           let next = current;
-          if (params.percent != null) next = Math.max(0.05, Math.min(1, (params.percent as number) / 100));
+          if (params.percent != null) next = Math.max(0.05, number(params.percent, 0, 100) / 100);
           else if (params.direction === "up") next = Math.min(1, current + 0.25);
           else if (params.direction === "down") next = Math.max(0.05, current - 0.25);
           else if (params.direction === "max") next = 1;
           else if (params.direction === "min") next = 0.05;
+          else throw new Error("Specify a brightness level or direction.");
           await Brightness.setBrightnessAsync(next);
-        } catch { /* ignore */ }
-        break;
+          return `Screen brightness set to ${Math.round(next * 100)}%.`;
       }
       case "make_call": {
         let phone = params.phone as string | undefined;
         if (!phone && params.contact) phone = await lookupContactPhone(params.contact as string);
-        if (phone) await Linking.openURL(`tel:${phone}`).catch(() => {});
-        break;
+        if (signal?.aborted) return;
+        if (!phone) throw new Error("I couldn't find that contact's phone number.");
+        await Linking.openURL(`tel:${phone}`);
+        return "Opened the phone dialer. Complete the call there.";
       }
       case "send_sms": {
         let phone = params.phone as string | undefined;
@@ -3385,110 +3461,137 @@ export default function ChatScreen() {
         const base = phone ? `sms:${phone}` : "sms:";
         const sep = Platform.OS === "ios" ? "&" : "?";
         const body = params.message ? encodeURIComponent(params.message as string) : "";
-        await Linking.openURL(`${base}${body ? `${sep}body=${body}` : ""}`).catch(() => {});
-        break;
+        if (signal?.aborted) return;
+        if (params.contact && !phone) throw new Error("I couldn't find that contact's phone number.");
+        await Linking.openURL(`${base}${body ? `${sep}body=${body}` : ""}`);
+        return "Opened the message composer. Review and send it there; it has not been sent.";
       }
       case "open_app": {
         const appName = params.app as string;
         if (NativeSystemPermissions.canLaunchApps) {
           const opened = await NativeSystemPermissions.launchApp(appName);
-          if (!opened) console.warn("[device-command] Installed app not found:", appName);
-          break;
+          if (!opened) throw new Error(`I couldn't find ${appName} installed on this device.`);
+          return `Opened ${appName}.`;
         }
-        const appUrls: Record<string, string[]> = {
-          YouTube: ["youtube://", "https://youtube.com"],
-          WhatsApp: ["whatsapp://send", "https://wa.me"],
-          Maps: ["geo:0,0", "https://maps.google.com"],
-          Spotify: ["spotify://", "https://open.spotify.com"],
-          Instagram: ["instagram://", "https://instagram.com"],
-          Twitter: ["twitter://", "https://x.com"],
-          Facebook: ["fb://", "https://facebook.com"],
-          Netflix: ["nflx://", "https://netflix.com"],
-          TikTok: ["tiktok://", "https://tiktok.com"],
-          Gmail: ["googlegmail://", "https://mail.google.com"],
-          Telegram: ["tg://", "https://t.me"],
-          Calculator: ["android-app://com.android.calculator2", ""],
-          Clock: ["android-app://com.google.android.deskclock", ""],
-          Gallery: ["content://media/external/images/media", "https://photos.google.com"],
-          Browser: ["https://google.com"],
-          Camera: ["android.media.action.IMAGE_CAPTURE", ""],
-          "Play Store": ["market://", "https://play.google.com"],
-        };
         if (appName === "Settings") {
-          await Linking.openSettings().catch(() => {});
-        } else {
-          const urls = appUrls[appName] ?? [`https://${appName.toLowerCase().replace(/\s/g, "")}.com`];
-          for (const u of urls) {
-            if (!u) continue;
-            const ok = await Linking.canOpenURL(u).catch(() => false);
-            if (ok) { await Linking.openURL(u).catch(() => {}); break; }
-          }
+          await Linking.openSettings();
+          return "Opened app settings.";
         }
-        break;
+        throw new Error("Opening installed apps requires the latest Vox Android build. No substitute website was opened.");
       }
       case "vibrate":
         Vibration.vibrate([0, 300, 100, 300]);
-        break;
+        return "Sent the vibration command to Android.";
       case "set_timer": {
-        const secs = (params.duration_seconds as number) ?? 60;
+        const secs = number(params.duration_seconds, 1, 604800);
         const lbl = (params.label as string) ?? `${secs}s`;
         const timerId = `timer-${Date.now()}`;
         setActiveTimers((prev) => [
           { id: timerId, label: lbl, totalSeconds: secs, remainingSeconds: secs, done: false },
           ...prev,
         ]);
-        break;
+        return `Started the ${lbl} in-app timer. Keep Vox running for this timer.`;
       }
       case "set_alarm": {
-        const h = (params.hour as number) ?? 0;
-        const m = (params.minute as number) ?? 0;
+        const h = number(params.hour, 0, 23);
+        const m = number(params.minute, 0, 59);
         const alarmTarget = new Date();
         alarmTarget.setHours(h, m, 0, 0);
         if (alarmTarget.getTime() <= Date.now()) alarmTarget.setDate(alarmTarget.getDate() + 1);
         const ms = alarmTarget.getTime() - Date.now();
         const timeStr = alarmTarget.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        await schedulePushNotification("⏰ Alarm", `Your alarm for ${timeStr} is going off.`, ms).catch(() => {});
-        break;
+        if (!await schedulePushNotification("⏰ Alarm", `Your alarm for ${timeStr} is going off.`, ms, signal)) {
+          throw new Error("Android could not schedule the notification. Check notification permissions.");
+        }
+        return `Scheduled an alarm notification for ${timeStr}.`;
       }
       case "set_reminder": {
         const lbl2 = (params.label as string) ?? "reminder";
         let ms2 = 0;
         if (params.offset_ms) {
-          ms2 = params.offset_ms as number;
+          ms2 = number(params.offset_ms, 1, 31536000000);
         } else if (params.hour != null) {
           const remTarget = new Date();
-          remTarget.setHours((params.hour as number), (params.minute as number) ?? 0, 0, 0);
+          remTarget.setHours(number(params.hour, 0, 23), number(params.minute ?? 0, 0, 59), 0, 0);
           if (remTarget.getTime() <= Date.now()) remTarget.setDate(remTarget.getDate() + 1);
           ms2 = remTarget.getTime() - Date.now();
         }
-        await schedulePushNotification("🔔 Reminder", lbl2, ms2 || undefined).catch(() => {});
-        break;
+        if (!ms2) throw new Error("Specify when you want to be reminded.");
+        if (!await schedulePushNotification("🔔 Reminder", lbl2, ms2, signal)) {
+          throw new Error("Android could not schedule the reminder. Check notification permissions.");
+        }
+        return `Scheduled a reminder notification: ${lbl2}.`;
       }
       case "lock_screen": {
-        if (!NativeScreenLock.isAvailable) break;
+        if (!NativeScreenLock.isAvailable) throw new Error("Screen locking is unavailable in this build.");
         const isAdmin = await NativeScreenLock.isAdminEnabled().catch(() => false);
-        if (isAdmin) await NativeScreenLock.lock().catch(() => {});
-        break;
+        if (!isAdmin) throw new Error("Enable Vox's device administrator permission before locking the screen.");
+        if (!await NativeScreenLock.lock()) throw new Error("Android did not lock the screen.");
+        return "Android accepted the screen-lock command.";
       }
       case "media_control": {
-        if (!NativeMediaControl.isAvailable) break;
+        if (!NativeMediaControl.isAvailable) throw new Error("Media controls are unavailable in this build.");
         const action = params.action as string;
-        if (action === "play") await NativeMediaControl.play().catch(() => {});
-        else if (action === "pause") await NativeMediaControl.pause().catch(() => {});
-        else if (action === "next") await NativeMediaControl.next().catch(() => {});
-        else if (action === "previous") await NativeMediaControl.previous().catch(() => {});
-        else if (action === "stop") await NativeMediaControl.stop().catch(() => {});
-        break;
+        if (!["play", "pause", "next", "previous", "stop"].includes(action)) throw new Error("Unknown media command.");
+        const applied = await NativeMediaControl[action as "play" | "pause" | "next" | "previous" | "stop"]();
+        if (!applied) throw new Error("Android could not dispatch that media command.");
+        return `Sent the ${action} command to Android.`;
       }
       case "reply_message": {
         const msgTarget = lastNotifRef.current;
-        if (msgTarget?.hasReply && NativeNotifications.isAvailable) {
-          await NativeNotifications.replyTo(msgTarget.key, (params.message as string) ?? "").catch(() => {});
-        }
-        break;
+        if (!msgTarget?.hasReply || !NativeNotifications.isAvailable) throw new Error("There is no replyable notification.");
+        const reply = typeof params.message === "string" ? params.message.trim() : "";
+        if (!reply) throw new Error("The reply cannot be empty.");
+        const confirmed = await new Promise<boolean>((resolve) => Alert.alert(
+          "Send notification reply?", `To ${msgTarget.sender || msgTarget.app}:\n${reply}`,
+          [{ text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+            { text: "Send", onPress: () => resolve(true) }],
+          { cancelable: true, onDismiss: () => resolve(false) },
+        ));
+        if (!confirmed) return "Reply cancelled. Nothing was sent.";
+        if (signal?.aborted) return;
+        if (!await NativeNotifications.replyTo(msgTarget.key, reply)) throw new Error("Android rejected the reply.");
+        return "Android accepted the notification reply; delivery has not been verified.";
       }
-      // check_battery, check_weather, read_notification, web_search, take_photo:
-      // These are purely informational — the LLM response text handles them.
+      case "check_battery": {
+        const Battery = await import("expo-battery");
+        const [level, state] = await Promise.all([Battery.getBatteryLevelAsync(), Battery.getBatteryStateAsync()]);
+        if (level < 0) throw new Error("The battery reading is unavailable.");
+        return `Battery: ${Math.round(level * 100)}%${state === Battery.BatteryState.CHARGING ? ", charging" : ""}.`;
+      }
+      case "read_notification": {
+        const notification = lastNotifRef.current;
+        if (!notification) return "No notification is available to read.";
+        return `${notification.sender || notification.app}: ${notification.text || "No message text."}`;
+      }
+      case "web_search": {
+        const base = await getApiBase();
+        const response = await fetch(`${base}search`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: params.query, assistantName }),
+          signal: AbortSignal.timeout(20000),
+        });
+        const data = await response.json() as { result?: string; error?: string };
+        if (!response.ok || !data.result) throw new Error(data.error || "Search is unavailable.");
+        return data.result;
+      }
+      case "check_weather": {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status !== "granted") throw new Error("Location permission is required for local weather.");
+        const location = await Location.getLastKnownPositionAsync({ maxAge: 120000 }) ||
+          await withinBudget(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }), 10000, null);
+        if (!location) throw new Error("A location fix is unavailable. Try again with location services enabled.");
+        if (signal?.aborted) return;
+        const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${location.coords.latitude}&longitude=${location.coords.longitude}&current_weather=true`, { signal: AbortSignal.timeout(10000) });
+        const data = await response.json() as { current_weather?: { temperature: number; windspeed: number } };
+        if (!response.ok || !data.current_weather) throw new Error("Weather data is unavailable.");
+        return `Current temperature: ${data.current_weather.temperature}°C. Wind: ${data.current_weather.windspeed} km/h.`;
+      }
+      case "take_photo":
+        await captureAndDescribe(undefined, true, signal);
+        return;
+      default:
+        throw new Error("That device action is not supported.");
     }
   }
 
@@ -3546,9 +3649,10 @@ export default function ChatScreen() {
 
     if (contextLocation) {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.getForegroundPermissionsAsync();
         if (status === "granted") {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const loc = await Location.getLastKnownPositionAsync({ maxAge: 120000 });
+          if (!loc) return parts.length ? parts.join(" ") : undefined;
           const [place] = await Location.reverseGeocodeAsync(loc.coords);
           const city = place?.city || place?.subregion || place?.region || "";
           const country = place?.isoCountryCode || "";
@@ -3561,8 +3665,7 @@ export default function ChatScreen() {
   }
 
   // ── Conversation summarization ─────────────────────────────────────────────
-  // Called before sending a large history to the backend. Compresses old turns
-  // into a rolling summary and prepends it as a system message.
+  // Refreshed after a completed answer; never blocks a new chat request.
 
   async function summarizeOldMessages(msgs: Message[]): Promise<string | null> {
     try {
@@ -3644,7 +3747,7 @@ export default function ChatScreen() {
       }
       return;
     }
-    if (isStreaming) return;
+    if (isStreamingRef.current) return;
 
     const voiceTiming: VoiceTurnTiming | null =
       speechFinalizedAtMs !== undefined
@@ -3692,9 +3795,13 @@ export default function ChatScreen() {
     }
 
     const convId = getOrCreateConvId();
+    chatAbortRef.current?.abort();
+    const abortCtrl = new AbortController();
+    chatAbortRef.current = abortCtrl;
     const userMsg: Message = { id: generateMsgId(), role: "user", content: text, timestamp: Date.now() };
     const withUser = [...baseSnapshot, userMsg];
     setMessages(withUser);
+    isStreamingRef.current = true;
     setIsStreaming(true);
     setShowTyping(true);
 
@@ -3759,39 +3866,34 @@ export default function ChatScreen() {
 
       // Voice turns should not wait on a second LLM request to summarize old
       // history. The recent conversation is enough to answer immediately.
-      const shouldSummarize = !voiceTiming && !isCallModeRef.current && withUser.length > SUMMARIZE_THRESHOLD;
+      const shouldSummarize = withUser.length > SUMMARIZE_THRESHOLD;
       const oldMessages = shouldSummarize ? withUser.slice(0, withUser.length - KEEP_RECENT) : [];
-      const summaryPromise = shouldSummarize
-        ? summarizeOldMessages(oldMessages)
-        : Promise.resolve(null);
-      // These independent preparations used to run one after another. Overlap
-      // them so voice mode starts the model request as soon as the slower one
-      // is ready instead of paying both latencies in series.
-      const deviceContextPromise = contextEnabled && !isCallModeRef.current
-        ? collectDeviceContext()
-        : Promise.resolve(undefined);
-      const [summary, deviceCtx] = await Promise.all([summaryPromise, deviceContextPromise]);
+      const cachedSummary = summaryCacheRef.current.get(convId);
+      const coveredIndex = cachedSummary ? withUser.findIndex((m) => m.id === cachedSummary.throughId) : -1;
+      const contextKey = JSON.stringify([contextEnabled, contextBattery, contextNotifications, contextScreen, contextLocation, contextMedia, lastNotifRef.current?.key]);
+      const cachedContext = contextCacheRef.current;
+      const contextFresh = cachedContext?.key === contextKey && Date.now() - cachedContext.at < 30000;
+      const refreshContext = contextEnabled && !isCallModeRef.current && !contextFresh
+        ? collectDeviceContext().then((text) => {
+            contextCacheRef.current = { key: contextKey, at: Date.now(), text };
+            return text;
+          })
+        : Promise.resolve(contextEnabled && cachedContext?.key === contextKey ? cachedContext.text : undefined);
+      // Ambient context is optional: never wait on GPS or a slow native bridge
+      // before beginning the answer. A late result is cached for the next turn.
+      const deviceCtx = await withinBudget(refreshContext, 250,
+        contextEnabled && cachedContext?.key === contextKey ? cachedContext.text : undefined);
+      if (abortCtrl.signal.aborted) return;
 
-      if (shouldSummarize) {
-        const recentMessages = withUser.slice(-KEEP_RECENT);
-        if (summary) {
+      if (cachedSummary && coveredIndex >= 0) {
           chatHistory = [
-            { role: "user", content: `[Earlier conversation summary: ${summary}]` },
+            { role: "user", content: `[Earlier conversation summary: ${cachedSummary.text}]` },
             { role: "assistant", content: "Understood, I have context from our earlier conversation." },
-            ...recentMessages.map((m) => ({ role: m.role, content: m.content })),
+            ...withUser.slice(coveredIndex + 1).map((m) => ({ role: m.role, content: m.content })),
           ];
-        } else {
-          // Fallback: hard trim if summarization fails
-          chatHistory = withUser.slice(-MAX_CHAT_HISTORY).map((m) => ({ role: m.role, content: m.content }));
-        }
       } else {
         chatHistory = withUser.slice(-MAX_CHAT_HISTORY).map((m) => ({ role: m.role, content: m.content }));
       }
-
-      // Cancel any previous in-flight request and start a fresh AbortController
-      chatAbortRef.current?.abort();
-      const abortCtrl = new AbortController();
-      chatAbortRef.current = abortCtrl;
 
       if (voiceTiming) {
         voiceTiming.requestStartedAtMs = Date.now();
@@ -3810,106 +3912,105 @@ export default function ChatScreen() {
           systemPrompt: chatSystemPrompt,
           deviceId,
           callMode: isCallModeRef.current,
+          voiceTurn: Boolean(voiceTiming),
+          clientMemoryProvided: true,
           ...(deviceCtx && { deviceContext: deviceCtx }),
         }),
         signal: abortCtrl.signal,
       });
 
-      if (!response.ok) throw new Error("Chat failed");
-
-      type SseChunkResult = {
-        content: string;
-        toolCall?: { name: string; params: Record<string, unknown> };
-        modelFirstTokenMs?: number;
-      };
-      const parseSseChunk = (chunk: string): SseChunkResult => {
-        let content = "";
-        let toolCall: SseChunkResult["toolCall"];
-        let modelFirstTokenMs: number | undefined;
-        const lines = chunk.split("\n");
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6).trim();
-          if (!data || data === "[DONE]") continue;
-          try {
-            const parsed = JSON.parse(data) as {
-              content?: string;
-              error?: string;
-              tool_call?: { name: string; params: Record<string, unknown> };
-              modelFirstTokenMs?: number;
-            };
-            if (parsed.content) content += parsed.content;
-            else if (parsed.error) content += parsed.error;
-            if (parsed.tool_call) toolCall = parsed.tool_call;
-            if (typeof parsed.modelFirstTokenMs === "number") modelFirstTokenMs = parsed.modelFirstTokenMs;
-          } catch { /* skip malformed lines */ }
-        }
-        return { content, toolCall, modelFirstTokenMs };
-      };
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(failure.error || "Chat is unavailable. Check the API server configuration.");
+      }
 
       const reader = response.body?.getReader();
       let fullContent = "";
       const assistantId = generateMsgId();
       let added = false;
-
-      if (!reader) {
-        // No streaming — get full text then speak it all at once
-        fullContent = parseSseChunk(await response.text()).content;
-        speakText(fullContent, voiceTiming);
-      } else {
-        const decoder = new TextDecoder();
-        let buf = "";       // SSE line buffer
-        let ttsBuf = "";    // sentence accumulation buffer for TTS
-        while (true) {
-          const { done, value } = await reader.read();
+      let hadToolCall = false;
+      let ttsBuf = "";
+      const consumeEvents = async (events: AssistantEvent[]) => {
+        for (const event of events) {
           if (abortCtrl.signal.aborted) return;
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split("\n");
-          buf = lines.pop() ?? "";
-          const { content: delta, toolCall, modelFirstTokenMs } = parseSseChunk(lines.join("\n"));
-          if (delta && voiceTiming && voiceTiming.modelFirstTokenAtMs === undefined) {
+          if (event.error) throw new Error(event.error);
+          if (event.tool_call) {
+            hadToolCall = true;
+            let outcome: string | undefined;
+            try {
+              outcome = await silentExecuteDeviceAction(event.tool_call.name, event.tool_call.params, abortCtrl.signal);
+            } catch (error) {
+              outcome = error instanceof Error ? error.message : "Android could not complete that action.";
+            }
+            if (abortCtrl.signal.aborted) return;
+            if (!outcome) continue;
+            setMessages((previous) => [...previous, {
+              id: generateMsgId(), role: "assistant", content: outcome, timestamp: Date.now(),
+            }]);
+            void enqueueSentence(outcome, voiceTiming);
+          }
+          const delta = event.content;
+          if (!delta) continue;
+          if (voiceTiming && voiceTiming.modelFirstTokenAtMs === undefined) {
             voiceTiming.modelFirstTokenAtMs = Date.now();
-            if (modelFirstTokenMs !== undefined) voiceTiming.serverModelFirstTokenMs = modelFirstTokenMs;
+            voiceTiming.serverModelFirstTokenMs = event.modelFirstTokenMs;
             logVoiceTimingStage(voiceTiming, "first_model_token", voiceTiming.modelFirstTokenAtMs);
           }
-          // Execute device tool call silently — confirmation text streams as content
-          if (toolCall) silentExecuteDeviceAction(toolCall.name, toolCall.params).catch(() => {});
-          if (!delta) continue;
           fullContent += delta;
           ttsBuf += delta;
-          // Update chat UI as tokens arrive
+          const snapshot = fullContent;
           if (!added) {
             setShowTyping(false);
-            setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: fullContent, timestamp: Date.now() }]);
+            setMessages((previous) => [...previous, {
+              id: assistantId, role: "assistant", content: snapshot, timestamp: Date.now(),
+            }]);
             added = true;
           } else {
-            setMessages((prev) => {
-              const u = [...prev];
-              u[u.length - 1] = { ...u[u.length - 1], content: fullContent };
-              return u;
-            });
+            setMessages((previous) => previous.map((message) =>
+              message.id === assistantId ? { ...message, content: snapshot } : message));
           }
-          // Fire complete sentences to TTS immediately as they arrive —
-          // user hears the first sentence while the rest is still generating
-          const { sentences, remainder } = extractSentences(ttsBuf, isCallModeRef.current);
-          ttsBuf = remainder;
-          for (const s of sentences) {
-            enqueueSentence(s, voiceTiming); // fire-and-forget: TTS plays while streaming continues
-          }
+          const chunks = splitSpokenChunks(ttsBuf, Boolean(voiceTiming) || isCallModeRef.current);
+          ttsBuf = chunks.remainder;
+          for (const sentence of chunks.sentences) void enqueueSentence(sentence, voiceTiming);
         }
-        if (buf) fullContent += parseSseChunk(buf).content;
-        // Speak any trailing text that didn't end with sentence punctuation
-        if (ttsBuf.trim()) enqueueSentence(ttsBuf.trim(), voiceTiming);
-      }
+      };
 
-      if (!fullContent.trim()) throw new Error("No response received from chat service.");
-      if (!added) {
+      if (!reader) {
+        await consumeEvents(parseAssistantEvents(await response.text()));
+      } else {
+        const decoder = new TextDecoder();
+        let buf = "";
+        try { while (true) {
+          const { done, value } = await reader.read();
+          if (abortCtrl.signal.aborted) return;
+          buf += done ? decoder.decode() : decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = done ? "" : lines.pop() ?? "";
+          await consumeEvents(parseAssistantEvents(lines.join("\n")));
+          if (done) break;
+        } } finally {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
+        }
+      }
+      if (ttsBuf.trim()) void enqueueSentence(ttsBuf.trim(), voiceTiming);
+
+      if (!fullContent.trim() && !hadToolCall) throw new Error("No response received from chat service.");
+      if (!added && fullContent.trim()) {
         setShowTyping(false);
         setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: fullContent, timestamp: Date.now() }]);
       }
 
       setMessages((finalMsgs) => { saveMessages(convId, finalMsgs); return finalMsgs; });
+      // Summarize only after the user has received the answer. Keep the last
+      // successful summary available while the next one is being calculated.
+      const throughId = oldMessages.at(-1)?.id;
+      if (throughId && cachedSummary?.throughId !== throughId && !summaryPendingRef.current.has(convId)) {
+        summaryPendingRef.current.add(convId);
+        void summarizeOldMessages(oldMessages).then((summary) => {
+          if (summary) summaryCacheRef.current.set(convId, { text: summary, throughId });
+        }).finally(() => summaryPendingRef.current.delete(convId));
+      }
 
       // ── Memory extraction (fire-and-forget) ────────────────────────────────
       // Extract durable personal facts from this exchange and save them to the
@@ -3937,18 +4038,22 @@ export default function ChatScreen() {
       }
     } catch (error) {
       // Ignore user-initiated cancellations — no error message needed
-      if (error instanceof Error && error.name === "AbortError") {
-        setShowTyping(false);
-        return;
-      }
+      if (abortCtrl.signal.aborted || chatAbortRef.current !== abortCtrl) return;
       console.warn("Chat send failed", error);
-      const errMsg = "Sorry, something went wrong. Please try again.";
+      const errMsg = error instanceof Error ? error.message : "The response failed. Please try again.";
       setShowTyping(false);
       setMessages((prev) => [...prev, { id: generateMsgId(), role: "assistant", content: errMsg, timestamp: Date.now() }]);
-      speakText(errMsg);
+      void enqueueSentence(errMsg, voiceTiming);
     } finally {
-      setIsStreaming(false);
-      setShowTyping(false);
+      if (chatAbortRef.current === abortCtrl) {
+        chatAbortRef.current = null;
+        isStreamingRef.current = false;
+        setIsStreaming(false);
+        setShowTyping(false);
+        if (isCallModeRef.current && !ttsPlayingRef.current && !nativeSpeechActiveRef.current) {
+          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+        }
+      }
     }
   };
 
@@ -4397,7 +4502,7 @@ export default function ChatScreen() {
                 },
               ]}
               onPress={isRecording ? stopRecording : startRecording}
-              disabled={isStreaming || isWakeListening}
+              disabled={isWakeListening || isTranscribing}
             >
               {isTranscribing
                 ? <ActivityIndicator size="small" color={colors.primary} />
@@ -4417,6 +4522,15 @@ export default function ChatScreen() {
           audioLevelAnim={audioLevelAnim}
           colors={colors}
           assistantName={assistantName}
+          transcript={input}
+          onInterrupt={() => {
+            void (async () => {
+              await cancelNativeSpeech();
+              await stopSpeaking();
+              setInput("");
+              await startRecording();
+            })();
+          }}
           lastMessage={
             [...messages].reverse().find((m) => m.role === "assistant")?.content ?? ""
           }

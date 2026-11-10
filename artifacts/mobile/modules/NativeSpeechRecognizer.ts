@@ -7,7 +7,7 @@ const emitter =
     : null;
 
 export interface SpeechPartialEvent {
-  text: string;
+  text?: string;
   level?: number;
 }
 

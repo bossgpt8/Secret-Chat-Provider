@@ -66,7 +66,7 @@ function trimMessages(messages: { role: string; content: string }[]) {
 // the server emits a { tool_call: { name, params } } SSE event so the mobile
 // client can execute the native action.
 
-const DEVICE_TOOLS = [
+export const DEVICE_TOOLS = [
   {
     type: "function",
     function: {

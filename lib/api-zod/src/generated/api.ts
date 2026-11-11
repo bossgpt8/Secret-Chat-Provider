@@ -8,6 +8,38 @@
 import * as zod from "zod";
 
 /**
+ * @summary Pair a device using a short-lived code generated on the VM
+ */
+export const pairLiveDeviceBodyCodeMin = 12;
+export const pairLiveDeviceBodyCodeMax = 32;
+
+export const PairLiveDeviceBody = zod.object({
+  code: zod
+    .string()
+    .min(pairLiveDeviceBodyCodeMin)
+    .max(pairLiveDeviceBodyCodeMax),
+});
+
+export const PairLiveDeviceResponse = zod.object({
+  credential: zod.string(),
+  expiresAt: zod.string(),
+});
+
+/**
+ * @summary Issue one constrained short-lived Gemini Live token
+ */
+export const CreateLiveTokenHeader = zod.object({
+  Authorization: zod.string(),
+});
+
+export const CreateLiveTokenResponse = zod.object({
+  token: zod.string(),
+  expiresAt: zod.string(),
+  sessionSeconds: zod.number(),
+  setup: zod.record(zod.string(), zod.unknown()),
+});
+
+/**
  * Returns server health status
  * @summary Health check
  */
@@ -16,43 +48,88 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
+ * Returns all conversations for the device identified by X-Device-Id header, newest first.
  * @summary List conversations
  */
+export const ListConversationsHeader = zod.object({
+  "X-Device-Id": zod.string(),
+});
+
 export const ListConversationsResponse = zod.object({
   conversations: zod.array(
     zod.object({
       id: zod.string(),
       deviceId: zod.string(),
       title: zod.string(),
-      createdAt: zod.string(),
-      updatedAt: zod.string(),
-    })
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
   ),
 });
 
 /**
  * @summary Create a conversation
  */
+export const CreateConversationHeader = zod.object({
+  "X-Device-Id": zod.string(),
+});
+
 export const CreateConversationBody = zod.object({
   id: zod.string(),
   title: zod.string().optional(),
 });
 
-export const CreateConversationResponse = zod.object({
-  conversation: zod
-    .object({
-      id: zod.string(),
-      deviceId: zod.string(),
-      title: zod.string(),
-      createdAt: zod.string(),
-      updatedAt: zod.string(),
-    })
-    .nullable(),
+/**
+ * @summary Update a conversation title
+ */
+export const UpdateConversationParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdateConversationHeader = zod.object({
+  "X-Device-Id": zod.string(),
+});
+
+export const UpdateConversationBody = zod.object({
+  title: zod.string().optional(),
+});
+
+export const UpdateConversationResponse = zod.object({
+  conversation: zod.object({
+    id: zod.string(),
+    deviceId: zod.string(),
+    title: zod.string(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Delete a conversation and all its messages
+ */
+export const DeleteConversationParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const DeleteConversationHeader = zod.object({
+  "X-Device-Id": zod.string(),
+});
+
+export const DeleteConversationResponse = zod.object({
+  success: zod.boolean(),
 });
 
 /**
  * @summary List messages in a conversation
  */
+export const ListMessagesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListMessagesHeader = zod.object({
+  "X-Device-Id": zod.string(),
+});
+
 export const ListMessagesResponse = zod.object({
   messages: zod.array(
     zod.object({
@@ -60,29 +137,24 @@ export const ListMessagesResponse = zod.object({
       conversationId: zod.string(),
       role: zod.enum(["user", "assistant"]),
       content: zod.string(),
-      createdAt: zod.string(),
-    })
+      createdAt: zod.coerce.date(),
+    }),
   ),
 });
 
 /**
  * @summary Append a message to a conversation
  */
+export const CreateMessageParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const CreateMessageHeader = zod.object({
+  "X-Device-Id": zod.string(),
+});
+
 export const CreateMessageBody = zod.object({
   messageId: zod.string(),
   role: zod.enum(["user", "assistant"]),
   content: zod.string(),
 });
-
-export const CreateMessageResponse = zod.object({
-  message: zod
-    .object({
-      id: zod.string(),
-      conversationId: zod.string(),
-      role: zod.enum(["user", "assistant"]),
-      content: zod.string(),
-      createdAt: zod.string(),
-    })
-    .nullable(),
-});
-

@@ -42,6 +42,7 @@ const KOTLIN_FILES = [
   "VoxPiperModule.kt",
   "VoxPiperPackage.kt",
   "VoxPcmRecorderModule.kt",
+  "VoxLiveAudioModule.kt",
   "VoxPcmRecorderPackage.kt",
   "VoxScreenCaptureService.kt",
   "VoxScreenCaptureModule.kt",

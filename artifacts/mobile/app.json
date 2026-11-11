@@ -28,17 +28,22 @@
       "intentFilters": [
         {
           "action": "android.intent.action.ASSIST",
-          "category": ["android.intent.category.DEFAULT"]
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
         },
         {
           "action": "android.intent.action.VOICE_COMMAND",
-          "category": ["android.intent.category.DEFAULT"]
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
         }
       ],
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.FLASHLIGHT",
         "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.READ_CONTACTS",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WRITE_SETTINGS",
@@ -97,7 +102,8 @@
           "color": "#7c3aed",
           "sounds": []
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

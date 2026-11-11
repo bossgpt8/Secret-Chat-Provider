@@ -17,38 +17,91 @@ export interface Conversation {
   updatedAt: string;
 }
 
-export interface ConversationMessage {
-  id: string;
-  conversationId: string;
-  role: "user" | "assistant";
-  content: string;
-  createdAt: string;
-}
-
-export interface ListConversationsResponse {
-  conversations: Conversation[];
-}
-
 export interface CreateConversationBody {
   id: string;
   title?: string;
 }
 
-export interface CreateConversationResponse {
-  conversation: Conversation | null;
+export type ConversationMessageRole =
+  (typeof ConversationMessageRole)[keyof typeof ConversationMessageRole];
+
+export const ConversationMessageRole = {
+  user: "user",
+  assistant: "assistant",
+} as const;
+
+export interface ConversationMessage {
+  id: string;
+  conversationId: string;
+  role: ConversationMessageRole;
+  content: string;
+  createdAt: string;
 }
 
-export interface ListMessagesResponse {
-  messages: ConversationMessage[];
-}
+export type CreateMessageBodyRole =
+  (typeof CreateMessageBodyRole)[keyof typeof CreateMessageBodyRole];
+
+export const CreateMessageBodyRole = {
+  user: "user",
+  assistant: "assistant",
+} as const;
 
 export interface CreateMessageBody {
   messageId: string;
-  role: "user" | "assistant";
+  role: CreateMessageBodyRole;
   content: string;
 }
 
-export interface CreateMessageResponse {
-  message: ConversationMessage | null;
-}
+export type ErrorResponseResponse = {
+  error: string;
+};
 
+export type PairLiveDeviceBody = {
+  /**
+   * @minLength 12
+   * @maxLength 32
+   */
+  code: string;
+};
+
+export type PairLiveDevice200 = {
+  credential: string;
+  expiresAt: string;
+};
+
+export type CreateLiveToken200Setup = { [key: string]: unknown };
+
+export type CreateLiveToken200 = {
+  token: string;
+  expiresAt: string;
+  sessionSeconds: number;
+  setup: CreateLiveToken200Setup;
+};
+
+export type ListConversations200 = {
+  conversations: Conversation[];
+};
+
+export type CreateConversation201 = {
+  conversation: Conversation;
+};
+
+export type UpdateConversationBody = {
+  title?: string;
+};
+
+export type UpdateConversation200 = {
+  conversation: Conversation;
+};
+
+export type DeleteConversation200 = {
+  success: boolean;
+};
+
+export type ListMessages200 = {
+  messages: ConversationMessage[];
+};
+
+export type CreateMessage201 = {
+  message: ConversationMessage;
+};

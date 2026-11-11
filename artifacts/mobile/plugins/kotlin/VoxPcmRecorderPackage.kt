@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class VoxPcmRecorderPackage : ReactPackage {
     override fun createNativeModules(ctx: ReactApplicationContext): List<NativeModule> =
-        listOf(VoxPcmRecorderModule(ctx))
+        listOf(VoxPcmRecorderModule(ctx), VoxLiveAudioModule(ctx))
 
     override fun createViewManagers(ctx: ReactApplicationContext): List<ViewManager<*, *>> =
         emptyList()

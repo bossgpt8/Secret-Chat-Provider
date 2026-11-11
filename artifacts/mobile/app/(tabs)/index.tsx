@@ -32,6 +32,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message, type Conversation } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { LiveVoicePanel } from "@/components/LiveVoicePanel";
+import type { LiveTurn } from "@/modules/liveSession";
 import { NativeAccessibility, type VoxAccessibilityNotification } from "@/modules/NativeAccessibility";
 import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallScreening";
 import { NativeMediaControl } from "@/modules/NativeMediaControl";
@@ -834,6 +836,8 @@ export default function ChatScreen() {
   const nativeSpeechTextRef = useRef("");
   const currentSpokenTextRef = useRef("");
   const piperFailureNoticeRef = useRef(false);
+  const [liveOpen, setLiveOpen] = useState(false);
+  const liveOpenRef = useRef(false);
   const nativeSpeechStartingRef = useRef(false);
   const nativeSpeechAttemptRef = useRef(0);
   const recognitionFailuresRef = useRef(0);
@@ -873,6 +877,7 @@ export default function ChatScreen() {
 
   // Wake word refs
   const wakeWordLoopRef = useRef(false);
+  const wakeRecordingRef = useRef<Audio.Recording | null>(null);
   const wakeWordEnabledRef = useRef(wakeWordEnabled);
   const readIncomingEnabledRef = useRef(readIncomingEnabled);
   const assistantNameRef = useRef(assistantName);
@@ -1450,7 +1455,7 @@ export default function ChatScreen() {
   async function wakeWordLoopTick() {
     if (!wakeWordLoopRef.current) return;
     // Pause if something else is using audio
-    if (isCallModeRef.current || isStreamingRef.current || recordingRef.current) {
+    if (liveOpenRef.current || isCallModeRef.current || isStreamingRef.current || recordingRef.current) {
       setTimeout(() => wakeWordLoopTick(), 600);
       return;
     }
@@ -1461,9 +1466,15 @@ export default function ChatScreen() {
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== "granted") { wakeWordLoopRef.current = false; setIsWakeListening(false); return; }
+      if (!wakeWordLoopRef.current || liveOpenRef.current) return;
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      if (!wakeWordLoopRef.current || liveOpenRef.current) {
+        await recording.stopAndUnloadAsync().catch(() => {});
+        return;
+      }
       rec = recording;
+      wakeRecordingRef.current = recording;
       isWakeListeningRef.current = true;
       setIsWakeListening(true);
 
@@ -1475,6 +1486,7 @@ export default function ChatScreen() {
       setIsWakeListening(false);
       if (!wakeWordLoopRef.current) { rec.stopAndUnloadAsync().catch(() => {}); return; }
       await rec.stopAndUnloadAsync();
+      if (wakeRecordingRef.current === rec) wakeRecordingRef.current = null;
       rec = null;
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
       if (!wakeWordLoopRef.current) return;
@@ -1509,7 +1521,9 @@ export default function ChatScreen() {
       isWakeListeningRef.current = false;
       setIsWakeListening(false);
       if (rec) rec.stopAndUnloadAsync().catch(() => {});
-      try { await Audio.setAudioModeAsync({ allowsRecordingIOS: false }); } catch { /* ignore */ }
+      if (!liveOpenRef.current) {
+        try { await Audio.setAudioModeAsync({ allowsRecordingIOS: false }); } catch { /* ignore */ }
+      }
       if (wakeWordLoopRef.current) setTimeout(() => wakeWordLoopTick(), 2000);
     }
   }
@@ -1753,6 +1767,7 @@ export default function ChatScreen() {
   // Enqueue a sentence from the streaming loop. Starts playback immediately
   // if nothing is playing; queues otherwise.
   async function enqueueSentence(text: string, voiceTiming?: VoiceTurnTiming | null) {
+    if (liveOpenRef.current) return;
     if (!isTtsEnabled || !text.trim()) return;
     if (!ttsPlayingRef.current) {
       ttsPlayingRef.current = true; // set synchronously before any await
@@ -1790,6 +1805,7 @@ export default function ChatScreen() {
   }
 
   async function speakText(text: string, voiceTiming?: VoiceTurnTiming | null) {
+    if (liveOpenRef.current) return;
     if (!isTtsEnabled || !text.trim()) {
       if (isCallModeRef.current) onTtsDone();
       return;
@@ -1846,6 +1862,7 @@ export default function ChatScreen() {
   // ── Call mode ──────────────────────────────────────────────────────────────
 
   async function startCallMode() {
+    if (liveOpenRef.current) return;
     recognitionFailuresRef.current = 0;
     isCallModeRef.current = true;
     setIsCallMode(true);
@@ -1863,9 +1880,9 @@ export default function ChatScreen() {
     await stopSpeaking();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     // Resume wake word listener if the user has it enabled
-    if (wakeWordEnabledRef.current) {
+    if (wakeWordEnabledRef.current && !liveOpenRef.current) {
       setTimeout(() => {
-        if (wakeWordEnabledRef.current && !isCallModeRef.current) {
+        if (wakeWordEnabledRef.current && !isCallModeRef.current && !liveOpenRef.current) {
           wakeWordLoopRef.current = true;
           wakeWordLoopTick();
         }
@@ -1897,6 +1914,7 @@ export default function ChatScreen() {
   }
 
   async function startRecording() {
+    if (liveOpenRef.current) return;
     if (isTranscribingRef.current || nativeSpeechActiveRef.current || recordingRef.current || pcmRecordingActiveRef.current) return;
     if (isStreamingRef.current || isSpeakingRef.current) await stopSpeaking();
     // If wake word loop is mid-recording, stop it first
@@ -3729,6 +3747,7 @@ export default function ChatScreen() {
   // ── Send message ───────────────────────────────────────────────────────────
 
   const handleSend = async (overrideText?: string, speechFinalizedAtMs?: number) => {
+    if (liveOpenRef.current) return;
     const text = (overrideText ?? (branchEditMsgId ? branchEditText : input)).trim();
     if (!text) return;
 
@@ -4181,6 +4200,33 @@ export default function ChatScreen() {
     activeConvId.current = null;
   }
 
+  async function openLiveMode() {
+    if (liveOpenRef.current) return;
+    liveOpenRef.current = true;
+    wakeWordLoopRef.current = false;
+    const wakeRecording = wakeRecordingRef.current;
+    wakeRecordingRef.current = null;
+    if (wakeRecording) await wakeRecording.stopAndUnloadAsync().catch(() => {});
+    isWakeListeningRef.current = false;
+    setIsWakeListening(false);
+    await endCallMode();
+    await stopSpeaking();
+    stopRecordingCleanup();
+    setLiveOpen(true);
+  }
+  function saveLiveTurn(turn: LiveTurn) {
+    const convId = getOrCreateConvId();
+    const additions: Message[] = [];
+    if (turn.input) additions.push({ id: generateMsgId(), role: "user", content: turn.input, timestamp: Date.now() });
+    if (turn.output) additions.push({ id: generateMsgId(), role: "assistant",
+      content: turn.output + (turn.interrupted ? " [Interrupted]" : ""), timestamp: Date.now() });
+    if (additions.length) setMessages(previous => {
+      const next = [...previous, ...additions];
+      void saveMessages(convId, next);
+      return next;
+    });
+  }
+
   function showOfflineAlert(feature: string) {
     Alert.alert(
       "No internet connection",
@@ -4260,6 +4306,16 @@ export default function ChatScreen() {
           )}
         </View>
         <View style={styles.headerActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Choose current voice or Gemini Live"
+            testID="open-voice-modes" style={styles.iconBtn} onPress={() => {
+              Alert.alert("Voice mode", "Keep using current voice, or open real-time Gemini Live.", [
+                { text: "Current voice", onPress: () => { void startCallMode(); } },
+                { text: "Gemini Live", onPress: () => { void openLiveMode(); } },
+                { text: "Cancel", style: "cancel" },
+              ]);
+            }}>
+            <Ionicons name="radio-outline" size={20} color={colors.primary} />
+          </Pressable>
           <Pressable style={[styles.iconBtn, isSearchMode && { backgroundColor: colors.primary + "18", borderRadius: 8 }]}
             onPress={() => { setIsSearchMode((v) => !v); Haptics.selectionAsync(); }}>
             <MaterialIcons name="travel-explore" size={20} color={isSearchMode ? colors.primary : colors.mutedForeground} />
@@ -4520,6 +4576,15 @@ export default function ChatScreen() {
       </KeyboardAvoidingView>
 
       {/* ── Full-screen voice call overlay ── */}
+      {liveOpen && <LiveVoicePanel getApiBase={getApiBase} history={messages.slice(-8)}
+        executeTool={silentExecuteDeviceAction} onTurn={saveLiveTurn}
+        onClose={() => {
+          liveOpenRef.current = false; setLiveOpen(false);
+          if (wakeWordEnabledRef.current) {
+            wakeWordLoopRef.current = true;
+            setTimeout(() => { if (!liveOpenRef.current) void wakeWordLoopTick(); }, 500);
+          }
+        }} />}
       {isCallMode && (
         <VoiceCallOverlay
           isRecording={isRecording}

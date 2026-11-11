@@ -13,6 +13,75 @@ tags:
   - name: conversations
     description: Conversation and message persistence
 paths:
+  /live/pair:
+    post:
+      operationId: pairLiveDevice
+      tags: [live]
+      summary: Pair a device using a short-lived code generated on the VM
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  minLength: 12
+                  maxLength: 32
+      responses:
+        "200":
+          description: Live-only device authorization
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [credential, expiresAt]
+                properties:
+                  credential: { type: string }
+                  expiresAt: { type: string }
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+  /live/token:
+    post:
+      operationId: createLiveToken
+      tags: [live]
+      summary: Issue one constrained short-lived Gemini Live token
+      parameters:
+        - in: header
+          name: Authorization
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Single-use session credentials and locked configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, expiresAt, sessionSeconds, setup]
+                properties:
+                  token: { type: string }
+                  expiresAt: { type: string }
+                  sessionSeconds: { type: integer }
+                  setup:
+                    type: object
+                    additionalProperties: true
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/ErrorResponse"
+        "502":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
   /healthz:
     get:
       operationId: healthCheck

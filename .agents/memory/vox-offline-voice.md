@@ -20,3 +20,9 @@ Unknown pronunciations should fall back to Phone for that phrase rather than inv
 **Why:** The user reported cracking speech even after Piper could run. Unsafe pronunciation guesses and actual engine failures need different recovery paths.
 
 **How to apply:** Keep pronunciation limitations explicit and preserve session-wide shutdown for genuine native failures. Bundled pronunciation resources must have redistributable licenses.
+
+Treat background audio-focus/playback denial separately from Piper inference failure.
+
+**Why:** A device screenshot showed Expo rejecting background audio focus and Vox then permanently switching the selected voice to Phone. Playback availability does not establish that the Piper model failed.
+
+**How to apply:** Allow the intended Android background reply path, release failed players, and keep playback-only fallback limited to that phrase. Preserve the native-failure safeguards and do not claim that this fixes wake recognition or lock-screen reliability.

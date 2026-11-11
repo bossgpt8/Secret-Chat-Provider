@@ -31,6 +31,7 @@ import {
 import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Reanimated, { useAnimatedStyle } from "react-native-reanimated";
 import { chatComposerBottomPadding } from "@/modules/chatKeyboard";
+import { voiceAudioMode, synthesizePiperOrThrow, shouldDisablePiper } from "@/modules/voiceAudioPolicy";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message, type Conversation } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
@@ -1555,11 +1556,13 @@ export default function ChatScreen() {
     if (!modelPath || !configPath) return false;
 
     const prepared = piperPrefetch.current.take(`${modelPath}|${text}`, gen);
-    const value = prepared ? await prepared : null;
-    if (value?.error) throw value.error;
-    const wavPath = value?.value || await NativePiper.synthesize(text, modelPath, configPath);
+    const wavPath = await synthesizePiperOrThrow(async () => {
+      const value = prepared ? await prepared : null;
+      if (value?.error) throw value.error;
+      return value?.value || await NativePiper.synthesize(text, modelPath, configPath);
+    });
     if (gen !== ttsGenerationRef.current) return true;
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+    await Audio.setAudioModeAsync(voiceAudioMode(Platform.OS));
     const { sound } = await Audio.Sound.createAsync(
       { uri: wavPath.startsWith("file://") ? wavPath : `file://${wavPath}` },
       { shouldPlay: false, volume: 1.0 },
@@ -1569,7 +1572,16 @@ export default function ChatScreen() {
       return true;
     }
     attachSoundListeners(sound, gen, voiceTiming, text);
-    await sound.playAsync();
+    try {
+      await sound.playAsync();
+    } catch (error) {
+      // A playback/focus failure is not an inference failure. Release this
+      // player before speaking the phone fallback or trying the next phrase.
+      sound.setOnPlaybackStatusUpdate(null);
+      if (elSoundRef.current === sound) elSoundRef.current = null;
+      await sound.unloadAsync().catch(() => {});
+      throw error;
+    }
     primePiperNext();
     return true;
   }
@@ -1608,8 +1620,8 @@ export default function ChatScreen() {
       } catch (error) {
         ttsQueueRef.current = ttsQueueRef.current.filter(item => !continuation.includes(item));
         if (gen !== ttsGenerationRef.current) return;
-        console.warn("[tts] Piper unavailable, falling back to phone voice:", error);
-        if ((error as { code?: string })?.code !== "ERR_PIPER_PRONUNCIATION" && !piperFailureNoticeRef.current) {
+        console.warn("[tts] Local voice failed, falling back to phone voice for this phrase:", error);
+        if (shouldDisablePiper(error) && !piperFailureNoticeRef.current) {
           piperFailureNoticeRef.current = true;
           void setTtsProvider("phone").catch(() => {});
           Alert.alert("Switched to Phone voice",
@@ -1636,7 +1648,7 @@ export default function ChatScreen() {
       try {
         const uri = await buildTtsUrl(text);
         if (gen !== ttsGenerationRef.current) return;
-        await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+        await Audio.setAudioModeAsync(voiceAudioMode(Platform.OS));
         const { sound } = await Audio.Sound.createAsync(
           { uri },
           { shouldPlay: false, volume: 1.0 }
@@ -1727,7 +1739,7 @@ export default function ChatScreen() {
       try {
         const uri = await buildTtsUrl(text);
         if (gen !== ttsGenerationRef.current) return;
-        await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+        await Audio.setAudioModeAsync(voiceAudioMode(Platform.OS));
         const { sound } = await Audio.Sound.createAsync(
           { uri },
           { shouldPlay: false, volume: 1.0 }
@@ -1843,7 +1855,7 @@ export default function ChatScreen() {
           return;
         }
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      await Audio.setAudioModeAsync(voiceAudioMode(Platform.OS, true));
       await stopSpeaking();
 
       // Enable metering so we can read audio levels for VAD
@@ -2006,7 +2018,7 @@ export default function ChatScreen() {
 
     try {
       await rec.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      await Audio.setAudioModeAsync(voiceAudioMode(Platform.OS));
       const uri = rec.getURI();
       if (!uri) {
         if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);

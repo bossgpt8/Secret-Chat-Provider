@@ -5,6 +5,7 @@ import * as Notifications from "expo-notifications";
 import { useAssistant } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
 import { NativeWakeWord, type WakeStatus } from "@/modules/NativeWakeWord";
+import { WakeCalibrationSettings } from "./WakeCalibrationSettings";
 import { NativeAccessibility } from "@/modules/NativeAccessibility";
 import { wakePhraseForName } from "@/modules/wakePhrase";
 
@@ -97,6 +98,7 @@ export function WakeWordSettings() {
           <Text style={{ color: colors.primary, paddingVertical: 8 }}>Background / battery setup</Text>
         </Pressable>
       )}
+      <WakeCalibrationSettings assistantName={assistantName} />
     </View>
   );
 }

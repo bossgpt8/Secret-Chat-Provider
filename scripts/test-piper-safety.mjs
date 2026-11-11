@@ -81,6 +81,18 @@ test("concurrent sentences cannot start concurrent native synthesis", async () =
   complete("/cache/voice.wav");
   await first;
 });
+test("unknown pronunciation and intentional cancellation do not poison Piper for the session", async () => {
+  for (const code of ["ERR_PIPER_PRONUNCIATION", "ERR_PIPER_CANCELLED"]) {
+    let attempts = 0;
+    const { safety, data } = fixture({ async synthesize() {
+      if (!attempts++) throw Object.assign(new Error("Recoverable phrase outcome"), { code });
+      return "/cache/retry.wav";
+    } });
+    await assert.rejects(safety.synthesize("One phrase", "model", "config"), /Recoverable/);
+    assert.equal(data.has(PIPER_ATTEMPT_KEY), false);
+    assert.equal(await safety.synthesize("Another phrase", "model", "config"), "/cache/retry.wav");
+  }
+});
 test("native guard catches incompatible libraries and checks process architecture before ONNX", () => {
   const source = readFileSync(new URL("../artifacts/mobile/plugins/kotlin/VoxPiperModule.kt", import.meta.url), "utf8");
   assert.match(source, /catch \(e: LinkageError\)/);

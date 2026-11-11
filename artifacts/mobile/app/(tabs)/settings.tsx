@@ -28,6 +28,7 @@ import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
 import { OfflineModelsSection } from "@/components/OfflineModelsSection";
 import { WakeWordSettings } from "@/components/WakeWordSettings";
+import { AssistantQualitySettings } from "@/components/AssistantQualitySettings";
 
 interface Permission {
   id: string;
@@ -151,7 +152,7 @@ export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const {
-    assistantName, setAssistantName,
+    assistantName, setAssistantName, deviceId,
     conversations, clearAllConversations,
     phoneVoiceId, setPhoneVoiceId,
     elVoiceId, setElVoiceId,
@@ -361,6 +362,7 @@ export default function SettingsScreen() {
     if (Platform.OS === "web") return "/api/";
     return "https://vox.bossbot.me/api/";
   }
+  const qualityApiBase = React.useCallback(async () => resolveBase(), [customApiUrl]);
 
   async function loadElVoices() {
     if (elVoices.length > 0) return; // already loaded
@@ -596,7 +598,7 @@ export default function SettingsScreen() {
                 : ttsProvider === "elevenlabs"
                 ? "High-quality ElevenLabs cloud voices. Falls back to phone TTS if unavailable."
                 : ttsProvider === "piper"
-                ? "Experimental Piper voice for this session only. Requires a 64-bit Android build and enough free memory. Restarts use Phone voice to avoid a crash loop."
+                ? "Piper uses a pronunciation dictionary and prepares the next phrase during playback. Unknown pronunciations use Phone voice for that phrase. Still experimental and session-only: requires 64-bit Android and sufficient memory; restarts use Phone voice."
                 : "Your device's built-in voice — works offline, always available."}
             </Text>
             {(ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && (
@@ -857,6 +859,9 @@ export default function SettingsScreen() {
         {/* ── Hands-Free ── */}
         <Section title="Hands-Free">
           <WakeWordSettings />
+        </Section>
+        <Section title="Assistant quality">
+          <AssistantQualitySettings getApiBase={qualityApiBase} deviceId={deviceId} />
         </Section>
 
         {/* ── Privacy & Context ── */}

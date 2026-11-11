@@ -7,10 +7,16 @@ Offline voice is an optional Android capability: native 16 kHz PCM recording fee
 
 **Why:** Audio-only offline support should not silently imply that the language model or chat backend is offline, and Expo's normal AAC/M4A recording is not the input format used by Whisper.cpp.
 
-**How to apply:** Keep model selection and downloads explicit in Settings, preserve DownloadManager jobs by filename, and verify the generated Android project on a Java-enabled Android build/device before calling the feature production-ready. Piper pronunciation needs real-device validation because the current bridge uses a lightweight custom phonemizer. When maintaining Expo config plugins, keep the JavaScript entrypoint synchronized with the TypeScript source because prebuild executes the JavaScript file.
+**How to apply:** Keep model selection and downloads explicit in Settings, preserve DownloadManager jobs by filename, and verify the generated Android project on a Java-enabled Android build/device before calling the feature production-ready. Piper pronunciation and smoothness require real-device listening; syntactically valid phoneme IDs do not establish audible quality. When maintaining Expo config plugins, keep the JavaScript entrypoint synchronized with the TypeScript source because prebuild executes the JavaScript file.
 
 Do not automatically activate Piper in calls just because its model is downloaded; require an explicit Piper voice selection and use the lightweight Phone voice for local fallback.
 
 **Why:** The user reported the app exiting with “Vox isn't responding” when Piper was used, and later reported repeated exits seconds after relaunching with Piper selected and downloaded. A downloaded model does not establish that the device can run it reliably alongside live audio and the UI.
 
 **How to apply:** Keep Piper optional and session-only until its Android inference, playback, and repeated app launches are verified on a physical device. Do not re-enable automatic Piper startup on the strength of JavaScript fallbacks: process-fatal native failures bypass them. Do not equate successful TypeScript checks or a browser preview with native stability.
+
+Unknown pronunciations should fall back to Phone for that phrase rather than inventing phonemes or disabling Piper for the rest of a healthy session.
+
+**Why:** The user reported cracking speech even after Piper could run. Unsafe pronunciation guesses and actual engine failures need different recovery paths.
+
+**How to apply:** Keep pronunciation limitations explicit and preserve session-wide shutdown for genuine native failures. Bundled pronunciation resources must have redistributable licenses.

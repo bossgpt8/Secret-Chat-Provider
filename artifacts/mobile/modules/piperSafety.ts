@@ -53,6 +53,10 @@ export function createPiperSafety(storage: Storage, engine: Engine, timeoutMs = 
         await storage.removeItem(PIPER_ATTEMPT_KEY);
         return path;
       } catch (error) {
+        if (["ERR_PIPER_PRONUNCIATION", "ERR_PIPER_CANCELLED"].includes((error as { code?: string })?.code || "")) {
+          await storage.removeItem(PIPER_ATTEMPT_KEY);
+          throw error; // Recover per phrase; an unknown word is not an engine crash.
+        }
         blocked = error instanceof Error ? error.message : "Piper failed. Phone voice will be used.";
         // Keep the marker on failure, including a late native completion after
         // timeout. Recovery clears it only after persisting Phone voice.

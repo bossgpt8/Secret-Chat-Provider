@@ -13,6 +13,89 @@ tags:
   - name: conversations
     description: Conversation and message persistence
 paths:
+  /devices/pair:
+    post:
+      operationId: pairPrivateDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PrivateDeviceInput" }
+      responses:
+        "200":
+          description: Private device credential bound to the device ID
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PrivateDeviceAuthorization" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+  /memory:
+    get:
+      operationId: listPrivateMemory
+      parameters:
+        - { $ref: "#/components/parameters/PrivateAuthorization" }
+      responses:
+        "200":
+          description: Owned memories
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PrivateMemoryList" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+    post:
+      operationId: savePrivateMemory
+      parameters:
+        - { $ref: "#/components/parameters/PrivateAuthorization" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryInput" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemoryResult" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+  /memory/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+      - { $ref: "#/components/parameters/PrivateAuthorization" }
+    patch:
+      operationId: updatePrivateMemory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemoryResult" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+    delete:
+      operationId: deletePrivateMemory
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /memory/extract:
+    post:
+      operationId: extractPrivateMemory
+      parameters:
+        - { $ref: "#/components/parameters/PrivateAuthorization" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryExtractionInput" }
+      responses:
+        "200":
+          description: Extracted owned memories
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PrivateMemoryList" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
   /live/pair:
     post:
       operationId: pairLiveDevice
@@ -97,6 +180,8 @@ paths:
                 $ref: "#/components/schemas/HealthStatus"
 
   /conversations:
+    parameters:
+      - { $ref: "#/components/parameters/PrivateAuthorization" }
     get:
       operationId: listConversations
       tags: [conversations]
@@ -156,6 +241,8 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
 
   /conversations/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/PrivateAuthorization" }
     patch:
       operationId: updateConversation
       tags: [conversations]
@@ -225,6 +312,8 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
 
   /conversations/{id}/messages:
+    parameters:
+      - { $ref: "#/components/parameters/PrivateAuthorization" }
     get:
       operationId: listMessages
       tags: [conversations]
@@ -293,7 +382,57 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
 
 components:
+  parameters:
+    PrivateAuthorization:
+      in: header
+      name: Authorization
+      required: true
+      schema: { type: string }
   schemas:
+    PrivateDeviceInput:
+      type: object
+      required: [code, deviceId]
+      properties:
+        code: { type: string, minLength: 12, maxLength: 32 }
+        deviceId: { type: string, pattern: "^[A-Za-z0-9_-]{8,128}$" }
+    PrivateDeviceAuthorization:
+      type: object
+      required: [credential, expiresAt]
+      properties:
+        credential: { type: string }
+        expiresAt: { type: string }
+    MemoryInput:
+      type: object
+      required: [fact]
+      properties:
+        fact: { type: string, minLength: 1, maxLength: 500 }
+        category: { type: string, maxLength: 30 }
+    MemoryExtractionInput:
+      type: object
+      required: [userMessage, assistantMessage, automaticMemory]
+      properties:
+        userMessage: { type: string, minLength: 1, maxLength: 8000 }
+        assistantMessage: { type: string, minLength: 1, maxLength: 16000 }
+        automaticMemory: { type: boolean }
+    PrivateMemory:
+      type: object
+      required: [id, fact, category]
+      properties:
+        id: { type: string }
+        fact: { type: string }
+        category: { type: string }
+    PrivateMemoryList:
+      type: object
+      required: [facts]
+      properties:
+        facts:
+          type: array
+          items: { $ref: "#/components/schemas/PrivateMemory" }
+    MemoryResult:
+      type: object
+      required: [fact]
+      properties:
+        fact: { $ref: "#/components/schemas/PrivateMemory" }
     HealthStatus:
       type: object
       properties:

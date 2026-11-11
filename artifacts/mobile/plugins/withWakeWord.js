@@ -25,6 +25,16 @@ const INPUTS = [
     url: "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v2.0.1/LICENSE",
     sha256: "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
   },
+  {
+    name: "cmudict.dict",
+    url: "https://raw.githubusercontent.com/cmusphinx/cmudict/74790861f652b15e4ac49015a90074ad62a27690/cmudict.dict",
+    sha256: "81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22",
+  },
+  {
+    name: "cmudict-LICENSE.txt",
+    url: "https://raw.githubusercontent.com/cmusphinx/cmudict/74790861f652b15e4ac49015a90074ad62a27690/LICENSE",
+    sha256: "bd4ce8e44170a5f9f481310ca85c51de3c4f851a65e679b40e603b143bd3542a",
+  },
 ];
 const MODEL_FILES = [
   "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
@@ -89,11 +99,15 @@ async function download(input, cache) {
 async function prepareWakeAssets(root) {
   const cache = path.resolve(root, "../../generated-artifacts/wake-word");
   fs.mkdirSync(cache, { recursive: true });
-  const [aar, archive, license] = await Promise.all(INPUTS.map(input => download(input, cache)));
+  const [aar, archive, license, dictionary, dictionaryLicense] = await Promise.all(INPUTS.map(input => download(input, cache)));
   const assets = path.join(root, "android/app/src/main/assets/vox-wake");
   const libs = path.join(root, "android/app/libs");
   fs.mkdirSync(assets, { recursive: true });
   fs.mkdirSync(libs, { recursive: true });
+  const piperAssets = path.join(root, "android/app/src/main/assets/vox-piper");
+  fs.mkdirSync(piperAssets, { recursive: true });
+  fs.copyFileSync(dictionary, path.join(piperAssets, "cmudict.dict"));
+  fs.copyFileSync(dictionaryLicense, path.join(piperAssets, "LICENSE.txt"));
   const expanded = path.join(cache, MODEL);
   // Extract only known model members from the checksum-verified archive.
   execFileSync("tar", ["xjf", archive, "-C", cache, ...MODEL_FILES.map(file => `${MODEL}/${file}`)]);

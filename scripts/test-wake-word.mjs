@@ -24,7 +24,9 @@ test("unsupported names fail explicitly, without falling back to Hey Vox", () =>
   }
 });
 test("every downloaded build dependency is HTTPS and checksum-pinned", () => {
-  assert.equal(INPUTS.length, 3);
+  assert.equal(INPUTS.length, 5);
+  assert.ok(INPUTS.some(input => input.name === "cmudict.dict"));
+  assert.ok(INPUTS.some(input => input.name === "cmudict-LICENSE.txt"));
   for (const input of INPUTS) {
     assert.match(input.url, /^https:\/\//);
     assert.match(input.sha256, /^[a-f0-9]{64}$/);

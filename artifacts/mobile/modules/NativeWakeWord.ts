@@ -8,6 +8,9 @@ export interface WakeStatus {
   running: boolean;
   state: "starting" | "listening" | "paused" | "error" | "stopped";
   message: string;
+  detections?: number;
+  lastDetectionAt?: number;
+  assistantName?: string;
 }
 const unavailable: WakeStatus = {
   enabled: false, running: false, state: "stopped",
@@ -31,10 +34,10 @@ export const NativeWakeWord = {
   async setPaused(paused: boolean, reason = "voice"): Promise<void> {
     if (native) await native.setPaused(reason, paused);
   },
-  onWake(callback: () => void): () => void {
+  onWake(callback: (detectedAtMs: number) => void): () => void {
     const sub = events?.addListener("onVoxLocalWake", (event: { detectedAtMs?: number }) => {
       // Android can suspend JS. Do not start a stale conversation after waking.
-      if (typeof event.detectedAtMs === "number" && Date.now() - event.detectedAtMs < 10000) callback();
+      if (typeof event.detectedAtMs === "number" && Date.now() - event.detectedAtMs < 10000) callback(event.detectedAtMs);
     });
     return () => sub?.remove();
   },

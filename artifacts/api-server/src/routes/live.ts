@@ -1,15 +1,15 @@
 import { Router, type IRouter } from "express";
 import { rateLimit } from "express-rate-limit";
 import { PairLiveDeviceBody } from "@workspace/api-zod";
-import { LiveSessionBudget, verifyPairingCode, issueLiveCredential, verifyLiveCredential } from "../lib/live-access";
+import { LiveSessionBudget, issueLiveCredential, verifyLiveCredential } from "../lib/live-access";
+import { consumePairingCode } from "../lib/pairing-codes";
 import { DEVICE_TOOLS } from "./chat";
 
 const router: IRouter = Router();
-const usedCodes = new Map<string, number>();
 const budget = new LiveSessionBudget();
 const toolNames = new Set(["flashlight", "set_brightness", "check_battery", "make_call", "send_sms",
   "open_app", "set_timer", "set_alarm", "set_reminder", "media_control", "lock_screen",
-  "vibrate", "read_notification", "reply_message", "check_weather", "web_search"]);
+  "vibrate", "read_notification", "reply_message", "check_weather", "web_search", "run_action_plan", "remember_fact", "forget_fact"]);
 
 function geminiSchema(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(geminiSchema);
@@ -59,14 +59,13 @@ router.post("/live/pair", limited(5), async (req, res): Promise<void> => {
   const input = PairLiveDeviceBody.safeParse(req.body);
   if (!input.success) { res.status(400).json({ error: "Enter the pairing code generated on your VM." }); return; }
   const secret = process.env.SESSION_SECRET || process.env.GEMINI_API_KEY!;
-  const now = Date.now();
-  for (const [code, expiry] of usedCodes) if (expiry < now) usedCodes.delete(code);
-  const normalized = input.data.code.replace(/[\s-]/g, "").toUpperCase();
-  if (!verifyPairingCode(normalized, secret, now) || usedCodes.has(normalized)) {
+  let accepted = false;
+  try { accepted = consumePairingCode(input.data.code, secret); }
+  catch (error) { req.log.error({ err: error }, "Could not persist Live pairing"); }
+  if (!accepted) {
     res.status(401).json({ error: "Pairing code expired, invalid, or already used. Generate a new code on the VM." }); return;
   }
-  usedCodes.set(normalized, now + 10 * 60000);
-  res.json(issueLiveCredential(secret, now));
+  res.json(issueLiveCredential(secret));
 });
 
 router.post("/live/token", limited(4), async (req, res): Promise<void> => {

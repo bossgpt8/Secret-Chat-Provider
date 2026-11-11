@@ -31,6 +31,10 @@ class VoxWakeModule(private val context: ReactApplicationContext) : ReactContext
         putBoolean("running", VoxWakeService.instance != null)
         putString("state", VoxWakeService.instance?.state ?: "stopped")
         putString("message", VoxWakeService.instance?.message ?: "Listener stopped. Enable or resume it while Vox is open.")
+        val prefs = context.getSharedPreferences(VoxWakeService.PREFS, 0)
+        putString("assistantName", prefs.getString("name", "Vox"))
+        putInt("detections", prefs.getInt("detections", 0))
+        putDouble("lastDetectionAt", prefs.getLong("lastDetectionAt", 0).toDouble())
     }
     @ReactMethod fun getStatus(promise: Promise) { main.post { promise.resolve(status()) } }
     @ReactMethod fun setName(name: String, promise: Promise) {

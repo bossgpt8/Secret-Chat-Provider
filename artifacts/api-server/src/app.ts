@@ -6,6 +6,9 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
+// Accept forwarding headers only from local/private reverse-proxy hops.
+// Keep the API port private behind Caddy/the development proxy.
+app.set("trust proxy", ["loopback", "linklocal", "uniquelocal"]);
 
 app.use(
   pinoHttp({

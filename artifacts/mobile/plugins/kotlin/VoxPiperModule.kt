@@ -40,6 +40,28 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
     }
     private val watchdog = Executors.newSingleThreadScheduledExecutor()
     private val busy = AtomicBoolean(false)
+    private val cancelled = AtomicBoolean(false)
+    @Volatile private var activeRunOptions: OrtSession.RunOptions? = null
+    private val pronunciationCache = LinkedHashMap<String, List<String>>()
+    private val phonemizer = VoxPiperPhonemizer { wanted ->
+        val missing = wanted.filter { !pronunciationCache.containsKey(it) }.toMutableSet()
+        if (missing.isNotEmpty()) {
+            reactApplicationContext.assets.open("vox-piper/cmudict.dict").bufferedReader().use { reader ->
+                while (missing.isNotEmpty()) {
+                    val line = reader.readLine() ?: break
+                    val separator = line.indexOf(' ')
+                    if (separator <= 0) continue
+                    val word = line.substring(0, separator)
+                    if (!missing.remove(word)) continue
+                    pronunciationCache[word] = line.substring(separator + 1).substringBefore('#').trim().split(Regex("\\s+"))
+                }
+            }
+        }
+        val result = wanted.mapNotNull { word -> pronunciationCache[word]?.let { word to it } }.toMap()
+        // Do not retain a full pronunciation dictionary beside the neural model.
+        while (pronunciationCache.size > 512) pronunciationCache.remove(pronunciationCache.keys.first())
+        result
+    }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -90,6 +112,7 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
             promise.reject("ERR_PIPER_BUSY", "Piper is already generating speech.")
             return
         }
+        cancelled.set(false)
         worker.execute {
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
@@ -103,7 +126,7 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                 val phonemeIdMap = parsePhonemeIdMap(config)
 
                 // Phonemise text → flat list of Long IDs
-                val ids = phonemise(text, phonemeIdMap)
+                val ids = phonemizer.ids(text, phonemeIdMap)
                 require(ids.size in 3..768) { "Voice input is empty or too long." }
 
                 // Load session lazily, swap if model changed
@@ -124,13 +147,19 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                 }
                 val sess = session!!
 
+                if (cancelled.get()) throw java.util.concurrent.CancellationException()
                 val samples = runInference(sess, ids, sampleRate)
+                if (cancelled.get()) throw java.util.concurrent.CancellationException()
                 val outFile = File(
                     reactApplicationContext.cacheDir,
                     "piper_${System.currentTimeMillis()}.wav"
                 )
                 writeWav(outFile, samples, sampleRate)
                 promise.resolve(outFile.absolutePath)
+            } catch (e: java.util.concurrent.CancellationException) {
+                promise.reject("ERR_PIPER_CANCELLED", "Piper speech was cancelled.", e)
+            } catch (e: VoxPiperPhonemizer.UnsupportedWord) {
+                promise.reject("ERR_PIPER_PRONUNCIATION", e.message, e)
             } catch (e: OutOfMemoryError) {
                 runCatching { closeSession() }
                 promise.reject("ERR_PIPER_MEMORY", "Not enough memory for Piper. Use the Phone voice on this device.")
@@ -141,8 +170,12 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                 runCatching { closeSession() }
                 promise.reject("ERR_PIPER_NATIVE", "Piper's native engine is incompatible with this build. Use Phone voice.", e)
             } catch (e: Exception) {
-                runCatching { closeSession() }
-                promise.reject("ERR_PIPER_SYNTH", "Piper could not generate speech. Try the Phone voice.", e)
+                if (cancelled.get()) {
+                    promise.reject("ERR_PIPER_CANCELLED", "Piper speech was cancelled.", e)
+                } else {
+                    runCatching { closeSession() }
+                    promise.reject("ERR_PIPER_SYNTH", "Piper could not generate speech. Try the Phone voice.", e)
+                }
             } finally {
                 busy.set(false)
             }
@@ -185,7 +218,9 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                                 }
                             }
                         }, 12, TimeUnit.SECONDS)
+                        activeRunOptions = options
                         try {
+                            if (cancelled.get()) throw java.util.concurrent.CancellationException()
                             sess.run(mapOf("input" to input, "input_lengths" to lengths, "scales" to scales), options).use { result ->
                                 val output = result[0] as OnnxTensor
                                 require(output.info.numElements in 1L..(sampleRate * 30L)) { "Voice output exceeded the safe length." }
@@ -199,6 +234,7 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                             // Prevent setTerminate from racing RunOptions.close().
                             synchronized(options) {
                                 finished = true
+                                activeRunOptions = null
                                 deadline.cancel(false)
                             }
                         }
@@ -206,6 +242,18 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                 }
             }
         }
+    }
+
+    @ReactMethod
+    fun cancelSynthesis(promise: Promise) {
+        cancelled.set(true)
+        val options = activeRunOptions
+        if (options != null) synchronized(options) {
+            if (activeRunOptions === options) {
+                try { options.setTerminate(true) } catch (_: Exception) {} catch (_: LinkageError) {}
+            }
+        }
+        promise.resolve(null)
     }
 
     override fun invalidate() {

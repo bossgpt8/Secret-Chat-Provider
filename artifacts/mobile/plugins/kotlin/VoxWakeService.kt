@@ -52,6 +52,9 @@ class VoxWakeService : Service() {
         engine = VoxWakeEngine(this,
             onReady = { update("listening", "Say “Hey $assistantName”, wait for the vibration, then speak.") },
             onWake = {
+                val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+                prefs.edit().putInt("detections", prefs.getInt("detections", 0) + 1)
+                    .putLong("lastDetectionAt", System.currentTimeMillis()).apply()
                 listeningRequested = false
                 releaseWakeLock()
                 reasons.add("handoff")

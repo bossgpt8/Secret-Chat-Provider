@@ -5,6 +5,59 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface PrivateDeviceInput {
+  /**
+   * @minLength 12
+   * @maxLength 32
+   */
+  code: string;
+  /** @pattern ^[A-Za-z0-9_-]{8,128}$ */
+  deviceId: string;
+}
+
+export interface PrivateDeviceAuthorization {
+  credential: string;
+  expiresAt: string;
+}
+
+export interface MemoryInput {
+  /**
+   * @minLength 1
+   * @maxLength 500
+   */
+  fact: string;
+  /** @maxLength 30 */
+  category?: string;
+}
+
+export interface MemoryExtractionInput {
+  /**
+   * @minLength 1
+   * @maxLength 8000
+   */
+  userMessage: string;
+  /**
+   * @minLength 1
+   * @maxLength 16000
+   */
+  assistantMessage: string;
+  automaticMemory: boolean;
+}
+
+export interface PrivateMemory {
+  id: string;
+  fact: string;
+  category: string;
+}
+
+export interface PrivateMemoryList {
+  facts: PrivateMemory[];
+}
+
+export interface MemoryResult {
+  fact: PrivateMemory;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -55,6 +108,8 @@ export interface CreateMessageBody {
 export type ErrorResponseResponse = {
   error: string;
 };
+
+export type PrivateAuthorizationParameter = string;
 
 export type PairLiveDeviceBody = {
   /**

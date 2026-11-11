@@ -27,8 +27,14 @@ import type {
   HealthStatus,
   ListConversations200,
   ListMessages200,
+  MemoryExtractionInput,
+  MemoryInput,
+  MemoryResult,
   PairLiveDevice200,
   PairLiveDeviceBody,
+  PrivateDeviceAuthorization,
+  PrivateDeviceInput,
+  PrivateMemoryList,
   UpdateConversation200,
   UpdateConversationBody,
 } from "./api.schemas";
@@ -41,6 +47,474 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getPairPrivateDeviceUrl = () => {
+  return `/api/devices/pair`;
+};
+
+export const pairPrivateDevice = async (
+  privateDeviceInput: PrivateDeviceInput,
+  options?: RequestInit,
+): Promise<PrivateDeviceAuthorization> => {
+  return customFetch<PrivateDeviceAuthorization>(getPairPrivateDeviceUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(privateDeviceInput),
+  });
+};
+
+export const getPairPrivateDeviceMutationOptions = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pairPrivateDevice>>,
+    TError,
+    { data: BodyType<PrivateDeviceInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pairPrivateDevice>>,
+  TError,
+  { data: BodyType<PrivateDeviceInput> },
+  TContext
+> => {
+  const mutationKey = ["pairPrivateDevice"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pairPrivateDevice>>,
+    { data: BodyType<PrivateDeviceInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return pairPrivateDevice(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PairPrivateDeviceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pairPrivateDevice>>
+>;
+export type PairPrivateDeviceMutationBody = BodyType<PrivateDeviceInput>;
+export type PairPrivateDeviceMutationError = ErrorType<ErrorResponseResponse>;
+
+export const usePairPrivateDevice = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pairPrivateDevice>>,
+    TError,
+    { data: BodyType<PrivateDeviceInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof pairPrivateDevice>>,
+  TError,
+  { data: BodyType<PrivateDeviceInput> },
+  TContext
+> => {
+  return useMutation(getPairPrivateDeviceMutationOptions(options));
+};
+
+export const getListPrivateMemoryUrl = () => {
+  return `/api/memory`;
+};
+
+export const listPrivateMemory = async (
+  options?: RequestInit,
+): Promise<PrivateMemoryList> => {
+  return customFetch<PrivateMemoryList>(getListPrivateMemoryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPrivateMemoryQueryKey = () => {
+  return [`/api/memory`] as const;
+};
+
+export const getListPrivateMemoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPrivateMemory>>,
+  TError = ErrorType<ErrorResponseResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPrivateMemory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPrivateMemoryQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listPrivateMemory>>
+  > = ({ signal }) => listPrivateMemory({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPrivateMemory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPrivateMemoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPrivateMemory>>
+>;
+export type ListPrivateMemoryQueryError = ErrorType<ErrorResponseResponse>;
+
+export function useListPrivateMemory<
+  TData = Awaited<ReturnType<typeof listPrivateMemory>>,
+  TError = ErrorType<ErrorResponseResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPrivateMemory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPrivateMemoryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getSavePrivateMemoryUrl = () => {
+  return `/api/memory`;
+};
+
+export const savePrivateMemory = async (
+  memoryInput: MemoryInput,
+  options?: RequestInit,
+): Promise<MemoryResult> => {
+  return customFetch<MemoryResult>(getSavePrivateMemoryUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(memoryInput),
+  });
+};
+
+export const getSavePrivateMemoryMutationOptions = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof savePrivateMemory>>,
+    TError,
+    { data: BodyType<MemoryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof savePrivateMemory>>,
+  TError,
+  { data: BodyType<MemoryInput> },
+  TContext
+> => {
+  const mutationKey = ["savePrivateMemory"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof savePrivateMemory>>,
+    { data: BodyType<MemoryInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return savePrivateMemory(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SavePrivateMemoryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof savePrivateMemory>>
+>;
+export type SavePrivateMemoryMutationBody = BodyType<MemoryInput>;
+export type SavePrivateMemoryMutationError = ErrorType<ErrorResponseResponse>;
+
+export const useSavePrivateMemory = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof savePrivateMemory>>,
+    TError,
+    { data: BodyType<MemoryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof savePrivateMemory>>,
+  TError,
+  { data: BodyType<MemoryInput> },
+  TContext
+> => {
+  return useMutation(getSavePrivateMemoryMutationOptions(options));
+};
+
+export const getUpdatePrivateMemoryUrl = (id: string) => {
+  return `/api/memory/${id}`;
+};
+
+export const updatePrivateMemory = async (
+  id: string,
+  memoryInput: MemoryInput,
+  options?: RequestInit,
+): Promise<MemoryResult> => {
+  return customFetch<MemoryResult>(getUpdatePrivateMemoryUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(memoryInput),
+  });
+};
+
+export const getUpdatePrivateMemoryMutationOptions = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePrivateMemory>>,
+    TError,
+    { id: string; data: BodyType<MemoryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updatePrivateMemory>>,
+  TError,
+  { id: string; data: BodyType<MemoryInput> },
+  TContext
+> => {
+  const mutationKey = ["updatePrivateMemory"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updatePrivateMemory>>,
+    { id: string; data: BodyType<MemoryInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updatePrivateMemory(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdatePrivateMemoryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updatePrivateMemory>>
+>;
+export type UpdatePrivateMemoryMutationBody = BodyType<MemoryInput>;
+export type UpdatePrivateMemoryMutationError = ErrorType<ErrorResponseResponse>;
+
+export const useUpdatePrivateMemory = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePrivateMemory>>,
+    TError,
+    { id: string; data: BodyType<MemoryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updatePrivateMemory>>,
+  TError,
+  { id: string; data: BodyType<MemoryInput> },
+  TContext
+> => {
+  return useMutation(getUpdatePrivateMemoryMutationOptions(options));
+};
+
+export const getDeletePrivateMemoryUrl = (id: string) => {
+  return `/api/memory/${id}`;
+};
+
+export const deletePrivateMemory = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeletePrivateMemoryUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeletePrivateMemoryMutationOptions = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePrivateMemory>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deletePrivateMemory>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deletePrivateMemory"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deletePrivateMemory>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deletePrivateMemory(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeletePrivateMemoryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deletePrivateMemory>>
+>;
+
+export type DeletePrivateMemoryMutationError = ErrorType<ErrorResponseResponse>;
+
+export const useDeletePrivateMemory = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePrivateMemory>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deletePrivateMemory>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeletePrivateMemoryMutationOptions(options));
+};
+
+export const getExtractPrivateMemoryUrl = () => {
+  return `/api/memory/extract`;
+};
+
+export const extractPrivateMemory = async (
+  memoryExtractionInput: MemoryExtractionInput,
+  options?: RequestInit,
+): Promise<PrivateMemoryList> => {
+  return customFetch<PrivateMemoryList>(getExtractPrivateMemoryUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(memoryExtractionInput),
+  });
+};
+
+export const getExtractPrivateMemoryMutationOptions = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof extractPrivateMemory>>,
+    TError,
+    { data: BodyType<MemoryExtractionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof extractPrivateMemory>>,
+  TError,
+  { data: BodyType<MemoryExtractionInput> },
+  TContext
+> => {
+  const mutationKey = ["extractPrivateMemory"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof extractPrivateMemory>>,
+    { data: BodyType<MemoryExtractionInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return extractPrivateMemory(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExtractPrivateMemoryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof extractPrivateMemory>>
+>;
+export type ExtractPrivateMemoryMutationBody = BodyType<MemoryExtractionInput>;
+export type ExtractPrivateMemoryMutationError =
+  ErrorType<ErrorResponseResponse>;
+
+export const useExtractPrivateMemory = <
+  TError = ErrorType<ErrorResponseResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof extractPrivateMemory>>,
+    TError,
+    { data: BodyType<MemoryExtractionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof extractPrivateMemory>>,
+  TError,
+  { data: BodyType<MemoryExtractionInput> },
+  TContext
+> => {
+  return useMutation(getExtractPrivateMemoryMutationOptions(options));
+};
 
 /**
  * @summary Pair a device using a short-lived code generated on the VM

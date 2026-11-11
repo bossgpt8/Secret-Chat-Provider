@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { createRequire } from "node:module";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pairingCode, issueLiveCredential } from "../artifacts/api-server/src/lib/live-access.ts";
 const require = createRequire(new URL("../artifacts/api-server/package.json", import.meta.url));
 const express = require("express");
 process.env.GEMINI_API_KEY = "dummy-google-key";
 process.env.SESSION_SECRET = "dummy-live-secret";
+const stateDir = mkdtempSync(join(tmpdir(), "vox-live-test-"));
+process.env.VOX_STATE_DIR = stateDir;
 process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:9/test";
 const { default: router } = await import("../artifacts/api-server/src/routes/live.ts");
 const { pool } = await import("../lib/db/src/index.ts");
@@ -20,6 +25,7 @@ const post = (path, body, credential) => nativeFetch(base + path, {
   body: body ? JSON.stringify(body) : undefined,
 });
 after(async () => {
+  rmSync(stateDir, { recursive: true, force: true });
   globalThis.fetch = nativeFetch;
   server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await pool.end();
 });

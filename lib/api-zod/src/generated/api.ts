@@ -7,6 +7,121 @@
  */
 import * as zod from "zod";
 
+export const pairPrivateDeviceBodyCodeMin = 12;
+export const pairPrivateDeviceBodyCodeMax = 32;
+
+export const pairPrivateDeviceBodyDeviceIdRegExp = new RegExp(
+  "^[A-Za-z0-9_-]{8,128}$",
+);
+
+export const PairPrivateDeviceBody = zod.object({
+  code: zod
+    .string()
+    .min(pairPrivateDeviceBodyCodeMin)
+    .max(pairPrivateDeviceBodyCodeMax),
+  deviceId: zod.string().regex(pairPrivateDeviceBodyDeviceIdRegExp),
+});
+
+export const PairPrivateDeviceResponse = zod.object({
+  credential: zod.string(),
+  expiresAt: zod.string(),
+});
+
+export const ListPrivateMemoryHeader = zod.object({
+  Authorization: zod.string(),
+});
+
+export const ListPrivateMemoryResponse = zod.object({
+  facts: zod.array(
+    zod.object({
+      id: zod.string(),
+      fact: zod.string(),
+      category: zod.string(),
+    }),
+  ),
+});
+
+export const SavePrivateMemoryHeader = zod.object({
+  Authorization: zod.string(),
+});
+
+export const savePrivateMemoryBodyFactMax = 500;
+
+export const savePrivateMemoryBodyCategoryMax = 30;
+
+export const SavePrivateMemoryBody = zod.object({
+  fact: zod.string().min(1).max(savePrivateMemoryBodyFactMax),
+  category: zod.string().max(savePrivateMemoryBodyCategoryMax).optional(),
+});
+
+export const SavePrivateMemoryResponse = zod.object({
+  fact: zod.object({
+    id: zod.string(),
+    fact: zod.string(),
+    category: zod.string(),
+  }),
+});
+
+export const UpdatePrivateMemoryParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdatePrivateMemoryHeader = zod.object({
+  Authorization: zod.string(),
+});
+
+export const updatePrivateMemoryBodyFactMax = 500;
+
+export const updatePrivateMemoryBodyCategoryMax = 30;
+
+export const UpdatePrivateMemoryBody = zod.object({
+  fact: zod.string().min(1).max(updatePrivateMemoryBodyFactMax),
+  category: zod.string().max(updatePrivateMemoryBodyCategoryMax).optional(),
+});
+
+export const UpdatePrivateMemoryResponse = zod.object({
+  fact: zod.object({
+    id: zod.string(),
+    fact: zod.string(),
+    category: zod.string(),
+  }),
+});
+
+export const DeletePrivateMemoryParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const DeletePrivateMemoryHeader = zod.object({
+  Authorization: zod.string(),
+});
+
+export const ExtractPrivateMemoryHeader = zod.object({
+  Authorization: zod.string(),
+});
+
+export const extractPrivateMemoryBodyUserMessageMax = 8000;
+
+export const extractPrivateMemoryBodyAssistantMessageMax = 16000;
+
+export const ExtractPrivateMemoryBody = zod.object({
+  userMessage: zod.string().min(1).max(extractPrivateMemoryBodyUserMessageMax),
+  assistantMessage: zod
+    .string()
+    .min(1)
+    .max(extractPrivateMemoryBodyAssistantMessageMax),
+  automaticMemory: zod.boolean(),
+});
+
+export const ExtractPrivateMemoryResponse = zod.object({
+  facts: zod.array(
+    zod.object({
+      id: zod.string(),
+      fact: zod.string(),
+      category: zod.string(),
+    }),
+  ),
+});
+
 /**
  * @summary Pair a device using a short-lived code generated on the VM
  */
@@ -52,6 +167,7 @@ export const HealthCheckResponse = zod.object({
  * @summary List conversations
  */
 export const ListConversationsHeader = zod.object({
+  Authorization: zod.string(),
   "X-Device-Id": zod.string(),
 });
 
@@ -71,6 +187,7 @@ export const ListConversationsResponse = zod.object({
  * @summary Create a conversation
  */
 export const CreateConversationHeader = zod.object({
+  Authorization: zod.string(),
   "X-Device-Id": zod.string(),
 });
 
@@ -87,6 +204,7 @@ export const UpdateConversationParams = zod.object({
 });
 
 export const UpdateConversationHeader = zod.object({
+  Authorization: zod.string(),
   "X-Device-Id": zod.string(),
 });
 
@@ -112,6 +230,7 @@ export const DeleteConversationParams = zod.object({
 });
 
 export const DeleteConversationHeader = zod.object({
+  Authorization: zod.string(),
   "X-Device-Id": zod.string(),
 });
 
@@ -127,6 +246,7 @@ export const ListMessagesParams = zod.object({
 });
 
 export const ListMessagesHeader = zod.object({
+  Authorization: zod.string(),
   "X-Device-Id": zod.string(),
 });
 
@@ -150,6 +270,7 @@ export const CreateMessageParams = zod.object({
 });
 
 export const CreateMessageHeader = zod.object({
+  Authorization: zod.string(),
   "X-Device-Id": zod.string(),
 });
 

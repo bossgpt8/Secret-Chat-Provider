@@ -159,6 +159,7 @@ const piperSafety = createPiperSafety(AsyncStorage, {
 });
 
 export const NativePiper = {
+  async cancelSynthesis(): Promise<void> { if (VoxPiperModule?.cancelSynthesis) await VoxPiperModule.cancelSynthesis(); },
   isAvailable: Platform.OS === "android" && !!VoxPiperModule,
   getReadiness: piperSafety.getReadiness,
 

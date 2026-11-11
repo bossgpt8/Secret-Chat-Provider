@@ -1,5 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { Alert } from "react-native";
+import { NativePiper } from "../modules/OfflineModels";
+import { PIPER_ATTEMPT_KEY, restoreVoiceProvider } from "../modules/piperSafety";
 
 const ASSISTANT_NAME_KEY = "@vox_assistant_name";
 const CONVERSATIONS_KEY = "@vox_conversations";
@@ -262,7 +265,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     await migrateZenoToVox();
     try {
       const startTime = Date.now();
-      const [name, convsRaw, pvid, evid, kvid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble, storedDeviceId, ctxEnabled, ctxBattery, ctxNotif, ctxScreen, ctxLoc, ctxMedia, sttModel, ttsModel] = await Promise.all([
+      const [name, convsRaw, pvid, evid, kvid, rate, prov, theme, apiUrl, profileRaw, personality, wakeWord, readIncoming, notesRaw, todosRaw, favoritesRaw, quickChipsRaw, speechLang, floatingBubble, storedDeviceId, ctxEnabled, ctxBattery, ctxNotif, ctxScreen, ctxLoc, ctxMedia, sttModel, ttsModel, piperAttempt] = await Promise.all([
         AsyncStorage.getItem(ASSISTANT_NAME_KEY),
         AsyncStorage.getItem(CONVERSATIONS_KEY),
         AsyncStorage.getItem(PHONE_VOICE_ID_KEY),
@@ -291,6 +294,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(CONTEXT_MEDIA_KEY),
         AsyncStorage.getItem(OFFLINE_STT_MODEL_KEY),
         AsyncStorage.getItem(OFFLINE_TTS_MODEL_KEY),
+        AsyncStorage.getItem(PIPER_ATTEMPT_KEY),
       ]);
       // Persist a stable device ID across launches
       if (storedDeviceId) {
@@ -307,7 +311,18 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       if (evid) setElVoiceIdState(evid);
       if (kvid) setKokoroVoiceIdState(kvid);
       if (rate) setSpeechRateState(parseFloat(rate));
-      if (prov === "phone" || prov === "elevenlabs" || prov === "kokoro" || prov === "piper") setTtsProviderState(prov);
+      const restoredVoice = restoreVoiceProvider(prov, piperAttempt);
+      setTtsProviderState(restoredVoice.provider);
+      if (restoredVoice.recovered) {
+        await AsyncStorage.setItem(TTS_PROVIDER_KEY, "phone");
+        await AsyncStorage.removeItem(PIPER_ATTEMPT_KEY);
+        setTimeout(() => Alert.alert(
+          "Phone voice restored",
+          restoredVoice.interrupted
+            ? "The last Piper attempt did not finish. Vox has switched to Phone voice to avoid repeating it. Your chats and downloaded models have not been deleted."
+            : "Vox starts with Phone voice instead of automatically loading Piper. Your chats and downloaded models are unchanged. Piper must be selected again for each session.",
+        ), 1500);
+      }
       if (theme === "dark" || theme === "light" || theme === "system") setThemeOverrideState(theme);
       if (apiUrl) setCustomApiUrlState(apiUrl);
       if (profileRaw) { try { setUserProfileState(JSON.parse(profileRaw)); } catch { /* ignore */ } }
@@ -366,8 +381,22 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function setTtsProvider(p: TtsProvider) {
-    await AsyncStorage.setItem(TTS_PROVIDER_KEY, p);
+    if (p === "piper") {
+      const readiness = await NativePiper.getReadiness().catch(() => ({
+        supported: false, reason: "Piper's compatibility check failed. Use Phone voice.",
+      }));
+      if (!readiness.supported) {
+        await AsyncStorage.setItem(TTS_PROVIDER_KEY, "phone");
+        setTtsProviderState("phone");
+        Alert.alert("Piper unavailable", readiness.reason || "Use Phone voice on this device.");
+        return;
+      }
+    }
+    // Piper is session-only: a process-level native crash must not reactivate
+    // the same engine when Android relaunches the app.
+    await AsyncStorage.setItem(TTS_PROVIDER_KEY, p === "piper" ? "phone" : p);
     setTtsProviderState(p);
+    if (p !== "piper" && ttsProvider === "piper") void NativePiper.unloadModel().catch(() => {});
   }
 
   async function setThemeOverride(t: ThemeOverride) {

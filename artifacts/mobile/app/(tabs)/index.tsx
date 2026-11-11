@@ -749,7 +749,7 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
   const router = useRouter();
-  const { deviceId, assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage, contextEnabled, contextBattery, contextNotifications, contextScreen, contextMedia, contextLocation, offlineSttModelId, offlineTtsModelId } = useAssistant();
+  const { deviceId, assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, setTtsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage, contextEnabled, contextBattery, contextNotifications, contextScreen, contextMedia, contextLocation, offlineSttModelId, offlineTtsModelId } = useAssistant();
 
   const network = useNetworkStatus();
   const isOnline = network.isConnected && network.isInternetReachable;
@@ -833,6 +833,7 @@ export default function ChatScreen() {
   const nativeSpeechModeRef = useRef<"turn" | "barge">("turn");
   const nativeSpeechTextRef = useRef("");
   const currentSpokenTextRef = useRef("");
+  const piperFailureNoticeRef = useRef(false);
   const nativeSpeechStartingRef = useRef(false);
   const nativeSpeechAttemptRef = useRef(0);
   const recognitionFailuresRef = useRef(0);
@@ -1705,6 +1706,12 @@ export default function ChatScreen() {
         }
       } catch (error) {
         console.warn("[tts] Piper unavailable, falling back to phone voice:", error);
+        if (!piperFailureNoticeRef.current) {
+          piperFailureNoticeRef.current = true;
+          void setTtsProvider("phone").catch(() => {});
+          Alert.alert("Switched to Phone voice",
+            error instanceof Error ? error.message : "Piper failed and will not be retried during this session.");
+        }
       }
     }
     if (gen !== ttsGenerationRef.current) return;

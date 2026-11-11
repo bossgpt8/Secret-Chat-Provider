@@ -1,4 +1,6 @@
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createPiperSafety, type PiperReadiness } from "./piperSafety";
 
 export type OfflineModelKind = "stt" | "tts";
 
@@ -140,12 +142,29 @@ export const NativeOfflineModels = {
   },
 };
 
+const piperSafety = createPiperSafety(AsyncStorage, {
+  async getReadiness(): Promise<PiperReadiness> {
+    if (Platform.OS !== "android" || !VoxPiperModule?.getReadiness) {
+      return { supported: false, reason: "Piper requires the updated native Android build. Phone voice is available." };
+    }
+    return VoxPiperModule.getReadiness();
+  },
+  async synthesize(text, modelPath, configPath) {
+    return VoxPiperModule.synthesize(text, modelPath, configPath);
+  },
+  async unloadModel() {
+    if (!VoxPiperModule) return false;
+    return VoxPiperModule.unloadModel();
+  },
+});
+
 export const NativePiper = {
   isAvailable: Platform.OS === "android" && !!VoxPiperModule,
+  getReadiness: piperSafety.getReadiness,
 
   async synthesize(text: string, modelPath: string, configPath: string): Promise<string> {
     if (!VoxPiperModule) throw new Error("Piper is only available in an Android build.");
-    return VoxPiperModule.synthesize(text, modelPath, configPath);
+    return piperSafety.synthesize(text, modelPath, configPath);
   },
 
   async unloadModel(): Promise<boolean> {

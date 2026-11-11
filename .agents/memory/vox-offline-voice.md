@@ -11,6 +11,6 @@ Offline voice is an optional Android capability: native 16 kHz PCM recording fee
 
 Do not automatically activate Piper in calls just because its model is downloaded; require an explicit Piper voice selection and use the lightweight Phone voice for local fallback.
 
-**Why:** The user reported the app exiting with “Vox isn't responding” when Piper was used. A downloaded model does not establish that the device can run it reliably alongside live audio and the UI.
+**Why:** The user reported the app exiting with “Vox isn't responding” when Piper was used, and later reported repeated exits seconds after relaunching with Piper selected and downloaded. A downloaded model does not establish that the device can run it reliably alongside live audio and the UI.
 
-**How to apply:** Keep Piper optional until its Android inference and playback are verified on a physical device. Do not equate successful TypeScript checks or a browser preview with native stability.
+**How to apply:** Keep Piper optional and session-only until its Android inference, playback, and repeated app launches are verified on a physical device. Do not re-enable automatic Piper startup on the strength of JavaScript fallbacks: process-fatal native failures bypass them. Do not equate successful TypeScript checks or a browser preview with native stability.

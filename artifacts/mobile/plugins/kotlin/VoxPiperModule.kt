@@ -1,5 +1,7 @@
 package com.boss.assistant
 
+import android.app.ActivityManager
+import android.content.Context
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
@@ -41,8 +43,45 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
 
     // ── Public API ────────────────────────────────────────────────────────────
 
+    private fun supportIssue(): String? {
+        // A 64-bit phone can still be running our 32-bit APK. Check the
+        // process, not just Build.SUPPORTED_ABIS, before loading ONNX.
+        if (!android.os.Process.is64Bit()) {
+            return "Piper is disabled in the 32-bit APK. Use Phone voice, or install the arm64-v8a build on a compatible phone."
+        }
+        val manager = reactApplicationContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val info = ActivityManager.MemoryInfo()
+        manager.getMemoryInfo(info)
+        if (manager.isLowRamDevice || info.lowMemory || info.availMem < 512L * 1024L * 1024L) {
+            return "Not enough available memory to safely start Piper. Use Phone voice on this device."
+        }
+        return null
+    }
+
+    @ReactMethod
+    fun getReadiness(promise: Promise) {
+        try {
+            val issue = supportIssue()
+            promise.resolve(Arguments.createMap().apply {
+                putBoolean("supported", issue == null)
+                if (issue != null) putString("reason", issue)
+            })
+        } catch (e: Exception) {
+            promise.reject("ERR_PIPER_CHECK", "Piper's device check failed.", e)
+        }
+    }
+
     @ReactMethod
     fun synthesize(text: String, modelPath: String, configPath: String, promise: Promise) {
+        try {
+            supportIssue()?.let {
+                promise.reject("ERR_PIPER_UNSUPPORTED", it)
+                return
+            }
+        } catch (e: Exception) {
+            promise.reject("ERR_PIPER_CHECK", "Piper's device check failed.", e)
+            return
+        }
         if (text.isBlank() || text.length > 180) {
             promise.reject("ERR_PIPER_INPUT", "Piper requires a short phrase of 1–180 characters.")
             return
@@ -55,6 +94,8 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
                 require(File(modelPath).isFile && File(configPath).isFile) { "Voice model or config is missing." }
+                require(File(modelPath).length() in 1L..(160L * 1024L * 1024L)) { "Voice model has an unsafe size." }
+                require(File(configPath).length() in 1L..(2L * 1024L * 1024L)) { "Voice config has an unsafe size." }
                 val config = JSONObject(File(configPath).readText())
                 val audio = config.getJSONObject("audio")
                 val sampleRate = audio.getInt("sample_rate")
@@ -91,9 +132,16 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                 writeWav(outFile, samples, sampleRate)
                 promise.resolve(outFile.absolutePath)
             } catch (e: OutOfMemoryError) {
-                closeSession()
+                runCatching { closeSession() }
                 promise.reject("ERR_PIPER_MEMORY", "Not enough memory for Piper. Use the Phone voice on this device.")
+            } catch (e: LinkageError) {
+                // Missing ABI libraries and failed native initializers are
+                // Errors, not Exceptions. Letting them escape this worker
+                // kills the Android process instead of invoking JS fallback.
+                runCatching { closeSession() }
+                promise.reject("ERR_PIPER_NATIVE", "Piper's native engine is incompatible with this build. Use Phone voice.", e)
             } catch (e: Exception) {
+                runCatching { closeSession() }
                 promise.reject("ERR_PIPER_SYNTH", "Piper could not generate speech. Try the Phone voice.", e)
             } finally {
                 busy.set(false)
@@ -110,14 +158,17 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                 promise.resolve(true)
             } catch (e: Exception) {
                 promise.reject("ERR_PIPER_UNLOAD", e)
+            } catch (e: LinkageError) {
+                promise.reject("ERR_PIPER_UNLOAD", "Piper's native engine could not be unloaded.", e)
             }
         }
     }
 
     private fun closeSession() {
-        session?.close()
+        val oldSession = session
         session = null
         loadedModelPath = null
+        oldSession?.close()
     }
 
     private fun runInference(sess: OrtSession, ids: LongArray, sampleRate: Int): FloatArray {
@@ -130,7 +181,7 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                         val deadline = watchdog.schedule(Runnable {
                             synchronized(options) {
                                 if (!finished) {
-                                    try { options.setTerminate(true) } catch (_: Exception) {}
+                                    try { options.setTerminate(true) } catch (_: Exception) {} catch (_: LinkageError) {}
                                 }
                             }
                         }, 12, TimeUnit.SECONDS)
@@ -158,7 +209,7 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
     }
 
     override fun invalidate() {
-        worker.execute { closeSession() }
+        worker.execute { runCatching { closeSession() } }
         worker.shutdown()
         watchdog.shutdown()
         super.invalidate()

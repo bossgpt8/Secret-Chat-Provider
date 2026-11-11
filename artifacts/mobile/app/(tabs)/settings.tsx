@@ -596,7 +596,7 @@ export default function SettingsScreen() {
                 : ttsProvider === "elevenlabs"
                 ? "High-quality ElevenLabs cloud voices. Falls back to phone TTS if unavailable."
                 : ttsProvider === "piper"
-                ? "Offline Piper voice. Download an offline voice model below to speak without internet."
+                ? "Experimental Piper voice for this session only. Requires a 64-bit Android build and enough free memory. Restarts use Phone voice to avoid a crash loop."
                 : "Your device's built-in voice — works offline, always available."}
             </Text>
             {(ttsProvider === "kokoro" || ttsProvider === "elevenlabs") && (

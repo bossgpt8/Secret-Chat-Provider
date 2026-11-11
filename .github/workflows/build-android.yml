@@ -10,15 +10,10 @@ on:
       architecture:
         description: "Target CPU architecture"
         required: false
-        default: armeabi-v7a
+        default: arm64-v8a
         type: choice
         options:
-          - all
           - arm64-v8a
-          - armeabi-v7a
-          - armeabi-v7a+arm64-v8a
-          - x86
-          - x86_64
 
 jobs:
   build:
@@ -68,13 +63,8 @@ jobs:
 
       - name: Configure ABI filter
         env:
-          TARGET_ABI: ${{ github.event.inputs.architecture }}
+          TARGET_ABI: arm64-v8a
         run: |
-          if [ "$TARGET_ABI" = "all" ] || [ -z "$TARGET_ABI" ] || [ "$TARGET_ABI" = "null" ]; then
-            TARGET_ABI="armeabi-v7a"
-            echo "No architecture specified, defaulting to armeabi-v7a"
-          fi
-          
           python3 - <<'PYEOF'
           import re, os
           abi = os.environ['TARGET_ABI']
@@ -101,12 +91,25 @@ jobs:
 
       - name: Build release APK
         working-directory: artifacts/mobile/android
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
+
+      - name: Verify ARM64-only APK
+        run: |
+          python3 - <<'PYEOF'
+          import zipfile
+          apk = 'artifacts/mobile/android/app/build/outputs/apk/release/app-release.apk'
+          with zipfile.ZipFile(apk) as archive:
+              abis = {name.split('/')[1] for name in archive.namelist()
+                      if name.startswith('lib/') and name.endswith('.so')}
+          if abis != {'arm64-v8a'}:
+              raise SystemExit(f'Expected only arm64-v8a native libraries, found: {sorted(abis)}')
+          print('Verified APK native libraries: arm64-v8a only')
+          PYEOF
 
       - name: Rename APK file
         run: |
           # Get architecture
-          ARCH="${{ github.event.inputs.architecture || 'armeabi-v7a' }}"
+          ARCH="arm64-v8a"
           
           # Get version from package.json
           VERSION=$(node -p "require('./package.json').version")
@@ -120,7 +123,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vox-${{ github.event.inputs.architecture || 'armeabi-v7a' }}-apk
+          name: vox-arm64-v8a-apk
           path: artifacts/mobile/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30

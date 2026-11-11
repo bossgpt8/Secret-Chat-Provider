@@ -2,14 +2,57 @@ package com.boss.assistant
 
 import android.accessibilityservice.AccessibilityService
 import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 class VoxAccessibilityService : AccessibilityService() {
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val captureBusy = AtomicBoolean(false)
+    private var captureThread: HandlerThread? = null
+    private var captureHandler: Handler? = null
+    private var pendingCapture: AccessibilityEventData? = null
+    private var captureScheduled = false
+    private val captureScreen = Runnable {
+        val data = pendingCapture
+        pendingCapture = null
+        captureScheduled = false
+        if (data != null && captureBusy.compareAndSet(false, true)) {
+            val accepted = captureHandler?.post {
+                try {
+                    if (instance !== this) return@post
+                    val root = rootInActiveWindow ?: return@post
+                    try {
+                        // A queued event may refer to a window that is no longer active.
+                        if (root.packageName?.toString() != data.packageName) return@post
+                        remember(data.copy(text = collectNodeText(root)))
+                    } finally {
+                        @Suppress("DEPRECATION")
+                        root.recycle()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Screen snapshot failed", e)
+                } finally {
+                    captureBusy.set(false)
+                }
+            } ?: false
+            if (!accepted) captureBusy.set(false)
+        }
+    }
+
+    private fun remember(data: AccessibilityEventData) {
+        if (instance !== this) return
+        recentEvents.add(0, data)
+        if (recentEvents.size > MAX_EVENTS) recentEvents.removeAt(recentEvents.size - 1)
+    }
 
     data class AccessibilityEventData(
         val packageName: String,
@@ -60,6 +103,8 @@ class VoxAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        captureThread = HandlerThread("VoxScreenContext").also { it.start() }
+        captureHandler = Handler(captureThread!!.looper)
         // Service configuration is fully declared in res/xml/accessibility_service_config.xml.
         // No programmatic override needed.
         Log.i(TAG, "Accessibility service connected")
@@ -69,22 +114,8 @@ class VoxAccessibilityService : AccessibilityService() {
         event ?: return
         try {
             val pkg = event.packageName?.toString() ?: return
-            val cls = event.className?.toString() ?: ""
-            val text = collectNodeText(rootInActiveWindow)
-            val cd = event.contentDescription?.toString() ?: ""
-
-            val data = AccessibilityEventData(
-                packageName = pkg,
-                className = cls,
-                eventType = event.eventType,
-                text = text,
-                contentDescription = cd,
-            )
-            recentEvents.add(0, data)
-            if (recentEvents.size > MAX_EVENTS) {
-                recentEvents.removeAt(recentEvents.size - 1)
-            }
-
+            // Do not inspect our own scrolling/animations or feed them back to JS.
+            if (pkg == packageName) return
             if (event.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
                 val n = toNotificationData(pkg, event)
                 recentNotificationEvents.add(0, n)
@@ -93,8 +124,23 @@ class VoxAccessibilityService : AccessibilityService() {
                 }
                 val cb = onAccessibilityNotificationCallback
                 if (cb != null) {
-                    android.os.Handler(android.os.Looper.getMainLooper()).post { cb.invoke(n) }
+                    mainHandler.post { cb.invoke(n) }
                 }
+                return
+            }
+
+            // Copy only cheap metadata here: AccessibilityEvent is recycled by Android.
+            // Coalesce event bursts, and perform bounded screen inspection off the UI thread.
+            pendingCapture = AccessibilityEventData(
+                packageName = pkg,
+                className = event.className?.toString() ?: "",
+                eventType = event.eventType,
+                text = "",
+                contentDescription = event.contentDescription?.toString()?.take(1000) ?: "",
+            )
+            if (!captureScheduled) {
+                captureScheduled = true
+                mainHandler.postDelayed(captureScreen, 350L)
             }
         } catch (e: Exception) {
             Log.w(TAG, "onAccessibilityEvent error", e)
@@ -106,29 +152,55 @@ class VoxAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(captureScreen)
+        pendingCapture = null
+        captureScheduled = false
+        captureHandler?.removeCallbacksAndMessages(null)
+        captureThread?.quitSafely()
+        captureHandler = null
+        captureThread = null
         super.onDestroy()
         instance = null
     }
 
     /**
-     * Recursively collects all visible text from the node tree.
+     * Bounded, worker-thread-only snapshot. Never walk an unbounded screen tree.
      */
     private fun collectNodeText(node: AccessibilityNodeInfo?): String {
         node ?: return ""
-        return try {
-            val sb = StringBuilder()
-            val txt = node.text?.toString()
-            val cd = node.contentDescription?.toString()
-            if (!txt.isNullOrBlank()) sb.append(txt).append(" ")
-            if (!cd.isNullOrBlank() && cd != txt) sb.append(cd).append(" ")
-            for (i in 0 until node.childCount) {
-                sb.append(collectNodeText(node.getChild(i)))
+        val sb = StringBuilder()
+        var visited = 0
+        val deadline = SystemClock.uptimeMillis() + 40L
+        fun exhausted() = visited >= 128 || sb.length >= 6000 || SystemClock.uptimeMillis() >= deadline
+        fun append(value: CharSequence?) {
+            if (!value.isNullOrBlank() && sb.length < 6000) {
+                sb.append(value.take(6000 - sb.length)).append(' ')
             }
-            sb.toString().trim()
+        }
+        fun visit(current: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 12 || exhausted()) return
+            visited++
+            if (current.isPassword) return
+            val txt = current.text
+            append(txt)
+            if (current.contentDescription != txt) append(current.contentDescription)
+            for (i in 0 until current.childCount) {
+                if (exhausted()) break
+                val child = current.getChild(i) ?: continue
+                try {
+                    visit(child, depth + 1)
+                } finally {
+                    @Suppress("DEPRECATION")
+                    child.recycle()
+                }
+            }
+        }
+        try {
+            visit(node, 0)
         } catch (e: Exception) {
             Log.w(TAG, "collectNodeText error", e)
-            ""
         }
+        return sb.toString().take(6000).trim()
     }
 
     private fun toNotificationData(packageName: String, event: AccessibilityEvent): AccessibilityNotificationData {

@@ -223,6 +223,9 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
     // ── WAV writer ────────────────────────────────────────────────────────────
 
     private fun writeWav(file: File, samples: FloatArray, sampleRate: Int) {
+        // Validate before creating a playable file; conversion includes peak
+        // normalization and tiny fades to avoid clipped peaks/phrase-edge clicks.
+        val pcm = VoxPiperAudio.toPcm16(samples, sampleRate)
         val numChannels = 1
         val bitsPerSample = 16
         val byteRate = sampleRate * numChannels * bitsPerSample / 8
@@ -246,12 +249,7 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
             header.putInt(dataSize)
             fos.write(header.array())
 
-            val pcmBuf = ByteBuffer.allocate(dataSize).order(ByteOrder.LITTLE_ENDIAN)
-            for (s in samples) {
-                val v = (s * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-                pcmBuf.putShort(v)
-            }
-            fos.write(pcmBuf.array())
+            fos.write(pcm)
         }
     }
 

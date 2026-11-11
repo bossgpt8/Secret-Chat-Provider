@@ -65,6 +65,7 @@ const KOTLIN_FILES = [
   "VoxDownloadModule.kt",
   "VoxDownloadPackage.kt",
   "VoxPiperModule.kt",
+  "VoxPiperAudio.kt",
   "VoxPiperPackage.kt",
   "VoxPcmRecorderModule.kt",
   "VoxLiveAudioModule.kt",

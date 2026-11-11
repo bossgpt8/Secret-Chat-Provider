@@ -35,6 +35,10 @@ const KOTLIN_FILES = [
   "VoxOverlayModule.kt",
   "VoxOverlayPackage.kt",
   "VoxOverlayService.kt",
+  "VoxWakeEngine.kt",
+  "VoxWakeTokenizer.kt",
+  "VoxWakeService.kt",
+  "VoxWakeModule.kt",
   "VoxSpeechRecognizerModule.kt",
   "VoxSpeechRecognizerPackage.kt",
   "VoxDownloadModule.kt",
@@ -114,6 +118,7 @@ const withAndroidManifestEntries = (config) =>
     ensurePerm("android.permission.FOREGROUND_SERVICE");
     ensurePerm("android.permission.FOREGROUND_SERVICE_MICROPHONE");
     ensurePerm("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION");
+    ensurePerm("android.permission.FOREGROUND_SERVICE_SPECIAL_USE");
 
     // ── VoxOverlayService (floating bubble) ──────────────────────────────────
     const overlayServiceExists = app.service.some(
@@ -125,8 +130,12 @@ const withAndroidManifestEntries = (config) =>
           "android:name": ".VoxOverlayService",
           "android:label": "Vox Floating Bubble",
           "android:exported": "false",
-          "android:foregroundServiceType": "microphone",
+          "android:foregroundServiceType": "specialUse",
         },
+        property: [{ $: {
+          "android:name": "android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE",
+          "android:value": "User-enabled floating assistant shortcut",
+        } }],
       });
     }
 
@@ -314,6 +323,7 @@ const withNativeModules = (config) => {
   config = withAndroidManifestEntries(config);
   config = withMainApplicationPackages(config);
   config = withOnnxRuntime(config);
+  config = require("./withWakeWord")(config);
   return config;
 };
 

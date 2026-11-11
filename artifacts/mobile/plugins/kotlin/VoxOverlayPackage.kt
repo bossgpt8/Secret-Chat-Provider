@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class VoxOverlayPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-        listOf(VoxOverlayModule(reactContext))
+        listOf(VoxOverlayModule(reactContext), VoxWakeModule(reactContext))
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
         emptyList()

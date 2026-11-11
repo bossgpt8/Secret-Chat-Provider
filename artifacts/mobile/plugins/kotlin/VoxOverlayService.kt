@@ -11,13 +11,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Gravity
@@ -31,14 +27,8 @@ import androidx.core.app.NotificationCompat
  *
  * A foreground service that draws a persistent floating bubble via WindowManager
  * (TYPE_APPLICATION_OVERLAY). The bubble stays on screen even when the Vox app is
- * backgrounded. It runs a SpeechRecognizer loop in the background to detect the
- * wake word "Hey Vox" / "Vox" without requiring the app to be open.
- *
- * When the wake word is detected the service:
- *  1. Captures the rest of the spoken command.
- *  2. Fires an event to the React Native bridge (VoxOverlayModule) so JS can
- *     handle the AI response + TTS without bringing the app to foreground.
- *  3. If the bridge is unavailable the bubble tap brings MainActivity to front.
+ * backgrounded. This service is visual only; VoxWakeService owns optional local
+ * keyword spotting. A bubble must never create a second microphone listener.
  */
 class VoxOverlayService : Service() {
 
@@ -63,7 +53,6 @@ class VoxOverlayService : Service() {
 
         @Volatile var instance: VoxOverlayService? = null
 
-        private val WAKE_WORDS = listOf("hey vox", "ok vox", "hi vox", " vox")
     }
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -75,10 +64,6 @@ class VoxOverlayService : Service() {
     private var bubbleView: BubbleView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
 
-    private var speechRecognizer: SpeechRecognizer? = null
-    private var isRecognizing  = false
-    private var expectingCmd   = false  // true right after wake word detected
-    private var restartPending = false
 
     // Screen dimensions in px
     private var screenW = 1080
@@ -93,7 +78,6 @@ class VoxOverlayService : Service() {
         createNotificationChannel()
         startForeground(NOTIF_ID, buildNotification())
         addBubble()
-        mainHandler.postDelayed({ startRecognitionLoop() }, 800)
         Log.i(TAG, "Service created")
     }
 
@@ -103,13 +87,6 @@ class VoxOverlayService : Service() {
             ACTION_STATE -> {
                 val s = intent.getStringExtra(EXTRA_STATE) ?: return START_STICKY
                 state = s
-                if (s == STATE_LISTENING) {
-                    // JS triggered listening — stop bg loop and wait for JS to finish
-                    stopRecognitionLoop()
-                } else if (s == STATE_IDLE) {
-                    // JS finished — resume background wake-word loop
-                    scheduleRestart(1200)
-                }
             }
         }
         return START_STICKY
@@ -120,7 +97,7 @@ class VoxOverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
-        stopRecognitionLoop()
+        mainHandler.removeCallbacksAndMessages(null)
         removeBubble()
         Log.i(TAG, "Service destroyed")
     }
@@ -133,7 +110,7 @@ class VoxOverlayService : Service() {
                 "Vox Assistant",
                 NotificationManager.IMPORTANCE_LOW
             ).apply { setShowBadge(false) }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(ch)
         }
     }
 
@@ -151,8 +128,8 @@ class VoxOverlayService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Vox is listening")
-            .setContentText("Say \"Hey Vox\" to activate")
+            .setContentTitle("Vox floating bubble")
+            .setContentText("Tap the bubble to open Vox. Enable Hey Vox separately in Settings.")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
@@ -256,133 +233,6 @@ class VoxOverlayService : Service() {
             putExtra("LAUNCH_FROM_OVERLAY", true)
         } ?: return
         startActivity(intent)
-    }
-
-    // ── Speech recognition loop ───────────────────────────────────────────────
-    private fun startRecognitionLoop() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Log.w(TAG, "SpeechRecognizer not available on this device")
-            return
-        }
-        mainHandler.post { startOneShotRecognition() }
-    }
-
-    private fun stopRecognitionLoop() {
-        restartPending = false
-        mainHandler.removeCallbacksAndMessages(null)
-        mainHandler.post {
-            try { speechRecognizer?.cancel() } catch (_: Exception) {}
-            try { speechRecognizer?.destroy() } catch (_: Exception) {}
-            speechRecognizer = null
-            isRecognizing = false
-        }
-    }
-
-    private fun scheduleRestart(delayMs: Long = 600) {
-        if (restartPending) return
-        restartPending = true
-        mainHandler.postDelayed({
-            restartPending = false
-            if (state == STATE_IDLE || state == STATE_WAKE) {
-                startOneShotRecognition()
-            }
-        }, delayMs)
-    }
-
-    private fun startOneShotRecognition() {
-        if (isRecognizing) return
-        try {
-            if (speechRecognizer == null)
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 500L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
-                    if (expectingCmd) 2000L else 4000L)
-            }
-            speechRecognizer!!.setRecognitionListener(recognitionListener)
-            speechRecognizer!!.startListening(intent)
-            isRecognizing = true
-        } catch (e: Exception) {
-            Log.e(TAG, "startListening error", e)
-            isRecognizing = false
-            scheduleRestart(2000)
-        }
-    }
-
-    private val recognitionListener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {}
-        override fun onBeginningOfSpeech() {}
-        override fun onRmsChanged(rmsdB: Float) {}
-        override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEvent(eventType: Int, params: Bundle?) {}
-
-        override fun onPartialResults(partialResults: Bundle?) {
-            val partial = partialResults
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?.firstOrNull()?.lowercase() ?: return
-
-            if (!expectingCmd) {
-                val found = WAKE_WORDS.find { partial.contains(it) }
-                if (found != null) {
-                    Log.i(TAG, "Wake word detected in partial: $partial")
-                    // Stop current session and start command session
-                    try { speechRecognizer?.cancel() } catch (_: Exception) {}
-                    isRecognizing = false
-                    expectingCmd = true
-                    state = STATE_WAKE
-                    onEvent?.invoke("onVoxWakeWord", "")
-                    mainHandler.postDelayed({ startOneShotRecognition() }, 200)
-                }
-            }
-        }
-
-        override fun onResults(results: Bundle?) {
-            isRecognizing = false
-            val text = results
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?.firstOrNull()?.trim() ?: ""
-
-            Log.i(TAG, "onResults: \"$text\" expectingCmd=$expectingCmd")
-
-            if (expectingCmd && text.isNotBlank()) {
-                expectingCmd = false
-                // Strip wake word prefix if present
-                val cmd = WAKE_WORDS.fold(text.lowercase()) { acc, w -> acc.removePrefix(w).trim() }
-                    .ifBlank { text }
-                state = STATE_PROCESSING
-                onEvent?.invoke("onVoxCommand", cmd)
-                // JS will call setState("idle") when done; fall back after 30 s
-                mainHandler.postDelayed({
-                    if (state == STATE_PROCESSING) {
-                        state = STATE_IDLE
-                        scheduleRestart()
-                    }
-                }, 30_000)
-            } else {
-                expectingCmd = false
-                if (state == STATE_IDLE || state == STATE_WAKE) scheduleRestart()
-            }
-        }
-
-        override fun onError(error: Int) {
-            isRecognizing = false
-            expectingCmd = false
-            Log.w(TAG, "SpeechRecognizer error: $error")
-            // Errors 5 (client) and 6 (insufficient permissions) don't get retried endlessly
-            val delay = when (error) {
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1500L
-                SpeechRecognizer.ERROR_NO_MATCH,
-                SpeechRecognizer.ERROR_SPEECH_TIMEOUT  -> 300L
-                else                                   -> 800L
-            }
-            if (state == STATE_IDLE || state == STATE_WAKE) scheduleRestart(delay)
-        }
-
-        override fun onEndOfSpeech() {}
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

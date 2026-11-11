@@ -9,3 +9,6 @@
 
 # Oracle VM secrets stay on the VM and must not be published.
 /deploy/oracle/.env
+
+/generated-artifacts/
+/artifacts/mobile/android/

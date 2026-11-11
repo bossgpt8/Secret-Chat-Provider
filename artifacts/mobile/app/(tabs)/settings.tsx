@@ -27,6 +27,7 @@ import { NativeNotifications } from "@/modules/NativeNotifications";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
 import { OfflineModelsSection } from "@/components/OfflineModelsSection";
+import { WakeWordSettings } from "@/components/WakeWordSettings";
 
 interface Permission {
   id: string;
@@ -160,7 +161,6 @@ export default function SettingsScreen() {
     themeOverride, setThemeOverride,
     customApiUrl, setCustomApiUrl,
     readIncomingEnabled, setReadIncomingEnabled,
-    wakeWordEnabled, setWakeWordEnabled,
     floatingBubbleEnabled, setFloatingBubbleEnabled,
     customQuickChips, setCustomQuickChips,
     speechLanguage, setSpeechLanguage,
@@ -856,34 +856,7 @@ export default function SettingsScreen() {
 
         {/* ── Hands-Free ── */}
         <Section title="Hands-Free">
-          <View style={[styles.row, { borderBottomColor: colors.border }]}>
-            <Ionicons name="ear-outline" size={18} color={colors.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: colors.foreground }]}>
-                {`"Hey ${assistantName}" Wake Word`}
-              </Text>
-              <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
-                Listens continuously and activates when it hears your name. Works while the app is open. Requires microphone.
-              </Text>
-            </View>
-            <Switch
-              value={wakeWordEnabled}
-              onValueChange={async (v) => {
-                await setWakeWordEnabled(v);
-                Haptics.selectionAsync();
-              }}
-              trackColor={{ false: colors.muted, true: colors.primary + "80" }}
-              thumbColor={wakeWordEnabled ? colors.primary : colors.mutedForeground}
-            />
-          </View>
-          {wakeWordEnabled && (
-            <View style={[styles.row, { borderBottomColor: "transparent" }]}>
-              <Ionicons name="information-circle-outline" size={16} color={colors.accent} />
-              <Text style={[styles.rowValue, { color: colors.accent, flex: 1 }]}>
-                Active while app is open or minimized. For fully background listening (screen off), grant Battery Optimization exemption in Permissions below.
-              </Text>
-            </View>
-          )}
+          <WakeWordSettings />
         </Section>
 
         {/* ── Privacy & Context ── */}

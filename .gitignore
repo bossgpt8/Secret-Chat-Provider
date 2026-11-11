@@ -51,3 +51,7 @@ Thumbs.db
 
 # Oracle deployment secrets
 /deploy/oracle/.env
+
+# Downloaded native wake engine and models (recreated during Android prebuild).
+/generated-artifacts/
+/artifacts/mobile/android/

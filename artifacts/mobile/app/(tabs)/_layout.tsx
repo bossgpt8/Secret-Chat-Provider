@@ -9,8 +9,10 @@ import { useAssistant } from "@/context/AssistantContext";
 import { useAppColorScheme } from "@/hooks/useAppColorScheme";
 import { useColors } from "@/hooks/useColors";
 import { NativeOverlay } from "@/modules/NativeOverlay";
+import { useWakeWordService } from "@/hooks/useWakeWordService";
 
 export default function TabLayout() {
+  useWakeWordService();
   const colors = useColors();
   const colorScheme = useAppColorScheme();
   const isDark = colorScheme === "dark";

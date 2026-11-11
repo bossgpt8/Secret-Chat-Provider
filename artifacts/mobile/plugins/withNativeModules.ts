@@ -54,6 +54,10 @@ const KOTLIN_FILES = [
   "CallScreeningPackage.kt",
   "VoxVoiceInteractionService.kt",
   "VoxOverlayService.kt",
+  "VoxWakeEngine.kt",
+  "VoxWakeTokenizer.kt",
+  "VoxWakeService.kt",
+  "VoxWakeModule.kt",
   "VoxOverlayModule.kt",
   "VoxOverlayPackage.kt",
   "VoxSpeechRecognizerModule.kt",
@@ -248,7 +252,7 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
       });
     }
 
-    // ── VoxOverlayService (persistent floating bubble + bg wake word) ─────
+    // ── VoxOverlayService (visual floating bubble; no microphone) ─────
     const overlayServiceExists = (app.service as Array<{ $?: Record<string, string> }>).some(
       (s) => s.$?.["android:name"] === ".VoxOverlayService"
     );
@@ -258,8 +262,12 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
           "android:name": ".VoxOverlayService",
           "android:label": "Vox Overlay",
           "android:exported": "false",
-          "android:foregroundServiceType": "microphone",
+          "android:foregroundServiceType": "specialUse",
         },
+        property: [{ $: {
+          "android:name": "android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE",
+          "android:value": "User-enabled floating assistant shortcut",
+        } }],
       });
     }
 
@@ -288,6 +296,7 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
     };
     ensurePerm("android.permission.SYSTEM_ALERT_WINDOW");
     ensurePerm("android.permission.FOREGROUND_SERVICE");
+    ensurePerm("android.permission.FOREGROUND_SERVICE_SPECIAL_USE");
     ensurePerm("android.permission.FOREGROUND_SERVICE_MICROPHONE");
     ensurePerm("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION");
     ensurePerm("android.permission.RECORD_AUDIO");
@@ -424,6 +433,7 @@ const withNativeModules: ConfigPlugin = (config) => {
   config = withAndroidManifestEntries(config);
   config = withMainApplicationPackages(config);
   config = withOnnxRuntime(config);
+  config = require("./withWakeWord")(config);
   return config;
 };
 

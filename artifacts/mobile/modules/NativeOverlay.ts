@@ -2,8 +2,7 @@
  * NativeOverlay — JS bridge for VoxOverlayService.
  *
  * The overlay is a native Android WindowManager bubble that persists even when
- * the app is backgrounded. It also runs a SpeechRecognizer loop to detect the
- * wake word "Hey Vox" / "Vox" without the app being open.
+ * the app is backgrounded. Wake-word audio is owned separately by NativeWakeWord.
  *
  * Usage:
  *   await NativeOverlay.start()

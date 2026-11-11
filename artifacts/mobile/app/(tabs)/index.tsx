@@ -39,6 +39,7 @@ import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallSc
 import { NativeMediaControl } from "@/modules/NativeMediaControl";
 import { NativeNotifications, type VoxNotification } from "@/modules/NativeNotifications";
 import { NativeOverlay } from "@/modules/NativeOverlay";
+import { NativeWakeWord } from "@/modules/NativeWakeWord";
 import { NativeScreenCapture } from "@/modules/NativeScreenCapture";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeAudioSession } from "@/modules/NativeAudioSession";
@@ -797,7 +798,6 @@ export default function ChatScreen() {
   // Call screening
   const [incomingCallNumber, setIncomingCallNumber] = useState<string | null>(null);
   // Command received from native overlay while app is backgrounded
-  const [pendingOverlayCmd, setPendingOverlayCmd] = useState<string | null>(null);
   // Persistent memory facts fetched from the API (injected into system prompt)
   const [memoryFacts, setMemoryFacts] = useState<string[]>([]);
   // Screen share / game assist
@@ -876,15 +876,11 @@ export default function ChatScreen() {
   }
 
   // Wake word refs
-  const wakeWordLoopRef = useRef(false);
-  const wakeRecordingRef = useRef<Audio.Recording | null>(null);
   const wakeWordEnabledRef = useRef(wakeWordEnabled);
   const readIncomingEnabledRef = useRef(readIncomingEnabled);
-  const assistantNameRef = useRef(assistantName);
-  const pendingCallModeAfterTtsRef = useRef(false);
-  const wakeWordRegexRef = useRef<RegExp | null>(null);
-  const isWakeListeningRef = useRef(false);
   const [isWakeListening, setIsWakeListening] = useState(false);
+  const [isVoiceStarting, setIsVoiceStarting] = useState(false);
+  const recordingStartingRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -902,14 +898,23 @@ export default function ChatScreen() {
   useEffect(() => { wakeWordEnabledRef.current = wakeWordEnabled; }, [wakeWordEnabled]);
   useEffect(() => { readIncomingEnabledRef.current = readIncomingEnabled; }, [readIncomingEnabled]);
   useEffect(() => {
-    assistantNameRef.current = assistantName;
-    const escaped = assistantName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Catch: "hey/ok/yo/hi vox", "vox", "hey vox wake up", etc.
-    wakeWordRegexRef.current = new RegExp(
-      `(?:(?:hey|ok|okay|yo|hi)[\\s,!]+)?${escaped}(?:[\\s,!]|$)`,
-      "i"
-    );
-  }, [assistantName]);
+    const update = (status: { state: string }) => setIsWakeListening(status.state === "listening");
+    void NativeWakeWord.status().then(update);
+    return NativeWakeWord.onStatus(update);
+  }, []);
+
+  useEffect(() => NativeWakeWord.onWake(() => {
+    if (!wakeWordEnabledRef.current || liveOpenRef.current || isCallModeRef.current ||
+        isStreamingRef.current || isSpeakingRef.current || nativeSpeechActiveRef.current || recordingRef.current) return;
+    // Native detection already released the mic and vibrated; don't delay with a greeting.
+    void startCallMode();
+  }), []);
+
+  useEffect(() => {
+    void NativeWakeWord.setPaused(
+      isVoiceStarting || isRecording || isTranscribing || isStreaming || isSpeaking || isCallMode || liveOpen,
+    ).catch(() => {});
+  }, [isVoiceStarting, isRecording, isTranscribing, isStreaming, isSpeaking, isCallMode, liveOpen]);
 
   // ── Load persistent memory facts from API ─────────────────────────────────
   useEffect(() => {
@@ -929,22 +934,9 @@ export default function ChatScreen() {
   }, [deviceId]);
 
   // ── Native overlay event listeners (Android only) ─────────────────────────
-  // These fire even when the app is backgrounded because the JS thread keeps
-  // running. The service handles wake-word detection and hands us the command.
+  // The visual bubble is independent of wake-word microphone ownership.
   useEffect(() => {
     if (!NativeOverlay.isAvailable) return;
-
-    const unsubWake = NativeOverlay.onWakeWord(() => {
-      // Service already transitioned bubble to "wake" state — nothing extra needed
-    });
-
-    const unsubCmd = NativeOverlay.onCommand((text) => {
-      if (text.trim()) {
-        // Set the overlay to processing so the bubble pulses orange
-        NativeOverlay.setState("processing").catch(() => {});
-        setPendingOverlayCmd(text.trim());
-      }
-    });
 
     const unsubTap = NativeOverlay.onTap(() => {
       // User tapped the bubble — navigate to chat tab and start listening
@@ -952,8 +944,6 @@ export default function ChatScreen() {
     });
 
     return () => {
-      unsubWake();
-      unsubCmd();
       unsubTap();
     };
   }, []);
@@ -1052,66 +1042,6 @@ export default function ChatScreen() {
     // call-mode and streaming state without recreating the native subscription.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Process a command that arrived from the native overlay while backgrounded.
-  // We capture `cmd` in a local variable before clearing the state so the
-  // setTimeout closure always gets the non-null value.
-  useEffect(() => {
-    if (!pendingOverlayCmd) return;
-    const cmd = pendingOverlayCmd;
-    setPendingOverlayCmd(null);
-    const timer = setTimeout(() => { handleSend(cmd); }, 50);
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingOverlayCmd]);
-
-  // Start / stop wake word loop whenever enabled state or call mode changes
-  useEffect(() => {
-    if (wakeWordEnabled && !isCallMode) {
-      if (!wakeWordLoopRef.current) {
-        wakeWordLoopRef.current = true;
-        setTimeout(() => wakeWordLoopTick(), 300);
-      }
-    } else {
-      wakeWordLoopRef.current = false;
-      setIsWakeListening(false);
-    }
-    return () => {
-      wakeWordLoopRef.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wakeWordEnabled, isCallMode]);
-
-  // Show a persistent notification while wake word is active.
-  // On Android this keeps the app process alive when minimized.
-  useEffect(() => {
-    if (Platform.OS !== "android") return;
-    const WAKE_NOTIF_ID = "wake-word-active";
-    if (wakeWordEnabled) {
-      Notifications.setNotificationChannelAsync("wake_word", {
-        name: "Wake Word Listener",
-        importance: Notifications.AndroidImportance.LOW,
-        sound: null,
-      }).then(() => {
-        Notifications.scheduleNotificationAsync({
-          identifier: WAKE_NOTIF_ID,
-          content: {
-            title: `Listening for "${assistantName}"…`,
-            body: `Say "Hey ${assistantName}" to start a conversation.`,
-            sticky: true,
-            autoDismiss: false,
-            data: { type: "wake_word" },
-          },
-          trigger: null,
-        }).catch(() => {});
-      }).catch(() => {});
-    } else {
-      Notifications.dismissNotificationAsync(WAKE_NOTIF_ID).catch(() => {});
-    }
-    return () => {
-      Notifications.dismissNotificationAsync(WAKE_NOTIF_ID).catch(() => {});
-    };
-  }, [wakeWordEnabled, assistantName]);
 
   function toNotificationFromAccessibility(n: VoxAccessibilityNotification): VoxNotification {
     const sender = n.sender?.trim() || n.app || "Unknown sender";
@@ -1429,105 +1359,6 @@ export default function ChatScreen() {
     return "https://vox.bossbot.me/api/";
   }
 
-  // ── Wake word ──────────────────────────────────────────────────────────────
-
-  function getWakeWordGreeting(): string {
-    const { gender, userName } = userProfile;
-    const greetName = userName ? `, ${userName}` : "";
-    switch (assistantPersonality) {
-      case "casual":
-        if (gender === "male") return `Yo bro${greetName}! What's up?`;
-        if (gender === "female") return `Hey sis${greetName}! What do you need?`;
-        return `Hey${greetName}! What's up?`;
-      case "professional":
-        return `Hello${greetName}. How can I assist you?`;
-      case "witty":
-        return `${assistantName} is listening${greetName}! What can I do for you?`;
-      case "caring":
-        return `Hey${greetName}! So glad you called. How can I help?`;
-      default: // friendly
-        if (gender === "male") return `Hey bro${greetName}! I'm here. What do you need?`;
-        if (gender === "female") return `Hey sis${greetName}! I'm here. What do you need?`;
-        return `Hey${greetName}! I'm here. What can I do for you?`;
-    }
-  }
-
-  async function wakeWordLoopTick() {
-    if (!wakeWordLoopRef.current) return;
-    // Pause if something else is using audio
-    if (liveOpenRef.current || isCallModeRef.current || isStreamingRef.current || recordingRef.current) {
-      setTimeout(() => wakeWordLoopTick(), 600);
-      return;
-    }
-    // Prevent concurrent ticks
-    if (isWakeListeningRef.current) return;
-
-    let rec: Audio.Recording | null = null;
-    try {
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== "granted") { wakeWordLoopRef.current = false; setIsWakeListening(false); return; }
-      if (!wakeWordLoopRef.current || liveOpenRef.current) return;
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      if (!wakeWordLoopRef.current || liveOpenRef.current) {
-        await recording.stopAndUnloadAsync().catch(() => {});
-        return;
-      }
-      rec = recording;
-      wakeRecordingRef.current = recording;
-      isWakeListeningRef.current = true;
-      setIsWakeListening(true);
-
-      // 2 s window — large enough that "Hey Vox" always lands in one chunk.
-      // The previous 1.5 s window could clip the phrase across two recordings.
-      await new Promise<void>((resolve) => setTimeout(resolve, 2000));
-
-      isWakeListeningRef.current = false;
-      setIsWakeListening(false);
-      if (!wakeWordLoopRef.current) { rec.stopAndUnloadAsync().catch(() => {}); return; }
-      await rec.stopAndUnloadAsync();
-      if (wakeRecordingRef.current === rec) wakeRecordingRef.current = null;
-      rec = null;
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      if (!wakeWordLoopRef.current) return;
-
-      const uri = recording.getURI();
-      if (!uri) { setTimeout(() => wakeWordLoopTick(), 50); return; }
-
-      // Pipeline: kick off the next recording immediately while we transcribe
-      // this one — eliminates the dead zone between cycles.
-      if (wakeWordLoopRef.current) setTimeout(() => wakeWordLoopTick(), 50);
-
-      // Transcribe in background
-      const base = await getApiBase();
-      const fd = new FormData();
-      fd.append("audio", { uri, type: "audio/m4a", name: "audio.m4a" } as unknown as Blob);
-      const resp = await globalThis.fetch(`${base}transcribe`, { method: "POST", body: fd });
-      const { text = "" } = await resp.json() as { text?: string };
-      if (!wakeWordLoopRef.current) return;
-
-      // Check for wake word: "hey/ok/yo/hi [name]" or just "[name]"
-      const wakeRe = wakeWordRegexRef.current;
-      if (wakeRe && wakeRe.test(text.trim())) {
-        // Detected — stop the loop (the next tick scheduled above will exit
-        // on the wakeWordLoopRef.current === false guard)
-        wakeWordLoopRef.current = false;
-        setIsWakeListening(false);
-        pendingCallModeAfterTtsRef.current = true;
-        speakText(getWakeWordGreeting());
-      }
-      // No else — next tick is already queued above
-    } catch {
-      isWakeListeningRef.current = false;
-      setIsWakeListening(false);
-      if (rec) rec.stopAndUnloadAsync().catch(() => {});
-      if (!liveOpenRef.current) {
-        try { await Audio.setAudioModeAsync({ allowsRecordingIOS: false }); } catch { /* ignore */ }
-      }
-      if (wakeWordLoopRef.current) setTimeout(() => wakeWordLoopTick(), 2000);
-    }
-  }
-
   // ── TTS ────────────────────────────────────────────────────────────────────
 
   async function stopSpeaking() {
@@ -1625,10 +1456,7 @@ export default function ChatScreen() {
     }
     // Reset native overlay bubble back to idle state
     if (Platform.OS === "android") NativeOverlay.setState("idle").catch(() => {});
-    if (pendingCallModeAfterTtsRef.current && !isStreamingRef.current) {
-      pendingCallModeAfterTtsRef.current = false;
-      startCallMode();
-    } else if (isCallModeRef.current && !isStreamingRef.current) {
+    if (isCallModeRef.current && !isStreamingRef.current) {
       setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
     }
   }
@@ -1773,6 +1601,7 @@ export default function ChatScreen() {
       ttsPlayingRef.current = true; // set synchronously before any await
       isSpeakingRef.current = true;
       setIsSpeaking(true);
+      await NativeWakeWord.setPaused(true);
       if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
       await playSentenceNow(text, voiceTiming);
     } else {
@@ -1813,7 +1642,9 @@ export default function ChatScreen() {
     await stopSpeaking();
     const gen = ttsGenerationRef.current;
     ttsPlayingRef.current = true;
+    isSpeakingRef.current = true;
     setIsSpeaking(true);
+    await NativeWakeWord.setPaused(true);
     // Update native overlay bubble to "speaking" state while TTS plays
     if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
     // Keep a native recognizer open during call-mode playback. Its partial
@@ -1879,15 +1710,7 @@ export default function ChatScreen() {
     setRecordingDuration(0);
     await stopSpeaking();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    // Resume wake word listener if the user has it enabled
-    if (wakeWordEnabledRef.current && !liveOpenRef.current) {
-      setTimeout(() => {
-        if (wakeWordEnabledRef.current && !isCallModeRef.current && !liveOpenRef.current) {
-          wakeWordLoopRef.current = true;
-          wakeWordLoopTick();
-        }
-      }, 600);
-    }
+    // Native wake detection resumes when the last audio-busy state clears.
   }
 
   // ── Voice recording ────────────────────────────────────────────────────────
@@ -1915,16 +1738,14 @@ export default function ChatScreen() {
 
   async function startRecording() {
     if (liveOpenRef.current) return;
+    if (recordingStartingRef.current) return;
     if (isTranscribingRef.current || nativeSpeechActiveRef.current || recordingRef.current || pcmRecordingActiveRef.current) return;
+    recordingStartingRef.current = true;
+    setIsVoiceStarting(true);
     if (isStreamingRef.current || isSpeakingRef.current) await stopSpeaking();
-    // If wake word loop is mid-recording, stop it first
-    if (isWakeListeningRef.current) {
-      wakeWordLoopRef.current = false;
-      isWakeListeningRef.current = false;
-      setIsWakeListening(false);
-      await new Promise<void>((r) => setTimeout(r, 300));
-    }
     try {
+      // Acknowledged handoff, not a guessed sleep while another recorder runs.
+      await NativeWakeWord.setPaused(true);
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== "granted") {
         alert("Microphone permission is required for voice input.");
@@ -2011,6 +1832,12 @@ export default function ChatScreen() {
       }, 100);
     } catch {
       setIsRecording(false);
+    } finally {
+      recordingStartingRef.current = false;
+      setIsVoiceStarting(false);
+      if (!recordingRef.current && !nativeSpeechActiveRef.current && !pcmRecordingActiveRef.current) {
+        setIsRecording(false);
+      }
     }
   }
 
@@ -4203,12 +4030,7 @@ export default function ChatScreen() {
   async function openLiveMode() {
     if (liveOpenRef.current) return;
     liveOpenRef.current = true;
-    wakeWordLoopRef.current = false;
-    const wakeRecording = wakeRecordingRef.current;
-    wakeRecordingRef.current = null;
-    if (wakeRecording) await wakeRecording.stopAndUnloadAsync().catch(() => {});
-    isWakeListeningRef.current = false;
-    setIsWakeListening(false);
+    await NativeWakeWord.setPaused(true, "live");
     await endCallMode();
     await stopSpeaking();
     stopRecordingCleanup();
@@ -4373,7 +4195,7 @@ export default function ChatScreen() {
         {messages.length === 0 && !isTranscribing ? (
           /* ── Empty / Voice-first state ── */
           <View style={styles.voiceHome}>
-            <Pressable onPress={isRecording ? stopRecording : startRecording} disabled={isStreaming || isCallMode || isWakeListening}>
+            <Pressable onPress={isRecording ? stopRecording : startRecording} disabled={isStreaming || isCallMode || isVoiceStarting}>
               <SiriOrb isRecording={isRecording} isSpeaking={isSpeaking} audioLevel={audioLevelAnim} colors={colors} />
             </Pressable>
 
@@ -4565,7 +4387,7 @@ export default function ChatScreen() {
                 },
               ]}
               onPress={isRecording ? stopRecording : startRecording}
-              disabled={isWakeListening || isTranscribing}
+              disabled={isTranscribing || isVoiceStarting}
             >
               {isTranscribing
                 ? <ActivityIndicator size="small" color={colors.primary} />
@@ -4580,10 +4402,7 @@ export default function ChatScreen() {
         executeTool={silentExecuteDeviceAction} onTurn={saveLiveTurn}
         onClose={() => {
           liveOpenRef.current = false; setLiveOpen(false);
-          if (wakeWordEnabledRef.current) {
-            wakeWordLoopRef.current = true;
-            setTimeout(() => { if (!liveOpenRef.current) void wakeWordLoopTick(); }, 500);
-          }
+          void NativeWakeWord.setPaused(false, "live");
         }} />}
       {isCallMode && (
         <VoiceCallOverlay

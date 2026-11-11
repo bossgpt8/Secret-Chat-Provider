@@ -28,7 +28,9 @@ import {
   Vibration,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native";
+import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import Reanimated, { useAnimatedStyle } from "react-native-reanimated";
+import { chatComposerBottomPadding } from "@/modules/chatKeyboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message, type Conversation } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
@@ -757,6 +759,7 @@ Notifications.setNotificationHandler({
 export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
   const { bubbleCmd, bubbleCmdTs } = useLocalSearchParams<{ bubbleCmd?: string; bubbleCmdTs?: string }>();
   const router = useRouter();
   const { deviceId, assistantName, conversations, currentConversationId, setCurrentConversationId, createConversation, saveMessages, deleteConversation, phoneVoiceId, elVoiceId, kokoroVoiceId, speechRate, ttsProvider, setTtsProvider, customApiUrl, userProfile, assistantPersonality, wakeWordEnabled, readIncomingEnabled, notes, saveNote, todos, addTodo, completeTodo, contactFavorites, setContactFavorite, getContactFavorite, customQuickChips, speechLanguage, setSpeechLanguage, contextEnabled, contextBattery, contextNotifications, contextScreen, contextMedia, contextLocation, offlineSttModelId, offlineTtsModelId } = useAssistant();
@@ -766,6 +769,10 @@ export default function ChatScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  const composerKeyboardStyle = useAnimatedStyle(() => ({
+    paddingBottom: chatComposerBottomPadding(bottomPad, keyboardProgress.value),
+  }), [bottomPad]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
   const [isSearchMode, setIsSearchMode] = useState(false);
@@ -4188,7 +4195,6 @@ export default function ChatScreen() {
   }
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
   const reversed = [...messages].reverse();
 
   return (
@@ -4281,7 +4287,7 @@ export default function ChatScreen() {
         </View>
       )}
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={0}>
         {/* ── Incoming call banner ── */}
         {incomingCallNumber && (
           <View style={[styles.callBanner, { backgroundColor: "#16a34a20", borderBottomColor: "#16a34a40" }]}>
@@ -4446,7 +4452,7 @@ export default function ChatScreen() {
         )}
 
         {/* ── Input bar ── */}
-        <View style={[styles.inputBar, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: bottomPad + 57 }]}>
+        <Reanimated.View style={[styles.inputBar, { backgroundColor: colors.background, borderTopColor: colors.border }, composerKeyboardStyle]}>
           {/* Branch edit indicator */}
           {branchEditMsgId && (
             <View style={[styles.branchBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "30" }]}>
@@ -4515,7 +4521,7 @@ export default function ChatScreen() {
                 : <Ionicons name={isRecording ? "stop" : "mic"} size={22} color="#fff" />}
             </Pressable>
           </View>
-        </View>
+        </Reanimated.View>
       </KeyboardAvoidingView>
 
       {/* ── Full-screen voice call overlay ── */}

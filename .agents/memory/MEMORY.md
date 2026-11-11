@@ -7,3 +7,4 @@
 - [API codegen exports](api-codegen-exports.md) — Orval Zod body aliases can collide with generated model types; disambiguate barrel exports.
 - [GitHub push permissions](github-push-limits.md) — Source pushes work; the current OAuth grant rejects workflow-file changes.
 - [Wake-word expectations](vox-wake-word.md) — Wake phrases follow the selected assistant name; accuracy and background reliability need real-voice/device evidence.
+- [Android assistant registration](android-assistant-registration.md) — Expo prefixes intent names; verify generated filters before claiming chooser eligibility.

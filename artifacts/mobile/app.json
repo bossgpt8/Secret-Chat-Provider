@@ -27,15 +27,15 @@
       "package": "com.boss.assistant",
       "intentFilters": [
         {
-          "action": "android.intent.action.ASSIST",
+          "action": "ASSIST",
           "category": [
-            "android.intent.category.DEFAULT"
+            "DEFAULT"
           ]
         },
         {
-          "action": "android.intent.action.VOICE_COMMAND",
+          "action": "VOICE_COMMAND",
           "category": [
-            "android.intent.category.DEFAULT"
+            "DEFAULT"
           ]
         }
       ],

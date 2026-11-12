@@ -9,7 +9,7 @@ const { INPUTS, readSentencePieceVocabulary } = require("../artifacts/mobile/plu
 const read = file => readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
 
 test("wake phrase follows the selected assistant name, not the product name", () => {
-  for (const name of ["Vox", "Zeno", "Jarvis", "Mary", "Alexa", "My Assistant"]) {
+  for (const name of ["Vox", "Boss", "Zeno", "Jarvis", "Mary", "Alexa", "My Assistant"]) {
     assert.equal(wakePhraseForName(name), `Hey ${name}`);
   }
 });
@@ -56,6 +56,12 @@ test("source contract: native engine hands off only after releasing microphone",
   assert.match(engine, /session == generation\.get\(\)/);
   assert.doesNotMatch(engine, /https?:\/\/|FileOutputStream|Base64/);
 });
+test("native wake audio is level-corrected on the existing capture stream", () => {
+  const engine = read("artifacts/mobile/plugins/kotlin/VoxWakeEngine.kt");
+  assert.match(engine, /val levels = VoxWakeAudioNormalizer\(\)/);
+  assert.match(engine, /online\.acceptWaveform\(levels\.normalize\(buffer, count\), 16000\)/);
+  assert.equal((engine.match(/val microphone = AudioRecord\(/g) || []).length, 1);
+});
 test("source contract: visible stop controls and no boot auto-restart", () => {
   const service = read("artifacts/mobile/plugins/kotlin/VoxWakeService.kt");
   assert.match(service, /START_NOT_STICKY/);
@@ -68,7 +74,7 @@ test("source contract: visible stop controls and no boot auto-restart", () => {
 test("both prebuild plugin entrypoints install the same wake module and assets", () => {
   for (const extension of ["js", "ts"]) {
     const plugin = read(`artifacts/mobile/plugins/withNativeModules.${extension}`);
-    for (const file of ["VoxWakeEngine.kt", "VoxWakeTokenizer.kt", "VoxWakeModule.kt", "VoxWakeService.kt"]) {
+    for (const file of ["VoxWakeEngine.kt", "VoxWakeAudioNormalizer.kt", "VoxWakeTokenizer.kt", "VoxWakeModule.kt", "VoxWakeService.kt"]) {
       assert.ok(plugin.includes(`"${file}"`), `${extension}: ${file}`);
     }
     assert.match(plugin, /require\("\.\/withWakeWord"\)\(config\)/);

@@ -15,6 +15,12 @@ Treat wake recognition accuracy and screen-off reliability as separate from succ
 
 **How to apply:** Use real recordings of the selected name and physical Android evidence before claiming reliable detection, low battery use, or Google-equivalent behavior. Do not repeatedly tune to one synthetic voice or conceal a failed accuracy diagnostic behind passing build checks.
 
+Evaluate microphone level conditioning before lowering wake confidence thresholds.
+
+**Why:** A real user-provided wake recording was missed by the shipped model but recognized after amplification with the same model, tokenizer and confidence settings. “Listening” establishes that capture started, not that quiet speech is being recognized.
+
+**How to apply:** Keep correction bounded, avoid boosting near-silence, and limit peaks. Check real wake recordings and unrelated speech together. A successful recording test is not evidence of physical-device or lock-screen reliability.
+
 Inspect native runtime contents before combining optional audio engines.
 
 **Why:** A sherpa Android AAR labeled “static” still bundled a dynamic ONNX Runtime for x86, risking conflicts with Piper's different runtime; ARMv7, ARM64 and x86_64 were self-contained.

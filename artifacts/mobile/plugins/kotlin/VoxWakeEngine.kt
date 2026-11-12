@@ -86,6 +86,7 @@ class VoxWakeEngine(
                 check(microphone.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Microphone could not start." }
                 main.post { if (session == generation.get()) onReady() }
                 val buffer = ShortArray(1600)
+                val levels = VoxWakeAudioNormalizer()
                 val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
                 while (session == generation.get()) {
                     if (audio.mode == AudioManager.MODE_IN_CALL || audio.mode == AudioManager.MODE_IN_COMMUNICATION) {
@@ -100,7 +101,7 @@ class VoxWakeEngine(
                     val count = microphone.read(buffer, 0, buffer.size)
                     if (session != generation.get()) break
                     check(count > 0) { "Microphone capture stopped. Tap Resume to retry." }
-                    online.acceptWaveform(FloatArray(count) { buffer[it] / 32768.0f }, 16000)
+                    online.acceptWaveform(levels.normalize(buffer, count), 16000)
                     while (session == generation.get() && kws.isReady(online)) {
                         kws.decode(online)
                         if (kws.getResult(online).keyword == "ASSISTANT_WAKE") {

@@ -55,6 +55,7 @@ const KOTLIN_FILES = [
   "VoxVoiceInteractionService.kt",
   "VoxOverlayService.kt",
   "VoxWakeEngine.kt",
+  "VoxWakeAudioNormalizer.kt",
   "VoxWakeTokenizer.kt",
   "VoxWakeService.kt",
   "VoxWakeModule.kt",

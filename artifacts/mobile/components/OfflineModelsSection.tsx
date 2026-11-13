@@ -175,6 +175,19 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
     try {
       if (model.kind === "stt") {
         await setOfflineSttModelId(model.id);
+        if (!NativeOfflineModels.isAvailable) {
+          Alert.alert(
+            "Android build required",
+            "Offline Whisper model downloads and recognition need Vox's installed Android build.",
+          );
+          return;
+        }
+        if (!await NativeOfflineModels.getPath(model.fileName)) {
+          Alert.alert(
+            "Download this Whisper model",
+            `${model.label} is selected. Download it below; Vox will keep using the phone recognizer until the download is ready.`,
+          );
+        }
         return;
       }
 
@@ -264,7 +277,7 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
         </Text>
         <Text style={[styles.description, { color: colors.mutedForeground }]}>
           {kind === "stt"
-            ? "Whisper runs on the phone and turns your recording into text without uploading audio."
+            ? "Whisper runs on your phone without uploading audio. Small is more accurate but slower and larger; Small Multilingual uses the language selected in Voice settings."
             : "Choose a US English Piper voice below, download the one you want, then select it to use it offline. Higher-quality voices take more storage."}
         </Text>
         <Pressable

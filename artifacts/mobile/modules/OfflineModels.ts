@@ -7,6 +7,7 @@ export type OfflineModelKind = "stt" | "tts";
 export interface OfflineModelDefinition {
   id: string;
   kind: OfflineModelKind;
+  englishOnly?: boolean;
   label: string;
   description: string;
   fileName: string;
@@ -24,8 +25,9 @@ export const OFFLINE_MODELS: OfflineModelDefinition[] = [
   {
     id: "whisper-tiny-en",
     kind: "stt",
+    englishOnly: true,
     label: "Whisper Tiny (English)",
-    description: "Smallest Whisper option. Fastest downloads and responses; best for short commands.",
+    description: "English only. Smallest and fastest model; best for short commands.",
     fileName: "ggml-tiny.en-q5_1.bin",
     url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en-q5_1.bin",
     sizeLabel: "~31 MB",
@@ -33,11 +35,31 @@ export const OFFLINE_MODELS: OfflineModelDefinition[] = [
   {
     id: "whisper-base-en",
     kind: "stt",
-    label: "Whisper Base (English)",
-    description: "A stronger balance of accuracy and speed for everyday voice conversations.",
+    englishOnly: true,
+    label: "Whisper Base (English only)",
+    description: "A good English accuracy and speed balance for everyday conversations.",
     fileName: "ggml-base.en-q5_1.bin",
     url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin",
     sizeLabel: "~57 MB",
+  },
+  {
+    id: "whisper-small-en",
+    kind: "stt",
+    englishOnly: true,
+    label: "Whisper Small (English)",
+    description: "More accurate English transcription than Base; slower and uses more memory.",
+    fileName: "ggml-small.en-q5_1.bin",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin",
+    sizeLabel: "~190 MB",
+  },
+  {
+    id: "whisper-small-multilingual",
+    kind: "stt",
+    label: "Whisper Small (Multilingual)",
+    description: "More accurate multilingual option. Set your spoken language in Voice settings; recognition quality varies by language.",
+    fileName: "ggml-small-q5_1.bin",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+    sizeLabel: "~190 MB",
   },
   {
     id: "piper-lessac-medium",

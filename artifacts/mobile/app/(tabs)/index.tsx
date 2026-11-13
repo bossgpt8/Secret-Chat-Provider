@@ -1999,9 +1999,11 @@ export default function ChatScreen() {
         const modelPath = offlineModel
           ? await NativeOfflineModels.getPath(offlineModel.fileName)
           : null;
-        if (!uri || !modelPath) throw new Error("Offline Whisper model is unavailable");
+        if (!uri || !offlineModel || !modelPath) throw new Error("Offline Whisper model is unavailable");
         setIsTranscribing(true);
-        const language = (speechLanguage || "en-US").split("-")[0];
+        const language = offlineModel.englishOnly
+          ? "en"
+          : (speechLanguage || "en-US").split("-")[0];
         const transcript = await transcribeWithWhisper(modelPath, uri, language);
         setIsTranscribing(false);
         if (transcript.length > 1) {

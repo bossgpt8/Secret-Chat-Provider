@@ -14,11 +14,21 @@ const selector = readFileSync(
   new URL("../artifacts/mobile/components/OfflineModelsSection.tsx", import.meta.url),
   "utf8",
 );
+const chat = readFileSync(
+  new URL("../artifacts/mobile/app/(tabs)/index.tsx", import.meta.url),
+  "utf8",
+);
 const expectedVoices = [
   ["piper-lessac-medium", "en_US-lessac-medium.onnx"],
   ["piper-ljspeech-high", "en_US-ljspeech-high.onnx"],
   ["piper-joe-medium", "en_US-joe-medium.onnx"],
   ["piper-kathleen-medium", "en_US-kathleen-medium.onnx"],
+];
+const expectedWhisperModels = [
+  ["whisper-tiny-en", "ggml-tiny.en-q5_1.bin"],
+  ["whisper-base-en", "ggml-base.en-q5_1.bin"],
+  ["whisper-small-en", "ggml-small.en-q5_1.bin"],
+  ["whisper-small-multilingual", "ggml-small-q5_1.bin"],
 ];
 
 test("Piper catalog offers multiple downloadable US English voices", () => {
@@ -41,6 +51,27 @@ test("Piper catalog offers multiple downloadable US English voices", () => {
 test("high-quality and alternate model licenses are described for users", () => {
   assert.match(source, /High-quality US English voice trained on the public-domain LJ Speech dataset/);
   assert.match(source, /Voice dataset is CC0/);
+});
+
+test("Whisper offers faster English and more accurate small models", () => {
+  const catalog = source.slice(source.indexOf("export const OFFLINE_MODELS"), source.indexOf("export interface DownloadProgress"));
+  const models = [...catalog.matchAll(/\{\s*id: "whisper-[^"]+"[\s\S]*?\n  \},/g)];
+  assert.equal(models.length, expectedWhisperModels.length);
+
+  for (const [id, fileName] of expectedWhisperModels) {
+    const block = models.find(({ 0: text }) => text.includes(`id: "${id}"`))?.[0];
+    assert.ok(block, `missing model ${id}`);
+    assert.match(block, /kind: "stt"/);
+    if (id.endsWith("-en")) assert.match(block, /englishOnly: true/);
+    assert.match(block, new RegExp(`fileName: "${fileName.replaceAll(".", "\\.")}"`));
+    assert.match(block, /url: "https:\/\/huggingface\.co\/ggerganov\/whisper\.cpp\/resolve\/main\//);
+    assert.match(block, /sizeLabel: "~\d+ MB"/);
+  }
+
+  const multilingual = models.find(({ 0: text }) => text.includes('id: "whisper-small-multilingual"'))?.[0];
+  assert.match(multilingual ?? "", /Multilingual/);
+  assert.match(multilingual ?? "", /language/i);
+  assert.match(chat, /offlineModel\.englishOnly\s*\?\s*"en"\s*:\s*\(speechLanguage \|\| "en-US"\)\.split\("-"\)\[0\]/);
 });
 
 test("Piper activates only after both selected voice files are downloaded", () => {

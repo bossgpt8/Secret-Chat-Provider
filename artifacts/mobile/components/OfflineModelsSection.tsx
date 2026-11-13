@@ -40,6 +40,7 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
     offlineTtsModelId,
     setOfflineTtsModelId,
     setTtsProvider,
+    ttsProvider,
   } = useAssistant();
   const [openMenu, setOpenMenu] = useState<"stt" | "tts" | null>(null);
   const [downloaded, setDownloaded] = useState<Record<string, boolean>>({});
@@ -169,14 +170,37 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
     return OFFLINE_MODELS.find((m) => m.id === id)?.label ?? `Choose a ${kind === "stt" ? "Whisper" : "Piper"} model`;
   }
 
-  function choose(model: OfflineModelDefinition) {
+  async function choose(model: OfflineModelDefinition) {
     setOpenMenu(null);
-    if (model.kind === "stt") setOfflineSttModelId(model.id);
-    else {
-      setOfflineTtsModelId(model.id);
-      // Selecting an offline voice should not leave the app silently using
-      // Kokoro/ElevenLabs. The user can still switch providers in Voice Output.
-      setTtsProvider("piper");
+    try {
+      if (model.kind === "stt") {
+        await setOfflineSttModelId(model.id);
+        return;
+      }
+
+      await setOfflineTtsModelId(model.id);
+      const paths = model.configFileName
+        ? await Promise.all([
+            NativeOfflineModels.getPath(model.fileName),
+            NativeOfflineModels.getPath(model.configFileName),
+          ])
+        : [null, null];
+      if (!paths[0] || !paths[1]) {
+        if (ttsProvider === "piper") await setTtsProvider("phone");
+        Alert.alert(
+          "Download this voice first",
+          `${model.label} is selected. Download it below, then return here and select it again to use Piper.`,
+        );
+        return;
+      }
+
+      // Pass the selected ID directly because context state updates are async.
+      await setTtsProvider("piper", model.id);
+    } catch (error) {
+      Alert.alert(
+        "Could not select voice",
+        error instanceof Error ? error.message : "Try selecting the voice again.",
+      );
     }
   }
 
@@ -241,7 +265,7 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
         <Text style={[styles.description, { color: colors.mutedForeground }]}>
           {kind === "stt"
             ? "Whisper runs on the phone and turns your recording into text without uploading audio."
-            : "Piper generates speech on the phone. It uses a downloaded voice and does not need the cloud."}
+            : "Choose a US English Piper voice below, download the one you want, then select it to use it offline. Higher-quality voices take more storage."}
         </Text>
         <Pressable
           style={[styles.picker, { backgroundColor: colors.background, borderColor: colors.border }]}
@@ -255,7 +279,7 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
             {models.map((model) => {
               const selected = (kind === "stt" ? offlineSttModelId : offlineTtsModelId) === model.id;
               return (
-                <Pressable key={model.id} style={[styles.option, { borderBottomColor: colors.border }]} onPress={() => choose(model)}>
+                <Pressable key={model.id} style={[styles.option, { borderBottomColor: colors.border }]} onPress={() => { void choose(model); }}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.label, { color: colors.foreground }]}>{model.label}</Text>
                     <Text style={[styles.description, { color: colors.mutedForeground }]}>{model.description}</Text>

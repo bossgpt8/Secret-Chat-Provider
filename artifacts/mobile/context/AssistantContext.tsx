@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Alert } from "react-native";
-import { NativePiper } from "../modules/OfflineModels";
+import { NativeOfflineModels, NativePiper, OFFLINE_MODELS } from "../modules/OfflineModels";
 import { PIPER_ATTEMPT_KEY, restoreVoiceProvider } from "../modules/piperSafety";
 
 const ASSISTANT_NAME_KEY = "@vox_assistant_name";
@@ -160,7 +160,7 @@ interface AssistantContextType {
   speechRate: number;
   setSpeechRate: (rate: number) => Promise<void>;
   ttsProvider: TtsProvider;
-  setTtsProvider: (p: TtsProvider) => Promise<void>;
+  setTtsProvider: (p: TtsProvider, voiceModelId?: string) => Promise<void>;
   themeOverride: ThemeOverride;
   setThemeOverride: (t: ThemeOverride) => Promise<void>;
   customApiUrl: string | null;
@@ -380,7 +380,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setSpeechRateState(rate);
   }
 
-  async function setTtsProvider(p: TtsProvider) {
+  async function setTtsProvider(p: TtsProvider, voiceModelId?: string) {
     if (p === "piper") {
       const readiness = await NativePiper.getReadiness().catch(() => ({
         supported: false, reason: "Piper's compatibility check failed. Use Phone voice.",
@@ -389,6 +389,24 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.setItem(TTS_PROVIDER_KEY, "phone");
         setTtsProviderState("phone");
         Alert.alert("Piper unavailable", readiness.reason || "Use Phone voice on this device.");
+        return;
+      }
+      const model = OFFLINE_MODELS.find(
+        (item) => item.id === (voiceModelId ?? offlineTtsModelId) && item.kind === "tts",
+      );
+      if (!model?.configFileName) {
+        Alert.alert("Choose a Piper voice", "Select an offline Piper voice model first.");
+        return;
+      }
+      const [modelPath, configPath] = await Promise.all([
+        NativeOfflineModels.getPath(model.fileName),
+        NativeOfflineModels.getPath(model.configFileName),
+      ]);
+      if (!modelPath || !configPath) {
+        Alert.alert(
+          "Download this voice first",
+          `Download ${model.label} and its configuration in Settings → Offline voice models, then select Piper.`,
+        );
         return;
       }
     }

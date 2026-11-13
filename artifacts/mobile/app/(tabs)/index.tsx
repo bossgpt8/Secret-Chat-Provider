@@ -1372,7 +1372,21 @@ export default function ChatScreen() {
       removeAbortListener?.();
       if (!fromTool) setShowTyping(false);
       setVisionMode(false);
-      if (!torchOn) {
+      if (Platform.OS === "android") {
+        // Release the vision camera; Android torch mode is a separate service.
+        setCameraReady(false);
+        cameraStartedRef.current = false;
+        if (torchOn && NativeSystemPermissions.canControlTorch) {
+          setTimeout(() => {
+            if (!visionBusyRef.current) {
+              void NativeSystemPermissions.setTorch(true).catch((error) => {
+                console.warn("[torch] Could not restore system torch after vision:", error);
+                setTorchOn(false);
+              });
+            }
+          }, 200);
+        }
+      } else if (!torchOn) {
         setCameraReady(false);
         cameraStartedRef.current = false;
       }
@@ -2550,20 +2564,27 @@ export default function ChatScreen() {
   }
 
   async function applyFlashlight(on: boolean): Promise<void> {
-    // A camera already used for vision owns the torch until it closes.
-    // Otherwise use CameraManager directly: no CameraView warm-up.
-    if (cameraRef.current) {
-      setTorchOn(on);
-      if (!on && !visionBusyRef.current) setCameraReady(false);
-      return;
-    }
-    if (NativeSystemPermissions.canControlTorch) {
+    // Use Android's system torch mode; never keep a camera preview open solely
+    // for the flashlight. The CameraView is reserved for vision capture.
+    if (Platform.OS === "android") {
+      if (visionBusyRef.current) {
+        throw new Error("Finish the current camera task before changing the flashlight.");
+      }
+      if (!NativeSystemPermissions.canControlTorch) {
+        throw new Error("This Android build lacks direct flashlight control. Update Vox to the latest APK.");
+      }
       const applied = await NativeSystemPermissions.setTorch(on);
       if (!applied) throw new Error("This device does not have a rear flashlight.");
       setTorchOn(on);
       return;
     }
-    // Compatibility with older installed APKs / Expo Go.
+
+    // Retain the Expo Camera path for iOS.
+    if (cameraRef.current) {
+      setTorchOn(on);
+      if (!on && !visionBusyRef.current) setCameraReady(false);
+      return;
+    }
     setTorchOn(on);
     setCameraReady(on || visionBusyRef.current);
   }
@@ -4216,7 +4237,7 @@ export default function ChatScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Camera view — used for torch control AND vision AI capture */}
+      {/* The camera is for vision captures; Android torch control uses CameraManager. */}
       {cameraReady && Platform.OS !== "web" && (
         <CameraView
           ref={cameraRef}
@@ -4228,7 +4249,7 @@ export default function ChatScreen() {
           facing="back"
           onCameraReady={() => { cameraStartedRef.current = true; }}
           onMountError={(event) => { cameraErrorRef.current = event.message; cameraStartedRef.current = false; }}
-          enableTorch={torchOn}
+          enableTorch={Platform.OS !== "android" && torchOn}
         />
       )}
 

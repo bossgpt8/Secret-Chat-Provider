@@ -1,7 +1,6 @@
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
-import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
@@ -31,7 +30,6 @@ const CONTROLS: Control[] = [
 ];
 
 const CATEGORIES = ["Quick", "Audio", "Display"];
-const CAMERA_CLEANUP_DELAY_MS = 500;
 const BRIGHTNESS_STEP = 0.2;
 const MIN_BRIGHTNESS = 0.05;
 
@@ -44,13 +42,10 @@ function ControlIcon({ control, color, size }: { control: Control; color: string
 export default function ControlsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [torchOn, setTorchOn] = useState(false);
-  const [cameraReady, setCameraReady] = useState(false);
   const [volMuted, setVolMuted] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [busyControlId, setBusyControlId] = useState<string | null>(null);
-  const cameraCleanupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -61,18 +56,7 @@ export default function ControlsScreen() {
         if (v) setVolMuted(v.muted);
       });
     }
-    return () => {
-      if (cameraCleanupTimeoutRef.current) clearTimeout(cameraCleanupTimeoutRef.current);
-    };
   }, []);
-
-  function scheduleDelayedCameraUnmount() {
-    if (cameraCleanupTimeoutRef.current) clearTimeout(cameraCleanupTimeoutRef.current);
-    cameraCleanupTimeoutRef.current = setTimeout(() => {
-      setCameraReady(false);
-      cameraCleanupTimeoutRef.current = null;
-    }, CAMERA_CLEANUP_DELAY_MS);
-  }
 
   function isSupportedControl(controlId: string): boolean {
     return [
@@ -107,18 +91,15 @@ export default function ControlsScreen() {
     try {
       switch (ctrl.id) {
         case "flashlight": {
-          if (!cameraPermission?.granted) {
-            const { granted } = await requestCameraPermission();
-            if (!granted) {
-              setLastAction("Camera permission is required to control the flashlight.");
-              return;
-            }
+          if (!NativeSystemPermissions.canControlTorch) {
+            setLastAction("Direct Android flashlight control is unavailable in this build.");
+            return;
           }
           const next = !torchOn;
+          const applied = await NativeSystemPermissions.setTorch(next);
+          if (!applied) throw new Error("Android could not change the flashlight state.");
           setTorchOn(next);
-          if (next) setCameraReady(true);
-          else scheduleDelayedCameraUnmount();
-          setLastAction(`Flashlight turned ${next ? "ON" : "OFF"}.`);
+          setLastAction(`Flashlight turned ${next ? "ON" : "OFF"} with Android torch control.`);
           return;
         }
         case "vol_up":
@@ -232,13 +213,6 @@ export default function ControlsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {cameraReady && Platform.OS !== "web" && (
-        <CameraView
-          style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
-          facing="back"
-          enableTorch={torchOn}
-        />
-      )}
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Controls</Text>
       </View>

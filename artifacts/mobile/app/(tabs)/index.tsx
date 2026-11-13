@@ -723,8 +723,8 @@ const sidebarStyles = StyleSheet.create({
 
 // ─── Main chat screen ─────────────────────────────────────────────────────────
 
-const CALL_MODE_RETRY_DELAY_MS = 400;
-const CALL_MODE_SILENCE_MS = 500;
+const CALL_MODE_RETRY_DELAY_MS = 700;
+const CALL_MODE_SILENCE_MS = 700;
 
 // ─── In-app timer types ───────────────────────────────────────────────────────
 
@@ -826,6 +826,8 @@ export default function ChatScreen() {
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elSoundRef = useRef<Audio.Sound | null>(null);
   const isCallModeRef = useRef(false);
+  const isOnlineRef = useRef(isOnline);
+  const callModeRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isStreamingRef = useRef(false);
   const isTranscribingRef = useRef(false);
   const isSpeakingRef = useRef(false);
@@ -849,6 +851,8 @@ export default function ChatScreen() {
   // recording + /transcribe path remains the cross-platform fallback.
   const nativeSpeechActiveRef = useRef(false);
   const nativeSpeechModeRef = useRef<"turn" | "barge">("turn");
+  const nativeSpeechStartedAtRef = useRef(0);
+  const nativeSpeechFallbackRef = useRef(false);
   const nativeSpeechTextRef = useRef("");
   const currentSpokenTextRef = useRef("");
   const piperFailureNoticeRef = useRef(false);
@@ -904,6 +908,7 @@ export default function ChatScreen() {
   useEffect(() => {
     return () => {
       if (durationTimerRef.current) clearInterval(durationTimerRef.current);
+      if (callModeRestartTimerRef.current) clearTimeout(callModeRestartTimerRef.current);
       stopRecordingCleanup();
       elSoundRef.current?.unloadAsync().catch(() => {});
     };
@@ -918,6 +923,7 @@ export default function ChatScreen() {
   }, []);
 
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
+  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
   useEffect(() => { isTranscribingRef.current = isTranscribing; }, [isTranscribing]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
@@ -1015,6 +1021,7 @@ export default function ChatScreen() {
       const playbackEcho = mode === "barge" && isPlaybackEcho(transcript, currentSpokenTextRef.current);
       nativeSpeechActiveRef.current = false;
       nativeSpeechModeRef.current = "turn";
+      nativeSpeechStartedAtRef.current = 0;
       nativeSpeechTextRef.current = "";
       setIsRecording(false);
       setRecordingDuration(0);
@@ -1028,9 +1035,7 @@ export default function ChatScreen() {
         setIsTranscribing(false);
         handleSendRef.current(transcript, finalizedAtMs ?? Date.now());
       } else if (isCallModeRef.current) {
-        setTimeout(() => {
-          if (isCallModeRef.current && !nativeSpeechActiveRef.current) void startRecordingRef.current();
-        }, CALL_MODE_RETRY_DELAY_MS);
+        scheduleCallModeListening();
       }
     });
 
@@ -1039,6 +1044,7 @@ export default function ChatScreen() {
       const mode = nativeSpeechModeRef.current;
       nativeSpeechActiveRef.current = false;
       nativeSpeechModeRef.current = "turn";
+      nativeSpeechStartedAtRef.current = 0;
       nativeSpeechTextRef.current = "";
       setIsRecording(false);
       setRecordingDuration(0);
@@ -1046,18 +1052,15 @@ export default function ChatScreen() {
       NativeAudioSession.endVoiceSession().catch(() => {});
       if (mode === "barge") {
         if (isCallModeRef.current && !isSpeakingRef.current) {
-          setTimeout(() => { if (isCallModeRef.current) void startRecordingRef.current(); }, CALL_MODE_RETRY_DELAY_MS);
+          scheduleCallModeListening();
         }
       } else if (isCallModeRef.current) {
         recognitionFailuresRef.current += 1;
         if (recognitionFailuresRef.current >= 3) {
-          endCallMode();
-          Alert.alert("Voice recognition unavailable", "Android's speech service failed repeatedly. Check microphone permission and the installed speech-recognition service, then try again.");
-          return;
+          recognitionFailuresRef.current = 0;
+          enableNetworkSpeechFallback();
         }
-        setTimeout(() => {
-          if (isCallModeRef.current && !nativeSpeechActiveRef.current) void startRecordingRef.current();
-        }, 1000);
+        scheduleCallModeListening(1000);
       } else {
         console.warn("[voice] speech recognition failed:", code);
         Alert.alert("Couldn't recognize speech", "Please try speaking again. Check microphone permission and Android's speech service if this continues.");
@@ -1078,6 +1081,59 @@ export default function ChatScreen() {
     // call-mode and streaming state without recreating the native subscription.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!isCallMode) return;
+    const watchdog = setInterval(() => {
+      if (
+        !isCallModeRef.current ||
+        isStreamingRef.current ||
+        isSpeakingRef.current ||
+        ttsPlayingRef.current ||
+        isTranscribingRef.current
+      ) return;
+
+      if (
+        nativeSpeechActiveRef.current &&
+        nativeSpeechModeRef.current === "turn" &&
+        !nativeSpeechStartingRef.current &&
+        Date.now() - nativeSpeechStartedAtRef.current > 5000
+      ) {
+        void NativeSpeechRecognizer.isListening().then((listening) => {
+          if (
+            listening ||
+            !isCallModeRef.current ||
+            !nativeSpeechActiveRef.current ||
+            nativeSpeechModeRef.current !== "turn"
+          ) return;
+          nativeSpeechActiveRef.current = false;
+          nativeSpeechStartedAtRef.current = 0;
+          setIsRecording(false);
+          setRecordingDuration(0);
+          audioLevelAnim.setValue(0);
+          void NativeAudioSession.endVoiceSession().catch(() => {});
+          recognitionFailuresRef.current += 1;
+          if (recognitionFailuresRef.current >= 3) {
+            recognitionFailuresRef.current = 0;
+            enableNetworkSpeechFallback();
+          }
+          scheduleCallModeListening(250);
+        }).catch(() => {});
+        return;
+      }
+
+      if (
+        !nativeSpeechActiveRef.current &&
+        !nativeSpeechStartingRef.current &&
+        !recordingStartingRef.current &&
+        !recordingRef.current &&
+        !pcmRecordingActiveRef.current
+      ) {
+        scheduleCallModeListening(250);
+      }
+    }, 3000);
+    return () => clearInterval(watchdog);
+  }, [isCallMode]);
 
   function toNotificationFromAccessibility(n: VoxAccessibilityNotification): VoxNotification {
     const sender = n.sender?.trim() || n.app || "Unknown sender";
@@ -1441,6 +1497,7 @@ export default function ChatScreen() {
     if (!nativeSpeechActiveRef.current && !nativeSpeechStartingRef.current) return;
     nativeSpeechActiveRef.current = false;
     nativeSpeechModeRef.current = "turn";
+    nativeSpeechStartedAtRef.current = 0;
     nativeSpeechTextRef.current = "";
     await NativeSpeechRecognizer.cancel().catch(() => {});
     await NativeAudioSession.endVoiceSession().catch(() => {});
@@ -1470,10 +1527,12 @@ export default function ChatScreen() {
     if (attempt !== nativeSpeechAttemptRef.current) return true;
     if (!started) {
       nativeSpeechActiveRef.current = false;
+      nativeSpeechStartedAtRef.current = 0;
       await NativeAudioSession.endVoiceSession().catch(() => {});
       return false;
     }
     if (!nativeSpeechActiveRef.current) return true;
+    nativeSpeechStartedAtRef.current = Date.now();
     setIsRecording(true);
     setRecordingDuration(0);
     setIsTranscribing(false);
@@ -1513,13 +1572,60 @@ export default function ChatScreen() {
     // Reset native overlay bubble back to idle state
     if (Platform.OS === "android") NativeOverlay.setState("idle").catch(() => {});
     if (isCallModeRef.current && !isStreamingRef.current) {
-      setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+      scheduleCallModeListening();
     }
+  }
+
+  function scheduleCallModeListening(delayMs = CALL_MODE_RETRY_DELAY_MS) {
+    if (!isCallModeRef.current || liveOpenRef.current || callModeRestartTimerRef.current) return;
+    callModeRestartTimerRef.current = setTimeout(() => {
+      callModeRestartTimerRef.current = null;
+      if (!isCallModeRef.current || liveOpenRef.current) return;
+
+      if (isStreamingRef.current || isSpeakingRef.current || ttsPlayingRef.current || isTranscribingRef.current) {
+        scheduleCallModeListening(350);
+        return;
+      }
+      if (nativeSpeechActiveRef.current || recordingRef.current || pcmRecordingActiveRef.current) return;
+      if (recordingStartingRef.current || nativeSpeechStartingRef.current) {
+        scheduleCallModeListening(350);
+        return;
+      }
+
+      void startRecordingRef.current()
+        .catch((error) => console.warn("[voice] Call-mode restart failed:", error))
+        .finally(() => {
+          if (
+            isCallModeRef.current &&
+            !nativeSpeechActiveRef.current &&
+            !recordingRef.current &&
+            !pcmRecordingActiveRef.current &&
+            !recordingStartingRef.current &&
+            !nativeSpeechStartingRef.current
+          ) {
+            scheduleCallModeListening(700);
+          }
+        });
+    }, Math.max(0, delayMs));
+  }
+
+  function enableNetworkSpeechFallback() {
+    if (nativeSpeechFallbackRef.current || !isOnlineRef.current) return;
+    nativeSpeechFallbackRef.current = true;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: generateMsgId(),
+        role: "assistant",
+        content: "Android speech recognition stopped responding. Hands-free is staying on and switching to online audio transcription; replies may take longer.",
+        timestamp: Date.now(),
+      },
+    ]);
   }
 
   function awaitBargeCleanup() {
     cancelNativeSpeech().finally(() => {
-      if (isCallModeRef.current && !isStreamingRef.current) startRecording();
+      if (isCallModeRef.current && !isStreamingRef.current) scheduleCallModeListening();
     });
   }
 
@@ -1789,6 +1895,11 @@ export default function ChatScreen() {
     if (liveOpenRef.current) return;
     if (isWakeCalibrating()) { Alert.alert("Wake trial active", "Finish the wake trial before starting a conversation."); return; }
     recognitionFailuresRef.current = 0;
+    nativeSpeechFallbackRef.current = false;
+    if (callModeRestartTimerRef.current) {
+      clearTimeout(callModeRestartTimerRef.current);
+      callModeRestartTimerRef.current = null;
+    }
     isCallModeRef.current = true;
     setIsCallMode(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1798,6 +1909,10 @@ export default function ChatScreen() {
   async function endCallMode() {
     isCallModeRef.current = false;
     setIsCallMode(false);
+    if (callModeRestartTimerRef.current) {
+      clearTimeout(callModeRestartTimerRef.current);
+      callModeRestartTimerRef.current = null;
+    }
     await stopRecordingCleanup();
     await cancelNativeSpeech();
     setIsRecording(false);
@@ -1867,7 +1982,11 @@ export default function ChatScreen() {
         await endCallMode();
         return;
       }
-      if (Platform.OS === "android" && NativeSpeechRecognizer.isAvailable) {
+      if (
+        Platform.OS === "android" &&
+        NativeSpeechRecognizer.isAvailable &&
+        !nativeSpeechFallbackRef.current
+      ) {
         const started = await startNativeSpeech("turn", isCallModeRef.current ? CALL_MODE_SILENCE_MS : 950);
         if (started) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1966,6 +2085,7 @@ export default function ChatScreen() {
     }
     if (nativeSpeechActiveRef.current) {
       nativeSpeechActiveRef.current = false;
+      nativeSpeechStartedAtRef.current = 0;
       pending.push(NativeSpeechRecognizer.cancel().catch(() => {}));
       pending.push(NativeAudioSession.endVoiceSession().catch(() => {}));
     }
@@ -2009,13 +2129,13 @@ export default function ChatScreen() {
         if (transcript.length > 1) {
           await handleSend(transcript, speechFinalizedAtMs);
         } else if (isCallModeRef.current) {
-          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+          scheduleCallModeListening();
         }
       } catch (error) {
         console.warn("[offline-stt] transcription failed:", error);
         setIsTranscribing(false);
         if (isCallModeRef.current) {
-          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+          scheduleCallModeListening();
         } else {
           setMessages((prev) => [
             ...prev,
@@ -2042,13 +2162,13 @@ export default function ChatScreen() {
       await Audio.setAudioModeAsync(voiceAudioMode(Platform.OS));
       const uri = rec.getURI();
       if (!uri) {
-        if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+        if (isCallModeRef.current) scheduleCallModeListening();
         return;
       }
       await transcribeAndSend(uri, speechFinalizedAtMs);
     } catch {
       setIsTranscribing(false);
-      if (isCallModeRef.current) setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+      if (isCallModeRef.current) scheduleCallModeListening();
     }
   }
 
@@ -2090,7 +2210,7 @@ export default function ChatScreen() {
       } else {
         setIsTranscribing(false);
         if (isCallModeRef.current) {
-          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+          scheduleCallModeListening();
         }
       }
     } catch (error) {
@@ -2098,7 +2218,7 @@ export default function ChatScreen() {
       console.warn("[voice] transcription failed:", error instanceof Error ? error.name : "unknown");
       setIsTranscribing(false);
       if (isCallModeRef.current) {
-        setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+        scheduleCallModeListening();
       } else {
         setMessages((prev) => [
           ...prev,
@@ -2618,7 +2738,7 @@ export default function ChatScreen() {
           setIsSpeaking(true);
           await speakWithPhone(reply);
         } else if (isCallModeRef.current) {
-          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+          scheduleCallModeListening();
         }
       } else {
         await saveMessages(convId, final);
@@ -2636,13 +2756,6 @@ export default function ChatScreen() {
       case "flashlight_on":
       case "flashlight_off":
       case "flashlight_toggle": {
-        if (!cameraPermission?.granted) {
-          const { granted } = await requestCameraPermission();
-          if (!granted) {
-            await respond("I need camera permission to control the flashlight. Please grant it in your settings.");
-            return;
-          }
-        }
         const next = intent.type === "flashlight_on" ? true : intent.type === "flashlight_off" ? false : !torchOn;
         await applyFlashlight(next);
         await respond(next ? "Flashlight is on." : "Flashlight is off.");
@@ -3445,10 +3558,6 @@ export default function ChatScreen() {
         return executeActionPlan(params.actions, (action, values, abort) => silentExecuteDeviceAction(
           action, action === "media_control" ? { ...values, action: values.media_action } : values, abort), signal);
       case "flashlight": {
-        if (!cameraPermission?.granted) {
-          const { granted } = await requestCameraPermission();
-          if (!granted) throw new Error("Camera permission is required for the flashlight.");
-        }
         if (typeof params.on !== "boolean") throw new Error("Specify whether the flashlight should be on or off.");
         const on = params.on;
         await applyFlashlight(on);
@@ -4064,7 +4173,7 @@ export default function ChatScreen() {
         setIsStreaming(false);
         setShowTyping(false);
         if (isCallModeRef.current && !ttsPlayingRef.current && !nativeSpeechActiveRef.current) {
-          setTimeout(() => { if (isCallModeRef.current) startRecording(); }, CALL_MODE_RETRY_DELAY_MS);
+          scheduleCallModeListening();
         }
       }
     }

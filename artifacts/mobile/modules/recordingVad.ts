@@ -2,11 +2,13 @@
 export class SpeechSilenceDetector {
   private hasSpeech = false;
   private silenceStartedAt: number | null = null;
+  private readonly speechThreshold: number;
+  private readonly silenceDurationMs: number;
 
-  constructor(
-    private readonly speechThreshold = 0.008,
-    private readonly silenceDurationMs = 1000,
-  ) {}
+  constructor(speechThreshold = 0.008, silenceDurationMs = 1000) {
+    this.speechThreshold = speechThreshold;
+    this.silenceDurationMs = silenceDurationMs;
+  }
 
   update(rms: number, nowMs: number): boolean {
     if (!Number.isFinite(rms) || rms < 0 || !Number.isFinite(nowMs)) return false;

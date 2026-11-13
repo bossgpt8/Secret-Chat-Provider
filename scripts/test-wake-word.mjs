@@ -62,6 +62,22 @@ test("native wake audio is level-corrected on the existing capture stream", () =
   assert.match(engine, /online\.acceptWaveform\(levels\.normalize\(buffer, count\), 16000\)/);
   assert.equal((engine.match(/val microphone = AudioRecord\(/g) || []).length, 1);
 });
+test("offline PCM recording exposes audio RMS for hands-free silence detection", () => {
+  const pcm = read("artifacts/mobile/plugins/kotlin/VoxPcmRecorderModule.kt");
+  const chat = read("artifacts/mobile/app/(tabs)/index.tsx");
+  const recorderClient = read("artifacts/mobile/modules/OfflineModels.ts");
+  assert.match(pcm, /map\.putDouble\("rms"/);
+  assert.match(pcm, /energy \+= sample\.toDouble\(\) \* sample/);
+  assert.match(recorderClient, /event: \{ level: number; rms: number \}/);
+  assert.match(chat, /isCallModeRef\.current && silenceDetector\.update\(rms, Date\.now\(\)\)/);
+  assert.match(chat, /if \(elapsedSeconds >= 30\) stopRecording\(\)/);
+});
+test("Android speech service is explicitly asked to finalize after silence", () => {
+  const speech = read("artifacts/mobile/plugins/kotlin/VoxSpeechRecognizerModule.kt");
+  assert.match(speech, /override fun onEndOfSpeech\(\)/);
+  assert.match(speech, /session == generation && listening[\s\S]*?recognizer\?\.stopListening\(\)/);
+  assert.match(speech, /\}, 900L\)/);
+});
 test("source contract: visible stop controls and no boot auto-restart", () => {
   const service = read("artifacts/mobile/plugins/kotlin/VoxWakeService.kt");
   assert.match(service, /START_NOT_STICKY/);
@@ -74,7 +90,7 @@ test("source contract: visible stop controls and no boot auto-restart", () => {
 test("both prebuild plugin entrypoints install the same wake module and assets", () => {
   for (const extension of ["js", "ts"]) {
     const plugin = read(`artifacts/mobile/plugins/withNativeModules.${extension}`);
-    for (const file of ["VoxWakeEngine.kt", "VoxWakeAudioNormalizer.kt", "VoxWakeTokenizer.kt", "VoxWakeModule.kt", "VoxWakeService.kt"]) {
+    for (const file of ["VoxWakeEngine.kt", "VoxWakeAudioNormalizer.kt", "VoxWakeTokenizer.kt", "VoxWakeModule.kt", "VoxWakeService.kt", "VoxSpeechRecognizerModule.kt", "VoxPcmRecorderModule.kt"]) {
       assert.ok(plugin.includes(`"${file}"`), `${extension}: ${file}`);
     }
     assert.match(plugin, /require\("\.\/withWakeWord"\)\(config\)/);

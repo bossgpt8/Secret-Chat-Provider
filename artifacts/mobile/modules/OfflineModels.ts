@@ -192,7 +192,7 @@ export const NativePcmRecorder = {
     return VoxPcmRecorderModule.cancel();
   },
 
-  onLevel(callback: (event: { level: number }) => void): () => void {
+  onLevel(callback: (event: { level: number; rms: number }) => void): () => void {
     if (!pcmEmitter) return () => {};
     const sub = pcmEmitter.addListener("onVoxPcmLevel", callback);
     return () => sub.remove();

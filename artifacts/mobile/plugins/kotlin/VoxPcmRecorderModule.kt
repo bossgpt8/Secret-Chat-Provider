@@ -13,6 +13,7 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * Captures mono 16 kHz signed 16-bit PCM and writes a WAV file.
@@ -119,9 +120,11 @@ class VoxPcmRecorderModule(private val ctx: ReactApplicationContext) :
                 if (read <= 0) continue
                 val pcm = ByteArray(read * 2)
                 var peak = 0
+                var energy = 0.0
                 for (i in 0 until read) {
                     val sample = buffer[i].toInt()
                     peak = maxOf(peak, abs(sample))
+                    energy += sample.toDouble() * sample
                     pcm[i * 2] = (sample and 0xff).toByte()
                     pcm[i * 2 + 1] = ((sample shr 8) and 0xff).toByte()
                 }
@@ -130,6 +133,7 @@ class VoxPcmRecorderModule(private val ctx: ReactApplicationContext) :
                 val level = (peak / 32768.0).coerceIn(0.0, 1.0)
                 val map = Arguments.createMap()
                 map.putDouble("level", level)
+                map.putDouble("rms", (sqrt(energy / read) / 32768.0).coerceIn(0.0, 1.0))
                 ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                     .emit("onVoxPcmLevel", map)
             }

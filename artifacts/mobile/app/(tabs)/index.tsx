@@ -32,6 +32,7 @@ import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from "react-nati
 import Reanimated, { useAnimatedStyle } from "react-native-reanimated";
 import { chatComposerBottomPadding } from "@/modules/chatKeyboard";
 import { voiceAudioMode, synthesizePiperOrThrow, shouldDisablePiper } from "@/modules/voiceAudioPolicy";
+import { SpeechSilenceDetector } from "@/modules/recordingVad";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message, type Conversation } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
@@ -1800,8 +1801,12 @@ export default function ChatScreen() {
     if (!started) throw new Error("Offline microphone could not start");
     pcmRecordingActiveRef.current = true;
     pcmLevelUnsubscribeRef.current?.();
-    pcmLevelUnsubscribeRef.current = NativePcmRecorder.onLevel(({ level }) => {
+    const silenceDetector = new SpeechSilenceDetector();
+    pcmLevelUnsubscribeRef.current = NativePcmRecorder.onLevel(({ level, rms }) => {
       audioLevelAnim.setValue(level);
+      if (isCallModeRef.current && silenceDetector.update(rms, Date.now())) {
+        void stopRecording();
+      }
     });
     setIsRecording(true);
     setRecordingDuration(0);

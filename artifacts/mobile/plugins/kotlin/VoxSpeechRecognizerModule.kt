@@ -121,6 +121,13 @@ class VoxSpeechRecognizerModule(
             endedAtMs = System.currentTimeMillis()
             main.removeCallbacks(watchdog)
             main.postDelayed(watchdog, 5000L)
+            // Some installed recognition services report that speech ended
+            // but keep streaming forever unless explicitly asked to finalize.
+            main.postDelayed({
+                if (session == generation && listening) {
+                    try { recognizer?.stopListening() } catch (_: Exception) {}
+                }
+            }, 900L)
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
 

@@ -6,6 +6,7 @@ import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as Speech from "expo-speech";
+import * as ImagePicker from "expo-image-picker";
 import { fetch } from "expo/fetch";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -859,6 +860,10 @@ export default function ChatScreen() {
   const piperFailureNoticeRef = useRef(false);
   const [liveOpen, setLiveOpen] = useState(false);
   const liveOpenRef = useRef(false);
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const backgroundCallRef = useRef(false);
+  const callMutedRef = useRef(false);
+  const overlayActionRef = useRef<(action: string) => void>(() => {});
   const nativeSpeechStartingRef = useRef(false);
   const nativeSpeechAttemptRef = useRef(0);
   const recognitionFailuresRef = useRef(0);
@@ -916,12 +921,17 @@ export default function ChatScreen() {
   }, []);
   useEffect(() => {
     const subscription = AppState.addEventListener("change", state => {
-      if (state !== "active" && (isCallModeRef.current || nativeSpeechActiveRef.current || recordingRef.current || pcmRecordingActiveRef.current)) {
+      if (state !== "active" && !backgroundCallRef.current && (isCallModeRef.current || nativeSpeechActiveRef.current || recordingRef.current || pcmRecordingActiveRef.current)) {
         void endCallMode();
       }
     });
     return () => subscription.remove();
   }, []);
+  useEffect(() => NativeOverlay.onAction(action => overlayActionRef.current(action)), []);
+  useEffect(() => {
+    const last = messages.filter(message => message.role === "assistant").slice(-1)[0];
+    void NativeOverlay.setContent(last?.content || "", isCallMode || liveOpen);
+  }, [messages, isCallMode, liveOpen]);
 
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -1545,7 +1555,7 @@ export default function ChatScreen() {
   }
 
   async function startBargeInListener() {
-    if (Platform.OS !== "android" || !isCallModeRef.current || !ttsPlayingRef.current) return;
+    if (Platform.OS !== "android" || !isCallModeRef.current || callMutedRef.current || !ttsPlayingRef.current) return;
     await startNativeSpeech("barge", 650);
   }
 
@@ -1580,7 +1590,7 @@ export default function ChatScreen() {
       const action = callModeResumeAction({
         enabled: isCallModeRef.current,
         liveOpen: liveOpenRef.current,
-        busy: isStreamingRef.current || isSpeakingRef.current || ttsPlayingRef.current || isTranscribingRef.current,
+        busy: callMutedRef.current || isStreamingRef.current || isSpeakingRef.current || ttsPlayingRef.current || isTranscribingRef.current,
         starting: recordingStartingRef.current || nativeSpeechStartingRef.current,
         nativeActive: nativeSpeechActiveRef.current,
         nativeMode: nativeSpeechModeRef.current,
@@ -1723,12 +1733,6 @@ export default function ChatScreen() {
       }).catch(error => console.warn("[tts] Piper prefetch unavailable:", error));
   }
 
-  // Downloading a model must not silently activate heavy neural inference.
-  // A cloud selection uses the lightweight phone voice during calls.
-  function shouldUseLocalCallVoice(voiceTiming?: VoiceTurnTiming | null): boolean {
-    return (isCallModeRef.current || Boolean(voiceTiming)) && (ttsProvider === "kokoro" || ttsProvider === "elevenlabs");
-  }
-
   async function playLocalVoice(text: string, gen: number, voiceTiming?: VoiceTurnTiming | null): Promise<void> {
     const usePiper = ttsProvider === "piper";
     if (usePiper) {
@@ -1763,7 +1767,7 @@ export default function ChatScreen() {
   async function playSentenceNow(text: string, voiceTiming?: VoiceTurnTiming | null): Promise<void> {
     if (!text.trim()) { onTtsDone(); return; }
     const gen = ttsGenerationRef.current;
-    if (ttsProvider === "piper" || shouldUseLocalCallVoice(voiceTiming)) {
+    if (ttsProvider === "piper" || shouldUseLocalCallVoice()) {
       await playLocalVoice(text, gen, voiceTiming);
       return;
     }
@@ -1800,13 +1804,21 @@ export default function ChatScreen() {
       ttsPlayingRef.current = true; // set synchronously before any await
       isSpeakingRef.current = true;
       setIsSpeaking(true);
-      await NativeWakeWord.setPaused(true);
+      // Start native release concurrently; no cloud work or greeting before speech.
+      const released = NativeWakeWord.setPaused(true);
+      await released;
       if (Platform.OS === "android") NativeOverlay.setState("speaking").catch(() => {});
       await playSentenceNow(text, voiceTiming);
     } else {
       ttsQueueRef.current.push({ text, voiceTiming: voiceTiming ?? null });
       primePiperNext();
     }
+  }
+
+  function shouldUseLocalCallVoice(): boolean {
+    // Standard Call remains free of cloud speech charges. Normal chat playback
+    // still uses the user's chosen cloud voice; Gemini Live is separate opt-in.
+    return isCallModeRef.current && (ttsProvider === "kokoro" || ttsProvider === "elevenlabs");
   }
 
   async function speakWithPhone(text: string, voiceTiming?: VoiceTurnTiming | null) {
@@ -1852,7 +1864,7 @@ export default function ChatScreen() {
     // result is the barge-in signal and immediately cancels TTS + the stream.
     startBargeInListener().catch(() => {});
 
-    if (ttsProvider === "piper" || shouldUseLocalCallVoice(voiceTiming)) {
+    if (ttsProvider === "piper" || shouldUseLocalCallVoice()) {
       await playLocalVoice(text, gen, voiceTiming);
       return;
     }
@@ -1897,8 +1909,21 @@ export default function ChatScreen() {
   async function startCallMode() {
     if (liveOpenRef.current) return;
     if (isWakeCalibrating()) { Alert.alert("Wake trial active", "Finish the wake trial before starting a conversation."); return; }
+    if (isCallModeRef.current) return;
+    const permission = await Audio.requestPermissionsAsync();
+    if (!permission.granted) { Alert.alert("Microphone permission needed", "Allow microphone access to start a call."); return; }
+    try { backgroundCallRef.current = await NativeOverlay.startConversation(); }
+    catch (error) { Alert.alert("Background calls unavailable", error instanceof Error ? error.message : "Keep Vox open during this call."); backgroundCallRef.current = false; }
+    callMutedRef.current = false;
     recognitionFailuresRef.current = 0;
     nativeSpeechFallbackRef.current = false;
+    // Initializes Android's selected TTS engine without speaking a dummy phrase.
+    if (ttsProvider === "phone") void Speech.getAvailableVoicesAsync().catch(() => {});
+    if (ttsProvider === "piper" && offlineTtsModelId) {
+      const model = OFFLINE_MODELS.find(item => item.id === offlineTtsModelId);
+      if (model) void NativeOfflineModels.getPath(model.fileName).then(path =>
+        path ? NativePiper.prepareModel(path) : undefined).catch(error => console.warn("[tts] Piper warm-up unavailable:", error));
+    }
     if (callModeRestartTimerRef.current) {
       clearTimeout(callModeRestartTimerRef.current);
       callModeRestartTimerRef.current = null;
@@ -1910,6 +1935,9 @@ export default function ChatScreen() {
   }
 
   async function endCallMode() {
+    backgroundCallRef.current = false;
+    callMutedRef.current = false;
+    await NativeOverlay.stopConversation().catch(() => {});
     isCallModeRef.current = false;
     setIsCallMode(false);
     if (callModeRestartTimerRef.current) {
@@ -1926,6 +1954,37 @@ export default function ChatScreen() {
   }
 
   // ── Voice recording ────────────────────────────────────────────────────────
+  overlayActionRef.current = action => {
+    if (liveOpenRef.current) return; // LiveVoicePanel owns actions while connected.
+    if (action.startsWith("text:")) {
+      void handleSendRef.current(action.slice(5));
+    } else if (action === "end") {
+      void endCallMode();
+    } else if (action === "mic") {
+      if (!isCallModeRef.current) { void startCallMode(); return; }
+      callMutedRef.current = !callMutedRef.current;
+      if (callMutedRef.current) {
+        void stopRecordingCleanup(); void cancelNativeSpeech();
+        void NativeOverlay.setContent("Microphone muted. Tap Mic to resume.", true);
+      } else scheduleCallModeListening(0);
+    } else if (action === "screen") {
+      setTimeout(() => { void toggleScreenShare(); }, 600);
+    } else if (action === "camera") {
+      setTimeout(() => {
+        Alert.alert("Add visual context", "Choose what to share with Vox.", [
+          { text: "Take photo", onPress: () => { void captureAndDescribe(); } },
+          { text: "Choose / crop image", onPress: () => { void chooseImage(); } },
+          { text: "Cancel", style: "cancel" },
+        ]);
+      }, 600);
+    }
+  };
+  async function chooseImage() {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, quality: 0.65 });
+      if (!result.canceled && result.assets[0]?.uri) setAttachedImage(result.assets[0].uri);
+    } catch (error) { Alert.alert("Image unavailable", error instanceof Error ? error.message : "Could not open your image library."); }
+  }
 
   async function startOfflinePcmRecording(modelPath: string) {
     await stopSpeaking();
@@ -3861,6 +3920,30 @@ export default function ChatScreen() {
     if (isWakeCalibrating()) { Alert.alert("Wake trial active", "Finish the wake trial before chatting."); return; }
     const text = (overrideText ?? (branchEditMsgId ? branchEditText : input)).trim();
     if (!text) return;
+    if (attachedImage) {
+      const uri = attachedImage;
+      if (isStreamingRef.current) return;
+      const convId = getOrCreateConvId();
+      const userMessage: Message = { id: generateMsgId(), role: "user", content: `[Attached image] ${text}`, timestamp: Date.now() };
+      const snapshot = [...messages, userMessage];
+      setMessages(snapshot); setInput(""); setIsStreaming(true); isStreamingRef.current = true; setShowTyping(true);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 45000);
+      try {
+        const body = new FormData();
+        body.append("image", new File(uri), "image.jpg"); body.append("prompt", text);
+        const response = await fetch(`${await getApiBase()}vision`, { method: "POST", body, signal: controller.signal });
+        const data = await response.json() as { description?: string; error?: string };
+        if (!response.ok || !data.description) throw new Error(data.error || "Image analysis failed.");
+        const complete: Message[] = [...snapshot, { id: generateMsgId(), role: "assistant", content: data.description, timestamp: Date.now() }];
+        setMessages(complete); setAttachedImage(null); await saveMessages(convId, complete);
+        speakText(data.description);
+      } catch (error) {
+        Alert.alert("Image was not sent successfully", error instanceof Error ? error.message : "Try again. The attachment is still selected.");
+        setInput(text);
+      } finally { clearTimeout(timer); setIsStreaming(false); isStreamingRef.current = false; setShowTyping(false); }
+      return;
+    }
 
     // Clear, finalized device commands never go through chat, summarization,
     // context collection or cloud TTS, whether the connection is online or not.
@@ -4075,10 +4158,18 @@ export default function ChatScreen() {
       let added = false;
       let hadToolCall = false;
       let ttsBuf = "";
+      let speechFlushTimer: ReturnType<typeof setTimeout> | undefined;
+      const flushSpeech = (settle = false) => {
+        if (abortCtrl.signal.aborted) return;
+        const chunks = splitSpokenChunks(ttsBuf, true, settle);
+        ttsBuf = chunks.remainder;
+        for (const sentence of chunks.sentences) void enqueueSentence(sentence, voiceTiming);
+      };
+      abortCtrl.signal.addEventListener("abort", () => clearTimeout(speechFlushTimer), { once: true });
       const consumeEvents = async (events: AssistantEvent[]) => {
         for (const event of events) {
           if (abortCtrl.signal.aborted) return;
-          if (event.error) throw new Error(event.error);
+          if (event.error) { clearTimeout(speechFlushTimer); throw new Error(event.error); }
           if (event.tool_call) {
             hadToolCall = true;
             if (voiceTiming && voiceTiming.modelFirstTokenAtMs === undefined) {
@@ -4118,9 +4209,11 @@ export default function ChatScreen() {
             setMessages((previous) => previous.map((message) =>
               message.id === assistantId ? { ...message, content: snapshot } : message));
           }
-          const chunks = splitSpokenChunks(ttsBuf, Boolean(voiceTiming) || isCallModeRef.current);
-          ttsBuf = chunks.remainder;
-          for (const sentence of chunks.sentences) void enqueueSentence(sentence, voiceTiming);
+          clearTimeout(speechFlushTimer);
+          flushSpeech();
+          // Providers sometimes pause at sentence punctuation without sending a
+          // following space. Release that sentence without waiting for stream end.
+          speechFlushTimer = setTimeout(() => flushSpeech(true), 220);
         }
       };
 
@@ -4138,10 +4231,12 @@ export default function ChatScreen() {
           await consumeEvents(parseAssistantEvents(lines.join("\n")));
           if (done) break;
         } } finally {
+          clearTimeout(speechFlushTimer);
           await reader.cancel().catch(() => {});
           reader.releaseLock();
         }
       }
+      clearTimeout(speechFlushTimer);
       if (ttsBuf.trim()) void enqueueSentence(ttsBuf.trim(), voiceTiming);
 
       if (!fullContent.trim() && !hadToolCall) throw new Error("No response received from chat service.");
@@ -4612,6 +4707,11 @@ export default function ChatScreen() {
 
         {/* ── Input bar ── */}
         <Reanimated.View style={[styles.inputBar, { backgroundColor: colors.background, borderTopColor: colors.border }, composerKeyboardStyle]}>
+          {attachedImage && <View style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 10 }}>
+            <Image source={{ uri: attachedImage }} style={{ width: 48, height: 48, borderRadius: 8 }} />
+            <Text style={{ flex: 1, color: colors.mutedForeground }}>Image ready · ask a question to send</Text>
+            <Pressable accessibilityLabel="Remove image" testID="remove-image" onPress={() => setAttachedImage(null)}><Ionicons name="close" color={colors.foreground} size={22} /></Pressable>
+          </View>}
           {/* Branch edit indicator */}
           {branchEditMsgId && (
             <View style={[styles.branchBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "30" }]}>
@@ -4623,6 +4723,9 @@ export default function ChatScreen() {
             </View>
           )}
           <View style={styles.inputRow}>
+            <Pressable testID="attach-image" accessibilityLabel="Attach or crop image" onPress={() => { void chooseImage(); }} style={{ padding: 8 }}>
+              <Ionicons name="add-circle-outline" size={25} color={colors.primary} />
+            </Pressable>
             <View style={[styles.textWrap, { backgroundColor: colors.card, borderColor: branchEditMsgId ? colors.primary : colors.border }]}>
               <TextInput
                 ref={inputRef}

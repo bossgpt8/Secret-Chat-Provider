@@ -7,6 +7,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { NativeLiveAudio } from "@/modules/NativeLiveAudio";
 import { LiveSession, type LivePhase, type LiveSocket, type LiveTurn } from "@/modules/liveSession";
+import { NativeScreenCapture } from "@/modules/NativeScreenCapture";
+import { NativeOverlay } from "@/modules/NativeOverlay";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 
 const PAIRING_KEY = "vox.live.pairing";
 interface Props {
@@ -35,6 +39,13 @@ export function LiveVoicePanel(props: Props) {
   const [output, setOutput] = useState("");
   const [expires, setExpires] = useState(0);
   const [seconds, setSeconds] = useState(0);
+  const [visual, setVisual] = useState<"none" | "screen" | "camera">("none");
+  const visualRef = useRef<"none" | "screen" | "camera">("none");
+  const camera = useRef<CameraView | null>(null);
+  const cameraReady = useRef(false);
+  const [cameraPermission, requestCamera] = useCameraPermissions();
+  const backgroundAllowed = useRef(false);
+  const [sessionLimit, setSessionLimit] = useState(600);
   const active = phase === "connecting" || phase === "listening" || phase === "speaking";
 
   async function apiBase() {
@@ -58,6 +69,10 @@ export function LiveVoicePanel(props: Props) {
   }
   function report(error: unknown) {
     if (!mounted.current) return;
+    void client.current?.stop(error instanceof Error ? error.message : "Live mode failed.", true);
+    backgroundAllowed.current = false;
+    void NativeOverlay.stopConversation();
+    void stopVisual();
     setPhase("error");
     setDetail(error instanceof Error ? error.message : "Live mode failed. Current voice mode is still available.");
   }
@@ -69,7 +84,8 @@ export function LiveVoicePanel(props: Props) {
       }).catch(report);
     }
     const subscription = AppState.addEventListener("change", state => {
-      if (state !== "active") {
+      if (state !== "active" && visualRef.current === "camera") void stopVisual();
+      if (state !== "active" && !backgroundAllowed.current) {
         request.current?.abort();
         void client.current?.stop("Live stopped because Vox left the foreground.");
       }
@@ -79,8 +95,54 @@ export function LiveVoicePanel(props: Props) {
       request.current?.abort();
       subscription.remove();
       void client.current?.stop();
+      void NativeOverlay.stopConversation();
+      if (visualRef.current === "screen") void NativeScreenCapture.stopCapture();
     };
   }, []);
+  useEffect(() => {
+    if (!active || visual === "none") return;
+    let pending = false, cancelled = false;
+    const timer = setInterval(() => {
+      if (pending) return;
+      pending = true;
+      void (async () => {
+        const jpeg = visual === "screen" ? await NativeScreenCapture.captureFrame() :
+          cameraReady.current ? (await camera.current?.takePictureAsync({ base64: true, quality: 0.35, skipProcessing: true }))?.base64 : null;
+        if (!cancelled && jpeg) client.current?.sendVideoFrame(jpeg);
+      })().catch(error => {
+        if (!cancelled) { setDetail(error instanceof Error ? error.message : "Visual sharing stopped."); void stopVisual(); }
+      }).finally(() => { pending = false; });
+    }, 1100);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [visual, active]);
+  useEffect(() => NativeOverlay.onAction(action => {
+    if (action === "end") { request.current?.abort(); void client.current?.stop(); }
+    if (action === "mic") {
+      setMuted(old => { const next = !old; void client.current?.setMuted(next).catch(report); return next; });
+    }
+    if (action === "screen") setDetail("Open Gemini Live in Vox and tap Share screen to grant screen capture.");
+  }), []);
+  async function stopVisual() {
+    const previous = visualRef.current;
+    visualRef.current = "none"; setVisual("none"); cameraReady.current = false;
+    if (previous === "screen") await NativeScreenCapture.stopCapture();
+  }
+  async function shareScreen() {
+    await stopVisual();
+    if (!NativeScreenCapture.isAvailable) throw new Error("Screen sharing requires the updated Android APK.");
+    if (await NativeScreenCapture.startCapture()) { visualRef.current = "screen"; setVisual("screen"); }
+  }
+  async function shareCamera() {
+    await stopVisual();
+    const permission = cameraPermission?.granted ? cameraPermission : await requestCamera();
+    if (!permission.granted) throw new Error("Allow camera access to share your camera.");
+    visualRef.current = "camera"; setVisual("camera");
+  }
+  async function shareImage() {
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, base64: true, quality: 0.6 });
+    const image = result.assets?.[0]?.base64;
+    if (!result.canceled && image && !client.current?.sendVideoFrame(image)) throw new Error("Image could not be sent. Try a smaller image while Live is connected.");
+  }
   useEffect(() => {
     if (!expires || !active) return;
     const update = () => setSeconds(Math.max(0, Math.ceil((expires - Date.now()) / 1000)));
@@ -101,7 +163,7 @@ export function LiveVoicePanel(props: Props) {
       await SecureStore.setItemAsync(PAIRING_KEY, JSON.stringify({ base, ...result }));
       if (mounted.current) {
         setPaired(true); setCode(""); setPhase("ended");
-        setDetail("Paired securely. Each Live session lasts up to 2 minutes.");
+        setDetail("Paired securely. Start Live when you are ready.");
       }
     } catch (error) {
       report(controller.signal.aborted ? new Error("Pairing timed out or was cancelled. Try again.") : error);
@@ -125,6 +187,8 @@ export function LiveVoicePanel(props: Props) {
       if (controller.signal.aborted) return;
       setMuted(false); setInput(""); setOutput(""); setExpires(Date.parse(token.expiresAt));
       setDetail("Speak naturally. You can interrupt Vox while it responds.");
+      backgroundAllowed.current = await NativeOverlay.startConversation();
+      setSessionLimit(token.sessionSeconds);
       const session = new LiveSession({
         audio: NativeLiveAudio,
         socket: url => {
@@ -135,9 +199,13 @@ export function LiveVoicePanel(props: Props) {
         onPhase: (next, message) => {
           if (!mounted.current) return;
           setPhase(next); if (message) setDetail(message);
+          void NativeOverlay.setState(next === "speaking" ? "speaking" : next === "listening" ? "listening" : "idle");
+          if (next === "ended" || next === "error") {
+            backgroundAllowed.current = false; void NativeOverlay.stopConversation(); void stopVisual();
+          }
         },
         onTranscript: (heard, spoken) => {
-          if (mounted.current) { setInput(heard); setOutput(spoken); }
+          if (mounted.current) { setInput(heard); setOutput(spoken); void NativeOverlay.setContent(spoken, true); }
         },
         onTurn: turn => latest.current.onTurn(turn),
         executeTool: (name, args, signal) => latest.current.executeTool(name, args, signal),
@@ -160,6 +228,7 @@ export function LiveVoicePanel(props: Props) {
   async function close() {
     request.current?.abort();
     await client.current?.stop();
+    await stopVisual();
     latest.current.onClose();
   }
   const button = (label: string, action: () => void, disabled = false, primary = false) => (
@@ -189,7 +258,7 @@ export function LiveVoicePanel(props: Props) {
             </Text>
           ) : <>
             <View style={{ backgroundColor: colors.card, padding: 16, borderRadius: 14, gap: 8 }}>
-              <Text style={{ color: colors.foreground, fontWeight: "600" }}>Limited sessions · up to 2 minutes</Text>
+              <Text style={{ color: colors.foreground, fontWeight: "600" }}>Limited sessions · up to {Math.round(sessionLimit / 60)} minutes</Text>
               <Text style={{ color: colors.mutedForeground, lineHeight: 20 }}>
                 Uses your Google API quota and may incur charges if billing is enabled. Free-tier audio may be used to improve Google products. There is no automatic paid-provider fallback. App limits are not a billing cap.
               </Text>
@@ -216,6 +285,18 @@ export function LiveVoicePanel(props: Props) {
             {busy && <ActivityIndicator color={colors.primary} />}
             {!active && paired && button(phase === "error" ? "Reconnect Live" : "Start Gemini Live", () => { void connect(); }, busy, true)}
             {active && <>
+              {visual !== "none" && <Text accessibilityLiveRegion="polite" style={{ color: colors.primary }}>
+                {visual === "screen" ? "Screen sharing is on · images sent to Google" : "Camera sharing is on · images sent to Google"}
+              </Text>}
+              {visual === "camera" && <CameraView ref={camera} facing="back"
+                onCameraReady={() => { cameraReady.current = true; }}
+                onMountError={() => { setDetail("Camera unavailable."); void stopVisual(); }}
+                style={{ height: 180, borderRadius: 16 }} />}
+              {visual === "none" ? <>
+                {button("Share screen with Live", () => { void shareScreen().catch(error => setDetail(error instanceof Error ? error.message : "Screen sharing could not start.")); }, phase === "connecting")}
+                {button("Share camera with Live", () => { void shareCamera().catch(error => setDetail(error instanceof Error ? error.message : "Camera sharing could not start.")); }, phase === "connecting")}
+              </> : button("Stop visual sharing", () => { void stopVisual().catch(report); })}
+              {button("Attach or crop an image", () => { void shareImage().catch(error => setDetail(error instanceof Error ? error.message : "Image could not be sent.")); }, phase === "connecting")}
               {button(muted ? "Unmute microphone" : "Mute microphone", () => {
                 const next = !muted;
                 void client.current?.setMuted(next).then(() => setMuted(next)).catch(report);

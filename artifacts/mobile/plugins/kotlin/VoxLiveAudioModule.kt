@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicLong
 /** Bounded, foreground-only PCM transport. No model loading or audio files. */
 class VoxLiveAudioModule(private val ctx: ReactApplicationContext) : ReactContextBaseJavaModule(ctx) {
     override fun getName() = "VoxLiveAudioModule"
+    init { VoxConversationService.stopAudio = { stopInternal() } }
     private val running = AtomicBoolean(false)
     private val muted = AtomicBoolean(false)
     private val generation = AtomicInteger(0)

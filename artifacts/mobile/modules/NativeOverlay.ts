@@ -27,6 +27,18 @@ export type OverlayState = "idle" | "wake" | "listening" | "processing" | "speak
 
 export const NativeOverlay = {
   isAvailable: Platform.OS === "android" && !!VoxOverlayModule,
+  async startConversation(): Promise<boolean> {
+    if (!VoxOverlayModule?.startConversation) return false;
+    return VoxOverlayModule.startConversation();
+  },
+  async stopConversation(): Promise<void> { await VoxOverlayModule?.stopConversation?.(); },
+  async setContent(caption: string, callActive: boolean): Promise<void> {
+    await VoxOverlayModule?.setContent?.(caption, callActive);
+  },
+  onAction(callback: (action: string) => void): () => void {
+    const sub = emitter?.addListener("onVoxOverlayAction", (e: { text?: string }) => callback(e.text || ""));
+    return () => sub?.remove();
+  },
 
   /** Start the foreground overlay service. Requires SYSTEM_ALERT_WINDOW permission. */
   async start(): Promise<void> {

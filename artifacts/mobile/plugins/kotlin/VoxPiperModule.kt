@@ -64,6 +64,36 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
+    private fun prepareSession(modelPath: String) {
+        supportIssue()?.let { throw IllegalStateException(it) }
+        require(File(modelPath).isFile && File(modelPath).length() in 1L..(160L * 1024L * 1024L)) { "Voice model is missing or has an unsafe size." }
+        if (loadedModelPath == modelPath && session != null) return
+        closeSession()
+        OrtSession.SessionOptions().use { options ->
+            options.setIntraOpNumThreads(2)
+            options.setInterOpNumThreads(1)
+            options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+            options.setMemoryPatternOptimization(false)
+            options.setCPUArenaAllocator(false)
+            options.addConfigEntry("session.intra_op.allow_spinning", "0")
+            session = ortEnv.createSession(modelPath, options)
+        }
+        loadedModelPath = modelPath
+    }
+
+    @ReactMethod
+    fun prepareModel(modelPath: String, promise: Promise) {
+        try {
+            supportIssue()?.let { promise.reject("ERR_PIPER_UNSUPPORTED", it); return }
+            if (!busy.compareAndSet(false, true)) { promise.reject("ERR_PIPER_BUSY", "Piper is already generating speech."); return }
+        } catch (e: Exception) { promise.reject("ERR_PIPER_CHECK", e.message); return }
+        worker.execute {
+            try { prepareSession(modelPath); promise.resolve(null) }
+            catch (e: Exception) { promise.reject("ERR_PIPER_PREPARE", e.message, e) }
+            catch (e: LinkageError) { promise.reject("ERR_PIPER_UNSUPPORTED", "This APK cannot load Piper on this device.", e) }
+            finally { busy.set(false) }
+        }
+    }
 
     private fun supportIssue(): String? {
         // A 64-bit phone can still be running our 32-bit APK. Check the
@@ -130,21 +160,7 @@ class VoxPiperModule(reactContext: ReactApplicationContext) :
                 require(ids.size in 3..768) { "Voice input is empty or too long." }
 
                 // Load session lazily, swap if model changed
-                if (loadedModelPath != modelPath || session == null) {
-                    closeSession()
-                    OrtSession.SessionOptions().use { options ->
-                        // Do not let inference use every core or retain large
-                        // arenas while Android is trying to render the UI.
-                        options.setIntraOpNumThreads(2)
-                        options.setInterOpNumThreads(1)
-                        options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
-                        options.setMemoryPatternOptimization(false)
-                        options.setCPUArenaAllocator(false)
-                        options.addConfigEntry("session.intra_op.allow_spinning", "0")
-                        session = ortEnv.createSession(modelPath, options)
-                    }
-                    loadedModelPath = modelPath
-                }
+                prepareSession(modelPath)
                 val sess = session!!
 
                 if (cancelled.get()) throw java.util.concurrent.CancellationException()

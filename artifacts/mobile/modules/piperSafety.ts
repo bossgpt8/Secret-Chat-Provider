@@ -15,6 +15,7 @@ interface Engine {
   getReadiness(): Promise<PiperReadiness>;
   synthesize(text: string, model: string, config: string): Promise<string>;
   isModelLoaded?(model: string): Promise<boolean>;
+  prepareModel?(model: string): Promise<void>;
   unloadModel(): Promise<boolean>;
 }
 
@@ -30,12 +31,7 @@ export function restoreVoiceProvider(saved: string | null, interrupted: string |
 export function createPiperSafety(storage: Storage, engine: Engine, timeoutMs = 18000, firstLoadTimeoutMs = 60000) {
   let busy = false;
   let blocked: string | undefined;
-  return {
-    async getReadiness(): Promise<PiperReadiness> {
-      if (blocked) return { supported: false, reason: blocked };
-      return engine.getReadiness();
-    },
-    async synthesize(text: string, model: string, config: string) {
+  async function attempt<T>(model: string, work: () => Promise<T>): Promise<T> {
       if (blocked) throw new Error(blocked);
       if (busy) throw new Error("Piper is already generating speech.");
       busy = true;
@@ -57,7 +53,7 @@ export function createPiperSafety(storage: Storage, engine: Engine, timeoutMs = 
         // If storage fails, do not enter native inference without recovery.
         await storage.setItem(PIPER_ATTEMPT_KEY, "1");
         const path = await Promise.race([
-          engine.synthesize(text, model, config),
+          work(),
           new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error("Piper timed out. Phone voice will be used.")), attemptTimeoutMs);
           }),
@@ -78,6 +74,17 @@ export function createPiperSafety(storage: Storage, engine: Engine, timeoutMs = 
         if (timer) clearTimeout(timer);
         busy = false;
       }
+  }
+  return {
+    async getReadiness(): Promise<PiperReadiness> {
+      if (blocked) return { supported: false, reason: blocked };
+      return engine.getReadiness();
+    },
+    async prepareModel(model: string) {
+      if (engine.prepareModel) await attempt(model, () => engine.prepareModel!(model));
+    },
+    async synthesize(text: string, model: string, config: string) {
+      return attempt(model, () => engine.synthesize(text, model, config));
     },
   };
 }

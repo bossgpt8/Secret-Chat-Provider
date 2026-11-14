@@ -211,19 +211,29 @@ const piperSafety = createPiperSafety(AsyncStorage, {
     if (!VoxPiperModule?.isModelLoaded) return false;
     return VoxPiperModule.isModelLoaded(modelPath);
   },
+  async prepareModel(modelPath) {
+    if (VoxPiperModule?.prepareModel) await VoxPiperModule.prepareModel(modelPath);
+  },
   async unloadModel() {
     if (!VoxPiperModule) return false;
     return VoxPiperModule.unloadModel();
   },
 });
 
+let warming: Promise<void> | null = null;
 export const NativePiper = {
   async cancelSynthesis(): Promise<void> { if (VoxPiperModule?.cancelSynthesis) await VoxPiperModule.cancelSynthesis(); },
   isAvailable: Platform.OS === "android" && !!VoxPiperModule,
   getReadiness: piperSafety.getReadiness,
+  async prepareModel(modelPath: string): Promise<void> {
+    if (warming) return warming;
+    warming = piperSafety.prepareModel(modelPath);
+    try { await warming; } finally { warming = null; }
+  },
 
   async synthesize(text: string, modelPath: string, configPath: string): Promise<string> {
     if (!VoxPiperModule) throw new Error("Piper is only available in an Android build.");
+    if (warming) await warming;
     return piperSafety.synthesize(text, modelPath, configPath);
   },
 

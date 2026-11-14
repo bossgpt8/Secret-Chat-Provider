@@ -20,6 +20,12 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.EditText
+import android.widget.ScrollView
+import android.graphics.drawable.GradientDrawable
+import android.text.InputType
 import androidx.core.app.NotificationCompat
 
 /**
@@ -57,12 +63,101 @@ class VoxOverlayService : Service() {
 
     // ── State ─────────────────────────────────────────────────────────────────
     private var state = STATE_IDLE
-        set(v) { field = v; mainHandler.post { updateBubbleColor() } }
+        set(v) { field = v; mainHandler.post { updateBubbleColor(); renderPanelStatus() } }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
     private var bubbleView: BubbleView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
+    private var panel: LinearLayout? = null
+    private var captionView: TextView? = null
+    private var statusView: TextView? = null
+    private var caption = ""
+    private var callActive = false
+    private var inputView: View? = null
+    private var toolsView: View? = null
+    private var captionsView: View? = null
+    private var typing = false
+
+    fun setContent(text: String, active: Boolean) {
+        mainHandler.post { caption = text.takeLast(2000); callActive = active; renderPanelStatus() }
+    }
+    private fun renderPanelStatus() {
+        statusView?.text = when (state) {
+            STATE_LISTENING, STATE_WAKE -> "Listening  ·  ▂ ▃ ▆ ▃ ▂"
+            STATE_PROCESSING -> "Thinking…"
+            STATE_SPEAKING -> "Speaking  ·  ▃ ▆ ▂ ▆ ▃"
+            else -> if (callActive) "Call active" else "Ask Vox"
+        }
+        captionView?.text = caption
+        captionsView?.visibility = if (caption.isBlank()) View.GONE else View.VISIBLE
+        inputView?.visibility = if (callActive && !typing) View.GONE else View.VISIBLE
+        toolsView?.visibility = if (callActive && !typing) View.GONE else View.VISIBLE
+    }
+    private fun hidePanel() {
+        panel?.let { try { windowManager?.removeView(it) } catch (_: Exception) {} }
+        panel = null; captionView = null; statusView = null
+        inputView = null; toolsView = null; captionsView = null; typing = false
+    }
+    private fun showPanel() {
+        if (panel != null) { hidePanel(); return }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(18), dpToPx(14), dpToPx(18), dpToPx(18))
+            background = GradientDrawable().apply { setColor(Color.rgb(24, 20, 38)); cornerRadius = dpToPx(26).toFloat(); setStroke(dpToPx(1), Color.rgb(99, 73, 145)) }
+            elevation = dpToPx(12).toFloat()
+        }
+        fun label(text: String, action: (() -> Unit)? = null): TextView {
+            return TextView(this).apply {
+                this.text = text; textSize = 15f; setTextColor(Color.WHITE)
+                setPadding(dpToPx(10), dpToPx(12), dpToPx(10), dpToPx(12))
+                contentDescription = text
+                if (action != null) { isClickable = true; setOnClickListener { action() } }
+            }
+        }
+        val header = LinearLayout(this)
+        statusView = label("Ask Vox")
+        header.addView(statusView, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(label("Type") { typing = !typing; renderPanelStatus() })
+        header.addView(label("Minimize") { hidePanel() })
+        header.addView(label("Expand") { hidePanel(); bringAppToFront(); onEvent?.invoke("onVoxOverlayTap", "") })
+        root.addView(header)
+        captionView = label(caption)
+        val captions = ScrollView(this).apply { addView(captionView) }
+        captionsView = captions
+        root.addView(captions, LinearLayout.LayoutParams(-1, dpToPx(110)))
+        val input = EditText(this).apply {
+            hint = "Ask Vox"; setHintTextColor(Color.LTGRAY); setTextColor(Color.WHITE)
+            textSize = 16f; maxLines = 3
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            contentDescription = "Message Vox"
+        }
+        root.addView(input, LinearLayout.LayoutParams(-1, -2))
+        inputView = input
+        val actions = LinearLayout(this)
+        actions.addView(label("Send") {
+            val value = input.text.toString().trim()
+            if (value.isNotEmpty()) { input.setText(""); onEvent?.invoke("onVoxOverlayAction", "text:$value") }
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        actions.addView(label("Mic") {
+            if (!callActive) bringAppToFront()
+            onEvent?.invoke("onVoxOverlayAction", "mic")
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        actions.addView(label("End call") { onEvent?.invoke("onVoxOverlayAction", "end") }, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(actions)
+        val tools = LinearLayout(this)
+        tools.addView(label("Share screen") { bringAppToFront(); onEvent?.invoke("onVoxOverlayAction", "screen") })
+        tools.addView(label("Camera / images") { bringAppToFront(); onEvent?.invoke("onVoxOverlayAction", "camera") })
+        root.addView(tools)
+        toolsView = tools
+        val params = WindowManager.LayoutParams(
+            screenW - dpToPx(24), WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = dpToPx(16); softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE }
+        try { windowManager?.addView(root, params); panel = root; renderPanelStatus() }
+        catch (e: Exception) { Log.w(TAG, "Cannot display assistant panel", e) }
+    }
 
 
     // Screen dimensions in px
@@ -99,6 +194,7 @@ class VoxOverlayService : Service() {
         instance = null
         mainHandler.removeCallbacksAndMessages(null)
         removeBubble()
+        hidePanel()
         Log.i(TAG, "Service destroyed")
     }
 
@@ -216,9 +312,7 @@ class VoxOverlayService : Service() {
                     } else {
                         // Tap → always bring the app to foreground first so the JS
                         // navigation call has an active Activity to work with.
-                        bringAppToFront()
-                        // Then notify JS so it can start listening / handle the tap.
-                        try { onEvent?.invoke("onVoxOverlayTap", "") } catch (_: Exception) {}
+                        showPanel()
                     }
                     true
                 }

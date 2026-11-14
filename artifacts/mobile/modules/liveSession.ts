@@ -233,6 +233,14 @@ export class LiveSession {
       turnComplete: false,
     } });
   }
+
+  /** Visual context is opt-in and sampled; never send raw screen/camera data by default. */
+  sendVideoFrame(jpegBase64: string): boolean {
+    if (!this.ready || this.closed || !jpegBase64 || jpegBase64.length > 2_000_000) return false;
+    if ((this.ws?.bufferedAmount || 0) > 128000) return false;
+    this.send({ realtimeInput: { video: { mimeType: "image/jpeg", data: jpegBase64 } } });
+    return true;
+  }
   async stop(detail = "Live session ended.", failed = false) {
     if (this.closed) return;
     this.closed = true; this.ready = false;

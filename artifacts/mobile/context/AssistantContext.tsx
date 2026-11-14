@@ -1,4 +1,5 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import GuestStorage from "@react-native-async-storage/async-storage";
+import { scopedStorage } from "../modules/accountStorage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Alert } from "react-native";
 import { NativeOfflineModels, NativePiper, OFFLINE_MODELS } from "../modules/OfflineModels";
@@ -59,6 +60,7 @@ const LEGACY_KEY_MAP: Record<string, string> = {
  * yet, writes them under the new key, then removes the old key.
  */
 async function migrateZenoToVox(): Promise<void> {
+  const AsyncStorage = GuestStorage;
   try {
     const legacyKeys = Object.keys(LEGACY_KEY_MAP);
     const legacyValues = await AsyncStorage.multiGet(legacyKeys);
@@ -217,7 +219,8 @@ export function generateMsgId(): string {
   return `msg-${Date.now()}-${msgCounter}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-export function AssistantProvider({ children }: { children: React.ReactNode }) {
+export function AssistantProvider({ children, storageScope = "guest" }: { children: React.ReactNode; storageScope?: string }) {
+  const AsyncStorage = React.useMemo(() => scopedStorage(storageScope), [storageScope]);
   const [assistantName, setAssistantNameState] = useState("Vox");
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);

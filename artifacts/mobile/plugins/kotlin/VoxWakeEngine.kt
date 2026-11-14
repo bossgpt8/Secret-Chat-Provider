@@ -23,6 +23,7 @@ class VoxWakeEngine(
     private val onReady: () -> Unit,
     private val onWake: () -> Unit,
     private val onError: (String) -> Unit,
+    private val onLevel: (Double) -> Unit = {},
 ) {
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -87,6 +88,7 @@ class VoxWakeEngine(
                 main.post { if (session == generation.get()) onReady() }
                 val buffer = ShortArray(1600)
                 val levels = VoxWakeAudioNormalizer()
+                var lastLevelAt = 0L
                 val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
                 while (session == generation.get()) {
                     if (audio.mode == AudioManager.MODE_IN_CALL || audio.mode == AudioManager.MODE_IN_COMMUNICATION) {
@@ -101,6 +103,12 @@ class VoxWakeEngine(
                     val count = microphone.read(buffer, 0, buffer.size)
                     if (session != generation.get()) break
                     check(count > 0) { "Microphone capture stopped. Tap Resume to retry." }
+                    val now = System.currentTimeMillis()
+                    if (now - lastLevelAt > 500L) {
+                        val peak = (0 until count).maxOf { kotlin.math.abs(buffer[it].toInt()) } / 32768.0
+                        lastLevelAt = now
+                        main.post { if (session == generation.get()) onLevel(peak) }
+                    }
                     online.acceptWaveform(levels.normalize(buffer, count), 16000)
                     while (session == generation.get() && kws.isReady(online)) {
                         kws.decode(online)

@@ -47,21 +47,23 @@ export function parseAssistantEvents(lines: string): AssistantEvent[] {
 }
 
 /** Release useful spoken clauses without waiting for a whole long paragraph. */
-export function splitSpokenChunks(text: string, eager: boolean) {
+export function splitSpokenChunks(text: string, eager: boolean, settle = false) {
   const sentences: string[] = [];
   let start = 0;
-  for (let i = 0; i < text.length - 1; i++) {
-    if (!/\s/.test(text[i + 1])) continue;
+  for (let i = 0; i < text.length; i++) {
+    const settledEnd = settle && i === text.length - 1;
+    if (!settledEnd && !/\s/.test(text[i + 1] || "")) continue;
     const fragment = text.slice(start, i + 1);
     // Do not split decimals or common titles/abbreviations.
     const abbreviation = /\b(?:Mr|Mrs|Ms|Dr|Prof|e\.g|i\.e|vs)\.$/i.test(fragment);
-    const sentenceEnd = /[.!?]/.test(text[i]) && !abbreviation;
+    const pendingDecimal = settledEnd && /\d\.$/.test(fragment);
+    const sentenceEnd = /[.!?]/.test(text[i]) && !abbreviation && !pendingDecimal;
     const clauseEnd = eager && /[,;:]/.test(text[i]) && fragment.length >= 48;
-    const boundedChunk = eager && fragment.length >= 160;
+    const boundedChunk = eager && fragment.length >= 100;
     if (sentenceEnd || clauseEnd || boundedChunk) {
       const chunk = fragment.trim();
       if (chunk) sentences.push(chunk);
-      start = i + 2;
+      start = Math.min(text.length, i + 2);
     }
   }
   return { sentences, remainder: text.slice(start) };

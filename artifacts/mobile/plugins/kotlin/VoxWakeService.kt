@@ -36,8 +36,17 @@ class VoxWakeService : Service() {
     private var destroyed = false
     private var assistantName = "Vox"
     private var wakeLock: PowerManager.WakeLock? = null
+    private var retryCount = 0
+    private val retryListener = Runnable {
+        if (!destroyed && getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("enabled", false)) {
+            reasons.remove("error")
+            reconcile()
+        }
+    }
     var state = "starting"; private set
     var message = "Preparing the on-device wake model…"; private set
+    var audioLevel = 0.0; private set
+    var lastAudioAt = 0L; private set
     private val handoffTimeout = Runnable {
         if (!destroyed && reasons.remove("handoff")) reconcile()
     }
@@ -50,7 +59,9 @@ class VoxWakeService : Service() {
         if (Build.VERSION.SDK_INT >= 26) manager?.createNotificationChannel(
             NotificationChannel(CHANNEL, "Hey Vox listener", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
         engine = VoxWakeEngine(this,
-            onReady = { update("listening", "Say “Hey $assistantName”, wait for the vibration, then speak.") },
+            onReady = {
+                update("listening", "Say “Hey $assistantName” normally. Listening locally, including with the screen off.")
+            },
             onWake = {
                 val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
                 prefs.edit().putInt("detections", prefs.getInt("detections", 0) + 1)
@@ -59,9 +70,12 @@ class VoxWakeService : Service() {
                 releaseWakeLock()
                 reasons.add("handoff")
                 update("paused", "Heard Hey $assistantName. Starting current voice mode…")
-                val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
-                if (Build.VERSION.SDK_INT >= 26) vibrator.vibrate(VibrationEffect.createOneShot(70, VibrationEffect.DEFAULT_AMPLITUDE))
-                else @Suppress("DEPRECATION") vibrator.vibrate(70)
+                retryCount = 0
+                try {
+                    val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+                    if (Build.VERSION.SDK_INT >= 26) vibrator.vibrate(VibrationEffect.createOneShot(90, VibrationEffect.DEFAULT_AMPLITUDE))
+                    else @Suppress("DEPRECATION") vibrator.vibrate(90)
+                } catch (_: Exception) { /* Detection must still deliver if haptics are blocked. */ }
                 val delivered = onWake?.invoke() == true
                 if (!delivered) update("paused", "Heard Hey $assistantName. Open Vox from this notification to respond.")
                 main.postDelayed(handoffTimeout, 15000)
@@ -71,6 +85,21 @@ class VoxWakeService : Service() {
                 releaseWakeLock()
                 reasons.add("error")
                 update("error", error)
+                // Recover from temporary microphone contention, not broken models.
+                // Backoff is bounded; fatal model/ABI failures remain visible.
+                val transient = error.contains("microphone", true) || error.contains("capture stopped", true) || error.contains("phone or voice call", true)
+                if (transient && retryCount < 6) {
+                    retryCount++
+                    val delay = minOf(30000L, 2000L * retryCount * retryCount)
+                    update("error", "$error Retrying in ${delay / 1000}s; use Resume to retry now.")
+                    main.removeCallbacks(retryListener)
+                    main.postDelayed(retryListener, delay)
+                }
+            },
+            onLevel = { level ->
+                audioLevel = level
+                lastAudioAt = System.currentTimeMillis()
+                onStatus?.invoke()
             })
         reasons.addAll(VoxWakeModule.pauseRequests)
         try {
@@ -96,6 +125,8 @@ class VoxWakeService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == RESUME) {
+            retryCount = 0
+            main.removeCallbacks(retryListener)
             reasons.remove("error")
             reasons.remove("handoff")
             main.removeCallbacks(handoffTimeout)

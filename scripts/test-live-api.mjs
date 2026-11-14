@@ -54,7 +54,7 @@ test("Google tokens are single-use, short-lived and locked to audio configuratio
     assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/auth_tokens");
     const config = JSON.parse(options.body);
     assert.equal(config.uses, 1);
-    assert.ok(Date.parse(config.expireTime) - Date.now() <= 120000);
+    assert.ok(Date.parse(config.expireTime) - Date.now() <= 600000);
     assert.deepEqual(config.bidiGenerateContentSetup.generationConfig.responseModalities, ["AUDIO"]);
     assert.ok(config.bidiGenerateContentSetup.tools[0].functionDeclarations.length > 0);
     return Response.json({ name: "short-lived-ephemeral-token" });
@@ -62,7 +62,7 @@ test("Google tokens are single-use, short-lived and locked to audio configuratio
   const response = await post("token", undefined, pairedCredential);
   assert.equal(response.status, 200);
   const value = await response.json();
-  assert.equal(value.sessionSeconds, 120);
+  assert.equal(value.sessionSeconds, 600);
   assert.equal(value.token, "short-lived-ephemeral-token");
   assert.doesNotMatch(JSON.stringify(value), /dummy-google-key|dummy-live-secret/);
   assert.equal(calls, 1);

@@ -54,6 +54,7 @@ const KOTLIN_FILES = [
   "CallScreeningPackage.kt",
   "VoxVoiceInteractionService.kt",
   "VoxOverlayService.kt",
+  "VoxConversationService.kt",
   "VoxWakeEngine.kt",
   "VoxWakeAudioNormalizer.kt",
   "VoxWakeTokenizer.kt",
@@ -255,6 +256,10 @@ const withAndroidManifestEntries: ConfigPlugin = (config) =>
       });
     }
 
+    if (!app.service) app.service = [];
+    if (!(app.service as Array<{ $?: Record<string, string> }>).some(s => s.$?.["android:name"] === ".VoxConversationService")) {
+      app.service.push({ $: { "android:name": ".VoxConversationService", "android:exported": "false", "android:foregroundServiceType": "microphone" } });
+    }
     // ── VoxOverlayService (visual floating bubble; no microphone) ─────
     const overlayServiceExists = (app.service as Array<{ $?: Record<string, string> }>).some(
       (s) => s.$?.["android:name"] === ".VoxOverlayService"

@@ -40,6 +40,34 @@ class VoxOverlayModule(private val reactContext: ReactApplicationContext) :
 
     override fun getName() = "VoxOverlayModule"
 
+    @ReactMethod fun startConversation(promise: Promise) {
+        if (VoxConversationService.active) { promise.resolve(true); return }
+        val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+        try {
+            check(reactContext.currentActivity != null) { "Open Vox to start microphone access." }
+            VoxConversationService.readiness = { error ->
+                if (completed.compareAndSet(false, true)) {
+                    if (error == null) promise.resolve(true) else promise.reject("CALL_SERVICE", error)
+                }
+            }
+            androidx.core.content.ContextCompat.startForegroundService(reactContext, Intent(reactContext, VoxConversationService::class.java))
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (completed.compareAndSet(false, true)) promise.reject("CALL_SERVICE", "Android did not start the background call service. Keep Vox open.")
+            }, 4000)
+        } catch (e: Exception) {
+            VoxConversationService.readiness = null
+            if (completed.compareAndSet(false, true)) promise.reject("CALL_SERVICE", e.message)
+        }
+    }
+    @ReactMethod fun stopConversation(promise: Promise) {
+        reactContext.stopService(Intent(reactContext, VoxConversationService::class.java))
+        promise.resolve(null)
+    }
+    @ReactMethod fun setContent(caption: String, callActive: Boolean, promise: Promise) {
+        VoxOverlayService.instance?.setContent(caption, callActive)
+        promise.resolve(null)
+    }
+
     // ── Service control ───────────────────────────────────────────────────────
 
     @ReactMethod

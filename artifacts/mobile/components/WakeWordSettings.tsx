@@ -74,6 +74,17 @@ export function WakeWordSettings() {
         style={{ color: status?.state === "error" ? colors.destructive : colors.accent, fontSize: 13 }}>
         {nameError || (status ? `${status.state}: ${status.message}` : "Checking listener…")}
       </Text>
+      {status?.state === "listening" && <View style={{ gap: 6 }}>
+        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+          Microphone signal · {Math.round(Math.min(1, (status.audioLevel || 0) * 8) * 100)}%
+        </Text>
+        <View style={{ height: 5, backgroundColor: colors.muted, borderRadius: 3 }}>
+          <View style={{ height: 5, borderRadius: 3, width: `${Math.max(2, Math.min(100, (status.audioLevel || 0) * 800))}%`, backgroundColor: colors.primary }} />
+        </View>
+        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+          If this stays at zero while you speak, check microphone privacy and other recording apps. A moving meter does not guarantee phrase detection.
+        </Text>
+      </View>}
       {NativeWakeWord.isAvailable && wakeWordEnabled && status?.state !== "listening" && (
         <Pressable testID="wake-word-resume" accessibilityRole="button" disabled={busy}
           onPress={() => { void toggle(true); }} style={{ paddingVertical: 10 }}>

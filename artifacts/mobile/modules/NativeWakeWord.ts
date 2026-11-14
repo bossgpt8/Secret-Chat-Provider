@@ -11,6 +11,8 @@ export interface WakeStatus {
   detections?: number;
   lastDetectionAt?: number;
   assistantName?: string;
+  audioLevel?: number;
+  lastAudioAt?: number;
 }
 const unavailable: WakeStatus = {
   enabled: false, running: false, state: "stopped",

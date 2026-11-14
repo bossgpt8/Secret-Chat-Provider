@@ -13,6 +13,36 @@ tags:
   - name: conversations
     description: Conversation and message persistence
 paths:
+  /account/cloud:
+    get:
+      operationId: getAccountCloud
+      responses:
+        "200":
+          description: Authenticated user's cloud snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CloudSnapshot" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+    put:
+      operationId: saveAccountCloud
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CloudSnapshotInput" }
+      responses:
+        "200":
+          description: Saved snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CloudSnapshot" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+    delete:
+      operationId: deleteAccountCloud
+      responses:
+        "204": { description: Cloud data erased }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
   /devices/pair:
     post:
       operationId: pairPrivateDevice
@@ -389,6 +419,23 @@ components:
       required: true
       schema: { type: string }
   schemas:
+    CloudSnapshotInput:
+      type: object
+      required: [revision, entries]
+      properties:
+        revision: { type: integer, minimum: 0 }
+        entries:
+          type: object
+          additionalProperties: { type: string }
+    CloudSnapshot:
+      type: object
+      required: [revision, entries, updatedAt]
+      properties:
+        revision: { type: integer, minimum: 0 }
+        entries:
+          type: object
+          additionalProperties: { type: string }
+        updatedAt: { type: ["string", "null"] }
     PrivateDeviceInput:
       type: object
       required: [code, deviceId]

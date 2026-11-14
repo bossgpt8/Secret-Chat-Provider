@@ -5,10 +5,12 @@ import * as Contacts from "expo-contacts";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import { fetch } from "expo/fetch";
-import React, { useEffect, useRef, useState } from "react";
+import { router, type Href } from "expo-router";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AppState,
+  BackHandler,
   Platform,
   Pressable,
   ScrollView,
@@ -52,8 +54,8 @@ const PERMISSIONS: Permission[] = [
   { id: "contacts", label: "Contacts", description: "Look up contacts by name for calls & SMS", icon: "people-outline" },
   { id: "notification_listener", label: "Notification Access", description: "Read incoming messages from app notifications", icon: "notifications-outline" },
   { id: "accessibility", label: "Accessibility Service", description: "Read app screen text for assistant automation", icon: "eye-outline" },
-  { id: "device_admin", label: "Device Administrator", description: "Lock phone via voice", icon: "shield-outline" },
-  { id: "write_settings", label: "Modify System Settings", description: "Control screen brightness & audio", icon: "settings-outline" },
+  { id: "device_admin", label: "Device Administrator", description: "Optional. Only needed if you want to say \"lock my phone\". Everything else works without it.", icon: "shield-outline" },
+  { id: "write_settings", label: "Modify System Settings", description: "Optional. Only needed for voice brightness and system audio control.", icon: "settings-outline" },
   { id: "overlay", label: "Display Over Other Apps", description: "Show assistant overlay on top of apps", icon: "layers-outline" },
   { id: "battery_optimization", label: "Battery Optimization", description: "Keep assistant services alive in background", icon: "battery-charging-outline" },
 ];
@@ -70,6 +72,22 @@ const DEFAULT_PERM_STATUSES: Record<string, PermStatus> = {
   overlay: "unavailable",
   battery_optimization: "unavailable",
 };
+
+const OPTIONAL_PERMS = ["device_admin", "write_settings"];
+
+type DestId = "assistant" | "voice" | "wake" | "floating" | "messages" | "offline" | "advanced" | "account" | "permissions";
+
+const DESTINATIONS: { id: DestId; label: string; icon: string; keywords: string[] }[] = [
+  { id: "assistant", label: "Assistant", icon: "person-circle-outline", keywords: ["name", "conversations", "ai model", "search engine", "assistant quality", "speech language", "quick chips", "theme", "appearance", "dark mode"] },
+  { id: "voice", label: "Voice & Calls", icon: "mic-circle-outline", keywords: ["voice engine", "piper", "kokoro", "elevenlabs", "phone voice", "speaking speed", "call mode", "preview voice"] },
+  { id: "wake", label: "Wake Word", icon: "ear-outline", keywords: ["wake word", "hands-free", "hotword", "calibration", "listening"] },
+  { id: "floating", label: "Floating Assistant", icon: "radio-button-on-outline", keywords: ["floating bubble", "floating mic button", "overlay", "quick commands"] },
+  { id: "messages", label: "Messages & Notifications", icon: "notifications-outline", keywords: ["read incoming messages", "notifications", "privacy", "context", "battery", "media", "screen text", "location"] },
+  { id: "offline", label: "Offline & Downloads", icon: "cloud-download-outline", keywords: ["offline models", "downloads", "speech recognition", "piper voice", "whisper"] },
+  { id: "advanced", label: "Advanced", icon: "construct-outline", keywords: ["api server url", "export chat history", "clear all chat history", "build", "data"] },
+  { id: "account", label: "Account & Cloud", icon: "cloud-outline", keywords: ["account", "sign in", "sync", "cloud", "backup", "guest"] },
+  { id: "permissions", label: "Permissions & Device Setup", icon: "shield-checkmark-outline", keywords: ["permissions", "microphone", "contacts", "accessibility", "notification access", "device administrator", "overlay", "battery optimization", "camera", "flashlight"] },
+];
 
 const SPEED_OPTIONS = [
   { label: "Slow", value: 0.7 },
@@ -204,6 +222,48 @@ export default function SettingsScreen() {
   // Quick chips editing state
   const [editingChips, setEditingChips] = useState(false);
   const [chipsInput, setChipsInput] = useState(customQuickChips.join("\n"));
+
+  const [active, setActive] = useState<DestId | null>(null);
+  const [query, setQuery] = useState("");
+  const scrollRef = useRef<ScrollView>(null);
+  const activeDest = DESTINATIONS.find((d) => d.id === active) ?? null;
+  const filteredDests = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return DESTINATIONS;
+    return DESTINATIONS.filter((d) => d.label.toLowerCase().includes(q) || d.keywords.some((k) => k.includes(q)));
+  }, [query]);
+  const permRequired = PERMISSIONS.filter((p) => p.id !== "internet" && !OPTIONAL_PERMS.includes(p.id));
+  const permIncomplete = Platform.OS === "android" ? permRequired.filter((p) => permStatuses[p.id] !== "granted") : [];
+  const permRequiredGranted = permRequired.length - permIncomplete.length;
+
+  function openDest(id: DestId) {
+    Haptics.selectionAsync();
+    setActive(id);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }
+  function goHome() {
+    setActive(null);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }
+  useEffect(() => {
+    if (active === null) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { setActive(null); return true; });
+    return () => sub.remove();
+  }, [active]);
+
+  function destSummary(id: DestId): string {
+    switch (id) {
+      case "assistant": return `${assistantName} · ${speechLanguage} · ${themeOverride} theme`;
+      case "voice": return ({ phone: "Phone voice", kokoro: "Kokoro", elevenlabs: "ElevenLabs", piper: "Piper (offline)" } as Record<TtsProvider, string>)[ttsProvider];
+      case "wake": return "Hands-free listening and calibration";
+      case "floating": return floatingBubbleEnabled ? "On" : "Off";
+      case "messages": return `${readIncomingEnabled ? "Reads messages aloud" : "Silent"} · context ${contextEnabled ? "on" : "off"}`;
+      case "offline": return "Speech and voice models on this device";
+      case "advanced": return customApiUrl ? "Custom API server" : "Default server · data & export";
+      case "account": return "Sign in, sync, guest mode";
+      case "permissions": return Platform.OS !== "android" ? "Android only" : permIncomplete.length ? `${permRequiredGranted} of ${permRequired.length} ready` : "All feature permissions set up";
+    }
+  }
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -557,12 +617,95 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-        <Text style={[styles.title, { color: colors.foreground }]}>Settings</Text>
+      <View style={[styles.header, { paddingTop: topPad + 8, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        {activeDest ? (
+          <View style={styles.subHeader}>
+            <Pressable testID="settings-back" accessibilityRole="button" accessibilityLabel="Back to all settings"
+              hitSlop={10} onPress={goHome} style={[styles.backBtn, { backgroundColor: colors.primary + "18" }]}>
+              <Ionicons name="chevron-back" size={20} color={colors.primary} />
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.crumb, { color: colors.mutedForeground }]}>Settings</Text>
+              <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>{activeDest.label}</Text>
+            </View>
+          </View>
+        ) : (
+          <>
+            <Text style={[styles.title, { color: colors.foreground }]}>Settings</Text>
+            <View style={[styles.searchBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="search" size={16} color={colors.mutedForeground} />
+              <TextInput testID="settings-search" accessibilityLabel="Search settings"
+                value={query} onChangeText={setQuery} placeholder="Search voice, wake word, permissions..."
+                placeholderTextColor={colors.mutedForeground} autoCorrect={false} autoCapitalize="none"
+                returnKeyType="search" style={[styles.searchInput, { color: colors.foreground }]} />
+              {query.length > 0 && (
+                <Pressable testID="settings-search-clear" accessibilityLabel="Clear search" hitSlop={8} onPress={() => setQuery("")}>
+                  <Ionicons name="close-circle" size={16} color={colors.mutedForeground} />
+                </Pressable>
+              )}
+            </View>
+          </>
+        )}
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 80 }} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: bottomPad + 80 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
+        {active === null && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 10 }}>
+            {permIncomplete.length > 0 && !query && (
+              <Pressable testID="settings-permission-summary" accessibilityRole="button"
+                accessibilityLabel={`${permIncomplete.length} feature permissions not set up. Open Permissions and Device Setup`}
+                onPress={() => openDest("permissions")}
+                style={[styles.alertCard, { backgroundColor: colors.warning + "18", borderColor: colors.warning + "55" }]}>
+                <Ionicons name="alert-circle" size={20} color={colors.warning} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>Hands-free features: {permRequiredGranted} of {permRequired.length} set up</Text>
+                  <Text style={[styles.rowValue, { color: colors.mutedForeground }]} numberOfLines={2}>
+                    Not set up yet (chat still works): {permIncomplete.map((p) => p.label).join(", ")}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+              </Pressable>
+            )}
+            {filteredDests.length === 0 ? (
+              <View style={[styles.emptyCard, { borderColor: colors.border }]}>
+                <Ionicons name="search-outline" size={22} color={colors.mutedForeground} />
+                <Text style={[styles.rowLabel, { color: colors.foreground }]}>Nothing matches "{query}"</Text>
+                <Text style={[styles.rowValue, { color: colors.mutedForeground, textAlign: "center" }]}>Try words like voice, wake, bubble, offline, sync or permissions.</Text>
+              </View>
+            ) : (
+              <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                {filteredDests.map((d, i) => {
+                  const hit = query ? d.keywords.find((k) => k.includes(query.trim().toLowerCase())) : undefined;
+                  return (
+                    <Pressable key={d.id} testID={`settings-dest-${d.id}`} accessibilityRole="button"
+                      accessibilityLabel={`${d.label}. ${destSummary(d.id)}`}
+                      onPress={() => openDest(d.id)}
+                      style={({ pressed }) => [styles.destRow, { borderBottomColor: i < filteredDests.length - 1 ? colors.border : "transparent", backgroundColor: pressed ? colors.primary + "0d" : "transparent" }]}>
+                      <View style={[styles.destIcon, { backgroundColor: colors.primary + "1c" }]}>
+                        <Ionicons name={d.icon as "mic"} size={18} color={colors.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.destLabel, { color: colors.foreground }]}>{d.label}</Text>
+                        <Text style={[styles.rowValue, { color: colors.mutedForeground }]} numberOfLines={1}>
+                          {hit ? `Includes: ${hit}` : destSummary(d.id)}
+                        </Text>
+                      </View>
+                      {d.id === "permissions" && permIncomplete.length > 0 && (
+                        <View style={[styles.statusBadge, { backgroundColor: colors.warning + "22" }]}>
+                          <Text style={[styles.statusText, { color: colors.warning }]}>{permIncomplete.length} to do</Text>
+                        </View>
+                      )}
+                      <Ionicons name="chevron-forward" size={15} color={colors.mutedForeground} />
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        )}
+
+        {active === "assistant" && (<>
         {/* ── Assistant ── */}
         <Section title="Assistant">
           {editingName ? (
@@ -589,6 +732,8 @@ export default function SettingsScreen() {
           <Row icon="globe-outline" label="Search Engine" value="Tavily Web Search" />
         </Section>
 
+        </>)}
+        {active === "voice" && (<>
         {/* ── Voice ── */}
         <Section title="Voice">
           {/* Provider selector */}
@@ -837,6 +982,8 @@ export default function SettingsScreen() {
           )}
         </Section>
 
+        </>)}
+        {active === "floating" && (<>
         {/* ── Floating Bubble ── */}
         <Section title="Floating Bubble">
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
@@ -867,14 +1014,20 @@ export default function SettingsScreen() {
           )}
         </Section>
 
+        </>)}
+        {active === "wake" && (<>
         {/* ── Hands-Free ── */}
         <Section title="Hands-Free">
           <WakeWordSettings />
         </Section>
+        </>)}
+        {active === "assistant" && (<>
         <Section title="Assistant quality">
           <AssistantQualitySettings getApiBase={qualityApiBase} deviceId={deviceId} />
         </Section>
 
+        </>)}
+        {active === "messages" && (<>
         {/* ── Privacy & Context ── */}
         <Section title="Privacy & Context">
           {/* Master toggle */}
@@ -928,11 +1081,15 @@ export default function SettingsScreen() {
           )}
         </Section>
 
+        </>)}
+        {active === "offline" && (<>
         {/* ── Offline models ── */}
         <Section title="Offline Models">
           <OfflineModelsSection colors={colors} />
         </Section>
 
+        </>)}
+        {active === "messages" && (<>
         {/* ── Notifications ── */}
         <Section title="Notifications">
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
@@ -955,6 +1112,8 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        </>)}
+        {active === "assistant" && (<>
         {/* ── Home Screen ── */}
         <Section title="Home Screen">
           {/* Language selector */}
@@ -1039,21 +1198,49 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        </>)}
+        {active === "account" && (
+          <Section title="Account & Cloud">
+            <Row icon="cloud-outline" label="Account & cloud sync" value="Sign in to back up and sync across devices. Guest mode keeps everything on this phone." onPress={() => router.push("/account" as Href)} />
+          </Section>
+        )}
+        {active === "permissions" && (<>
         {/* ── Permissions ── */}
-        <Section title="Permissions">
+        <View style={[styles.alertCard, { marginHorizontal: 16, marginTop: 18, backgroundColor: (permIncomplete.length ? colors.warning : colors.success) + "16", borderColor: (permIncomplete.length ? colors.warning : colors.success) + "50" }]}>
+          <Ionicons name={permIncomplete.length ? "list-circle-outline" : "checkmark-circle"} size={20} color={permIncomplete.length ? colors.warning : colors.success} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.rowLabel, { color: colors.foreground }]}>
+              {Platform.OS !== "android" ? "Device setup is available on Android" : permIncomplete.length ? `${permRequiredGranted} of ${permRequired.length} feature permissions set up` : "All hands-free features set up"}
+            </Text>
+            <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>
+              Basic chat only needs Internet and Microphone. Everything else unlocks a specific feature (calls, reading messages, screen help, floating bubble). Items marked Optional are used by one command only: Device Administrator for "lock my phone", Modify System Settings for brightness control. Tap any item to open its Android screen.
+            </Text>
+          </View>
+        </View>
+        <Section title="Permissions & Device Setup">
           {PERMISSIONS.map((perm) => {
             const status = permStatuses[perm.id] ?? "unavailable";
             const canRequest = Platform.OS === "android" && perm.id !== "internet";
             return (
               <Pressable
                 key={perm.id}
+                testID={`permission-${perm.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`${perm.label}, ${status === "granted" ? "granted" : "not granted"}${OPTIONAL_PERMS.includes(perm.id) ? ", optional" : ""}`}
                 style={[styles.row, { borderBottomColor: colors.border }]}
                 onPress={canRequest ? () => handlePermissionPress(perm.id) : undefined}
                 disabled={!canRequest || status === "granted"}
               >
                 <Ionicons name={perm.icon as "mic"} size={18} color={colors.primary} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.rowLabel, { color: colors.foreground }]}>{perm.label}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={[styles.rowLabel, { color: colors.foreground }]}>{perm.label}</Text>
+                    {OPTIONAL_PERMS.includes(perm.id) && (
+                      <View style={[styles.qualityBadge, { backgroundColor: colors.muted }]}>
+                        <Text style={[styles.qualityText, { color: colors.mutedForeground }]}>Optional</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={[styles.rowValue, { color: colors.mutedForeground }]}>{perm.description}</Text>
                 </View>
                 <StatusBadge status={status} colors={colors} />
@@ -1065,6 +1252,8 @@ export default function SettingsScreen() {
           })}
         </Section>
 
+        </>)}
+        {active === "advanced" && (<>
         {/* ── Build info ── */}
         <Section title="Build">
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
@@ -1076,6 +1265,8 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        </>)}
+        {active === "assistant" && (<>
         {/* ── Appearance ── */}
         <Section title="Appearance">
           <View style={[styles.row, { borderBottomColor: colors.border, flexDirection: "column", alignItems: "flex-start", gap: 10 }]}>
@@ -1094,6 +1285,8 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        </>)}
+        {active === "advanced" && (<>
         {/* ── Advanced ── */}
         <Section title="Advanced">
           {editingApiUrl ? (
@@ -1133,11 +1326,14 @@ export default function SettingsScreen() {
           )}
         </Section>
 
+        </>)}
+        {active === "advanced" && (<>
         {/* ── Data ── */}
         <Section title="Data">
           <Row icon="share-outline" label="Export chat history" onPress={handleExportHistory} />
           <Row icon="trash-outline" label="Clear all chat history" destructive onPress={handleClearHistory} />
         </Section>
+        </>)}
 
       </ScrollView>
     </View>
@@ -1146,7 +1342,17 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingBottom: 12, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth },
+  header: { paddingBottom: 12, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
+  subHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  backBtn: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  crumb: { fontSize: 11, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 1 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, height: 42 },
+  searchInput: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", paddingVertical: 0 },
+  alertCard: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1 },
+  emptyCard: { alignItems: "center", gap: 6, padding: 28, borderRadius: 14, borderWidth: 1, borderStyle: "dashed" },
+  destRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  destIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  destLabel: { fontSize: 15, fontFamily: "Inter_600SemiBold", marginBottom: 2 },
   title: { fontSize: 22, fontFamily: "Inter_700Bold" },
   section: { paddingHorizontal: 16, marginTop: 22 },
   sectionLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 },

@@ -18,7 +18,7 @@
       "bundleIdentifier": "com.boss.assistant",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "Camera access is used to control the flashlight.",
+        "NSCameraUsageDescription": "Vox uses the camera when you ask it to describe a photo or explicitly share camera context.",
         "NSMicrophoneUsageDescription": "Microphone access is used for voice input.",
         "NSContactsUsageDescription": "Contacts access is used to look up names when making calls or sending messages."
       }

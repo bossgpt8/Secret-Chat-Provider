@@ -8,11 +8,13 @@ import memoryRouter from "./memory";
 import imagineRouter from "./imagine";
 import liveRouter from "./live";
 import devicesRouter from "./devices";
+import accountRouter from "./account";
 import { requirePrivateDevice } from "../lib/private-access";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(accountRouter);
 router.use(chatRouter);
 router.use(ttsRouter);
 router.use("/conversations", requirePrivateDevice);

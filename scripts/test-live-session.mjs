@@ -4,6 +4,20 @@ import { LiveSession, appendTranscript } from "../artifacts/mobile/modules/liveS
 import { LiveSessionBudget, pairingCode, verifyPairingCode, issueLiveCredential, verifyLiveCredential } from "../artifacts/api-server/src/lib/live-access.ts";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
+test("visual frames require a connected session and stop immediately at end", async () => {
+  const f = fixture();
+  assert.equal(f.session.sendVideoFrame("AQI="), false);
+  f.session.start("short-token", setup, new Date(Date.now() + 120000).toISOString(), []);
+  f.socket.onopen();
+  await f.receive({ setupComplete: {} });
+  assert.equal(f.session.sendVideoFrame("AQI="), true);
+  assert.deepEqual(f.sent.at(-1), { realtimeInput: { video: { mimeType: "image/jpeg", data: "AQI=" } } });
+  assert.equal(f.session.sendVideoFrame("a".repeat(2_000_001)), false);
+  f.socket.bufferedAmount = 128001;
+  assert.equal(f.session.sendVideoFrame("AQI="), false);
+  await f.session.stop();
+  assert.equal(f.session.sendVideoFrame("AQI="), false);
+});
 const setup = { model: "models/test-live", tools: [{ functionDeclarations: [{
   name: "flashlight", parameters: { required: ["on"], properties: { on: { type: "BOOLEAN" } } },
 }] }] };

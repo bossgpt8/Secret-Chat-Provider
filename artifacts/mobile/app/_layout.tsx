@@ -16,6 +16,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AnimatedSplash } from "@/components/AnimatedSplash";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AssistantProvider } from "@/context/AssistantContext";
+import { AccountProvider, useAccount } from "@/context/AccountContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -27,8 +28,15 @@ function RootLayoutNav() {
       <Stack.Screen name="index" />
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="account" />
     </Stack>
   );
+}
+
+function AccountWorkspace({ children }: { children: React.ReactNode }) {
+  const { storageScope, storageEpoch, isLoaded } = useAccount();
+  if (!isLoaded) return null;
+  return <AssistantProvider key={`${storageScope}:${storageEpoch}`} storageScope={storageScope}>{children}</AssistantProvider>;
 }
 
 export default function RootLayout() {
@@ -81,14 +89,14 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider preload={false}>
-              <AssistantProvider>
+              <AccountProvider><AccountWorkspace>
                 <RootLayoutNav />
 
                 {/* Animated splash sits on top, fades out when done */}
                 {!animatedSplashDone && (
                   <AnimatedSplash onDone={() => setAnimatedSplashDone(true)} />
                 )}
-              </AssistantProvider>
+              </AccountWorkspace></AccountProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>

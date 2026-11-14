@@ -35,6 +35,7 @@ const KOTLIN_FILES = [
   "VoxOverlayModule.kt",
   "VoxOverlayPackage.kt",
   "VoxOverlayService.kt",
+  "VoxConversationService.kt",
   "VoxWakeEngine.kt",
   "VoxWakeAudioNormalizer.kt",
   "VoxWakeTokenizer.kt",
@@ -107,6 +108,9 @@ const withAndroidManifestEntries = (config) =>
     const app = AndroidConfig.Manifest.getMainApplicationOrThrow(manifest);
 
     if (!app.service) app.service = [];
+    if (!app.service.some(s => s.$?.["android:name"] === ".VoxConversationService")) {
+      app.service.push({ $: { "android:name": ".VoxConversationService", "android:exported": "false", "android:foregroundServiceType": "microphone" } });
+    }
 
     // VoxOverlayService calls startForeground() during app startup.
     // Android rejects that call unless the base foreground-service permission

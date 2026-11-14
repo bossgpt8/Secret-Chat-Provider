@@ -76,8 +76,9 @@ router.post("/live/token", limited(4), async (req, res): Promise<void> => {
   if (!budget.take(subject)) {
     res.status(429).json({ error: "Daily Live session limit reached. Use current voice mode or try tomorrow." }); return;
   }
-  const sessionSeconds = 120;
-  const setup = liveSetup(process.env.GEMINI_LIVE_MODEL || "gemini-2.5-flash-native-audio-preview-12-2025");
+  const configuredSeconds = Number(process.env.GEMINI_LIVE_SESSION_SECONDS || 600);
+  const sessionSeconds = Number.isFinite(configuredSeconds) ? Math.max(120, Math.min(900, Math.floor(configuredSeconds))) : 600;
+  const setup = liveSetup(process.env.GEMINI_LIVE_MODEL || "gemini-3.1-flash-live-preview");
   const expiresAt = new Date(Date.now() + sessionSeconds * 1000).toISOString();
   try {
     const response = await fetch("https://generativelanguage.googleapis.com/v1beta/auth_tokens", {

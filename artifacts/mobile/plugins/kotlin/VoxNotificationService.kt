@@ -53,6 +53,9 @@ class VoxNotificationService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        // Vox's own wake-service/TTS notifications must never become messages
+        // for Vox to announce; that creates a notification-speech feedback loop.
+        if (sbn.packageName == packageName) return
         val data = sbn.toData() ?: return
         recentNotifications.add(0, data)
         if (recentNotifications.size > MAX_RECENT) {

@@ -46,6 +46,7 @@ import { NativeAccessibility, type VoxAccessibilityNotification } from "@/module
 import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallScreening";
 import { NativeMediaControl } from "@/modules/NativeMediaControl";
 import { NativeNotifications, type VoxNotification } from "@/modules/NativeNotifications";
+import { shouldSpeakIncomingNotification } from "@/modules/notificationSpeechPolicy";
 import { NativeOverlay } from "@/modules/NativeOverlay";
 import { NativeWakeWord } from "@/modules/NativeWakeWord";
 import { NativeScreenCapture } from "@/modules/NativeScreenCapture";
@@ -941,7 +942,10 @@ export default function ChatScreen() {
   useEffect(() => { isCallModeRef.current = isCallMode; }, [isCallMode]);
   useEffect(() => { lastNotifRef.current = lastNotification; }, [lastNotification]);
   useEffect(() => { wakeWordEnabledRef.current = wakeWordEnabled; }, [wakeWordEnabled]);
-  useEffect(() => { readIncomingEnabledRef.current = readIncomingEnabled; }, [readIncomingEnabled]);
+  useEffect(() => {
+    readIncomingEnabledRef.current = readIncomingEnabled;
+    if (!readIncomingEnabled) pendingNotifSpeechRef.current = [];
+  }, [readIncomingEnabled]);
   useEffect(() => {
     const update = (status: { state: string }) => setIsWakeListening(status.state === "listening");
     void NativeWakeWord.status().then(update);
@@ -1173,15 +1177,21 @@ export default function ChatScreen() {
     setLastNotification(n);
     lastNotifRef.current = n;
     setNotifPermGranted(true);
+    if (!shouldSpeakIncomingNotification({
+      enabled: readIncomingEnabledRef.current,
+      streaming: isStreamingRef.current,
+      callMode: isCallModeRef.current,
+    })) return;
+
     const spoken = buildIncomingSpeechText(n);
-    if (isCallModeRef.current && !isStreamingRef.current) {
+    if (isCallModeRef.current) {
       // Call mode: interrupt immediately (stop → speak notification)
       stopSpeaking().then(() => {
         stopRecordingCleanup();
         setIsRecording(false);
         speakText(spoken);
       });
-    } else if (readIncomingEnabledRef.current && !isStreamingRef.current) {
+    } else {
       if (ttsPlayingRef.current) {
         // Assistant is currently speaking — queue the notification so it plays right after
         pendingNotifSpeechRef.current.push(spoken);
@@ -1568,7 +1578,10 @@ export default function ChatScreen() {
       return;
     }
     // Nothing left in sentence queue — check for queued notification announcements
-    const pendingNotif = pendingNotifSpeechRef.current.shift();
+    const pendingNotif = readIncomingEnabledRef.current
+      ? pendingNotifSpeechRef.current.shift()
+      : null;
+    if (!readIncomingEnabledRef.current) pendingNotifSpeechRef.current = [];
     if (pendingNotif) {
       speakText(pendingNotif);
       return;

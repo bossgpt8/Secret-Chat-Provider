@@ -40,6 +40,7 @@ import { useAssistant, generateMsgId, type Message, type Conversation } from "@/
 import { useColors } from "@/hooks/useColors";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { LiveVoicePanel } from "@/components/LiveVoicePanel";
+import { AssistantReply } from "@/components/AssistantReply";
 import type { LiveTurn } from "@/modules/liveSession";
 import { NativeAccessibility, type VoxAccessibilityNotification } from "@/modules/NativeAccessibility";
 import { NativeCallScreening, type CallStateEvent } from "@/modules/NativeCallScreening";
@@ -185,9 +186,9 @@ function MessageBubble({
               resizeMode="cover"
             />
           ) : (
-            <Text style={[bubbleStyles.text, { color: isUser ? colors.userBubbleText : colors.assistantBubbleText }]}>
-              {message.content}
-            </Text>
+            isUser
+              ? <Text style={[bubbleStyles.text, { color: colors.userBubbleText }]}>{message.content}</Text>
+              : <AssistantReply content={message.content} colors={colors} />
           )}
           {message.sources && message.sources.length > 0 && (
             <View style={bubbleStyles.sourcesContainer}>

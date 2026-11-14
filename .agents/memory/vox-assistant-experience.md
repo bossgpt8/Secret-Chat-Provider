@@ -20,3 +20,9 @@ Keep Gemini Live and the current voice mode as separate user-selectable modes.
 **Why:** When asked about adding Live, the user explicitly requested “The two na the live and the current one.”
 
 **How to apply:** Preserve existing voice when updating Live. Live must be opt-in, keep the permanent Gemini key on the user's VM, and disclose Google quota/billing limits. Mocked transport checks do not prove native audio or the VM's Google access.
+
+Hands-free mode is meant to behave like a call: after reading each assistant reply, keep listening for the next turn without requiring another tap to start.
+
+**Why:** The user explicitly reported that having to restart hands-free after every reply defeats its purpose.
+
+**How to apply:** Treat reply completion and temporary microphone failures as transitions within the same session, not reasons to end it. Preserve explicit user stop and necessary permission/lifecycle shutdowns; verify multiple consecutive turns, not just one successful reply.

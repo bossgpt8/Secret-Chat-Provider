@@ -33,6 +33,7 @@ import Reanimated, { useAnimatedStyle } from "react-native-reanimated";
 import { chatComposerBottomPadding } from "@/modules/chatKeyboard";
 import { voiceAudioMode, synthesizePiperOrThrow, shouldDisablePiper } from "@/modules/voiceAudioPolicy";
 import { SpeechSilenceDetector } from "@/modules/recordingVad";
+import { callModeResumeAction, createSpeechCompletion } from "@/modules/callModeLifecycle";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAssistant, generateMsgId, type Message, type Conversation } from "@/context/AssistantContext";
 import { useColors } from "@/hooks/useColors";
@@ -1565,13 +1566,9 @@ export default function ChatScreen() {
     ttsPlayingRef.current = false;
     isSpeakingRef.current = false;
     setIsSpeaking(false);
-    if (nativeSpeechActiveRef.current && nativeSpeechModeRef.current === "barge") {
-      awaitBargeCleanup();
-      return;
-    }
     // Reset native overlay bubble back to idle state
     if (Platform.OS === "android") NativeOverlay.setState("idle").catch(() => {});
-    if (isCallModeRef.current && !isStreamingRef.current) {
+    if (isCallModeRef.current) {
       scheduleCallModeListening();
     }
   }
@@ -1580,15 +1577,24 @@ export default function ChatScreen() {
     if (!isCallModeRef.current || liveOpenRef.current || callModeRestartTimerRef.current) return;
     callModeRestartTimerRef.current = setTimeout(() => {
       callModeRestartTimerRef.current = null;
-      if (!isCallModeRef.current || liveOpenRef.current) return;
-
-      if (isStreamingRef.current || isSpeakingRef.current || ttsPlayingRef.current || isTranscribingRef.current) {
+      const action = callModeResumeAction({
+        enabled: isCallModeRef.current,
+        liveOpen: liveOpenRef.current,
+        busy: isStreamingRef.current || isSpeakingRef.current || ttsPlayingRef.current || isTranscribingRef.current,
+        starting: recordingStartingRef.current || nativeSpeechStartingRef.current,
+        nativeActive: nativeSpeechActiveRef.current,
+        nativeMode: nativeSpeechModeRef.current,
+        recording: Boolean(recordingRef.current) || pcmRecordingActiveRef.current,
+      });
+      if (action === "stop" || action === "listening") return;
+      if (action === "wait") {
         scheduleCallModeListening(350);
         return;
       }
-      if (nativeSpeechActiveRef.current || recordingRef.current || pcmRecordingActiveRef.current) return;
-      if (recordingStartingRef.current || nativeSpeechStartingRef.current) {
-        scheduleCallModeListening(350);
+      if (action === "cleanup-barge") {
+        // The interruption recognizer can finish starting after playback ends.
+        // It is not the next user turn: release it before reopening the mic.
+        void cancelNativeSpeech().finally(() => scheduleCallModeListening());
         return;
       }
 
@@ -1623,12 +1629,6 @@ export default function ChatScreen() {
     ]);
   }
 
-  function awaitBargeCleanup() {
-    cancelNativeSpeech().finally(() => {
-      if (isCallModeRef.current && !isStreamingRef.current) scheduleCallModeListening();
-    });
-  }
-
   // Build a streaming GET URL for the TTS endpoint.
   // expo-av passes this directly to Android's ExoPlayer which starts buffering
   // and playing immediately — no JS-side download or base64 conversion needed.
@@ -1646,14 +1646,18 @@ export default function ChatScreen() {
   function attachSoundListeners(sound: Audio.Sound, gen: number, voiceTiming?: VoiceTurnTiming | null, spokenText = "") {
     currentSpokenTextRef.current = spokenText;
     elSoundRef.current = sound;
+    const finish = createSpeechCompletion(gen, () => ttsGenerationRef.current, () => {
+      sound.setOnPlaybackStatusUpdate(null);
+      sound.unloadAsync().catch(() => {});
+      if (elSoundRef.current === sound) elSoundRef.current = null;
+      onTtsDone();
+    });
     sound.setOnPlaybackStatusUpdate((status) => {
       if (gen !== ttsGenerationRef.current) return;
       if (!status.isLoaded) {
         if (!status.error) return;
         console.warn("[tts] playback error:", status.error);
-        sound.unloadAsync().catch(() => {});
-        if (elSoundRef.current === sound) elSoundRef.current = null;
-        onTtsDone();
+        finish();
         return;
       }
       if (status.isPlaying) {
@@ -1661,9 +1665,7 @@ export default function ChatScreen() {
         void startBargeInListener();
       }
       if (status.didJustFinish) {
-        sound.unloadAsync().catch(() => {});
-        if (elSoundRef.current === sound) elSoundRef.current = null;
-        onTtsDone();
+        finish();
       }
     });
   }
@@ -1810,6 +1812,7 @@ export default function ChatScreen() {
   async function speakWithPhone(text: string, voiceTiming?: VoiceTurnTiming | null) {
     if (Platform.OS === "web") { onTtsDone(); return; }
     const generation = ttsGenerationRef.current;
+    const finish = createSpeechCompletion(generation, () => ttsGenerationRef.current, onTtsDone);
     const opts: Speech.SpeechOptions = {
       language: speechLanguage || "en-US",
       pitch: 1.05,
@@ -1819,9 +1822,9 @@ export default function ChatScreen() {
         markFirstAudibleOutput(voiceTiming);
         startBargeInListener().catch((error) => console.warn("[voice] interruption listener:", error));
       },
-      onDone: () => { if (generation === ttsGenerationRef.current) onTtsDone(); },
-      onError: () => { if (generation === ttsGenerationRef.current) onTtsDone(); },
-      onStopped: () => { if (generation === ttsGenerationRef.current) setIsSpeaking(false); },
+      onDone: finish,
+      onError: finish,
+      onStopped: finish,
     };
     if (phoneVoiceId) opts.voice = phoneVoiceId;
     const [first, ...remaining] = splitPiperText(text, 500);
@@ -2053,9 +2056,16 @@ export default function ChatScreen() {
       }, 100);
     } catch (error) {
       setIsRecording(false);
-      isCallModeRef.current = false; setIsCallMode(false);
-      await stopRecordingCleanup();
-      Alert.alert("Microphone unavailable", error instanceof Error ? error.message : "Close another recording app and try again.");
+      await stopRecordingCleanup().catch(cleanupError => console.warn("[voice] Mic cleanup:", cleanupError));
+      if (isCallModeRef.current) {
+        // A temporary audio-focus/recorder error must not end the user's call.
+        console.warn("[voice] Retrying hands-free microphone:", error);
+        recognitionFailuresRef.current += 1;
+        if (recognitionFailuresRef.current >= 3) enableNetworkSpeechFallback();
+        scheduleCallModeListening(1000);
+      } else {
+        Alert.alert("Microphone unavailable", error instanceof Error ? error.message : "Close another recording app and try again.");
+      }
     } finally {
       recordingStartingRef.current = false;
       setIsVoiceStarting(false);

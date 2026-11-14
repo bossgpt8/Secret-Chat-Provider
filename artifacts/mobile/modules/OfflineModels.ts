@@ -207,6 +207,10 @@ const piperSafety = createPiperSafety(AsyncStorage, {
   async synthesize(text, modelPath, configPath) {
     return VoxPiperModule.synthesize(text, modelPath, configPath);
   },
+  async isModelLoaded(modelPath) {
+    if (!VoxPiperModule?.isModelLoaded) return false;
+    return VoxPiperModule.isModelLoaded(modelPath);
+  },
   async unloadModel() {
     if (!VoxPiperModule) return false;
     return VoxPiperModule.unloadModel();

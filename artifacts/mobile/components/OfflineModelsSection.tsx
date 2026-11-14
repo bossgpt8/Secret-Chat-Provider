@@ -235,7 +235,7 @@ export function OfflineModelsSection({ colors }: { colors: ColorSet }) {
       const configPath = await NativeOfflineModels.getPath(model.configFileName);
       if (!modelPath || !configPath) throw new Error("The ONNX voice or its configuration is not downloaded.");
       const wavPath = await NativePiper.synthesize(
-        "Hello. This is Vox speaking with the downloaded Piper voice, completely offline.",
+        "Hello. Piper is ready.",
         modelPath,
         configPath,
       );

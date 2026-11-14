@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { createPiperSafety, PIPER_ATTEMPT_KEY, restoreVoiceProvider } from "../artifacts/mobile/modules/piperSafety.ts";
 
-function fixture(overrides = {}, storageOverrides = {}, timeout = 50) {
+function fixture(overrides = {}, storageOverrides = {}, timeout = 50, firstLoadTimeout = timeout) {
   const data = new Map();
   const calls = [];
   const storage = {
@@ -22,7 +22,7 @@ function fixture(overrides = {}, storageOverrides = {}, timeout = 50) {
     async unloadModel() { calls.push("unload"); return true; },
     ...overrides,
   };
-  return { safety: createPiperSafety(storage, engine, timeout), data, calls };
+  return { safety: createPiperSafety(storage, engine, timeout, firstLoadTimeout), data, calls };
 }
 test("a saved Piper selection starts with Phone without loading native inference", () => {
   assert.deepEqual(restoreVoiceProvider("piper", null), { provider: "phone", recovered: true, interrupted: false });
@@ -40,6 +40,23 @@ test("successful synthesis writes and then clears the durable marker", async () 
   assert.equal(await safety.synthesize("Hello", "voice.onnx", "voice.json"), "/cache/voice.wav");
   assert.equal(data.has(PIPER_ATTEMPT_KEY), false);
   assert.deepEqual(calls, ["synthesize"]);
+});
+test("a cold model gets a longer window for first-session initialization", async () => {
+  const { safety } = fixture({
+    async isModelLoaded() { return false; },
+    async synthesize() {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return "/cache/voice.wav";
+    },
+  }, {}, 5, 40);
+  assert.equal(await safety.synthesize("Hello", "voice.onnx", "voice.json"), "/cache/voice.wav");
+});
+test("a loaded model keeps the shorter synthesis timeout", async () => {
+  const { safety } = fixture({
+    async isModelLoaded() { return true; },
+    async synthesize() { return new Promise(resolve => setTimeout(() => resolve("/cache/late.wav"), 20)); },
+  }, {}, 5, 40);
+  await assert.rejects(safety.synthesize("Hello", "voice.onnx", "voice.json"), /timed out/);
 });
 test("unsupported builds do not enter native inference", async () => {
   const { safety, calls, data } = fixture({

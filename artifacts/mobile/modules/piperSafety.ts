@@ -14,6 +14,7 @@ interface Storage {
 interface Engine {
   getReadiness(): Promise<PiperReadiness>;
   synthesize(text: string, model: string, config: string): Promise<string>;
+  isModelLoaded?(model: string): Promise<boolean>;
   unloadModel(): Promise<boolean>;
 }
 
@@ -26,7 +27,7 @@ export function restoreVoiceProvider(saved: string | null, interrupted: string |
 }
 
 /** One native attempt at a time, with a durable crash marker and session breaker. */
-export function createPiperSafety(storage: Storage, engine: Engine, timeoutMs = 18000) {
+export function createPiperSafety(storage: Storage, engine: Engine, timeoutMs = 18000, firstLoadTimeoutMs = 60000) {
   let busy = false;
   let blocked: string | undefined;
   return {
@@ -42,12 +43,23 @@ export function createPiperSafety(storage: Storage, engine: Engine, timeoutMs = 
       try {
         const readiness = await engine.getReadiness();
         if (!readiness.supported) throw new Error(readiness.reason || "Piper is unavailable on this device.");
+        // Creating an ONNX session for a downloaded voice can take much longer
+        // than generating speech with a model that is already in memory.
+        let modelLoaded = false;
+        if (engine.isModelLoaded) {
+          try {
+            modelLoaded = await engine.isModelLoaded(model);
+          } catch {
+            // A missing/older native method should get the safer cold-start window.
+          }
+        }
+        const attemptTimeoutMs = modelLoaded ? timeoutMs : firstLoadTimeoutMs;
         // If storage fails, do not enter native inference without recovery.
         await storage.setItem(PIPER_ATTEMPT_KEY, "1");
         const path = await Promise.race([
           engine.synthesize(text, model, config),
           new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error("Piper timed out. Phone voice will be used.")), timeoutMs);
+            timer = setTimeout(() => reject(new Error("Piper timed out. Phone voice will be used.")), attemptTimeoutMs);
           }),
         ]);
         await storage.removeItem(PIPER_ATTEMPT_KEY);

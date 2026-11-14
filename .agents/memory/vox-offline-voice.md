@@ -15,6 +15,12 @@ Do not automatically activate Piper in calls just because its model is downloade
 
 **How to apply:** Keep Piper optional and session-only until its Android inference, playback, and repeated app launches are verified on a physical device. Do not re-enable automatic Piper startup on the strength of JavaScript fallbacks: process-fatal native failures bypass them. Do not equate successful TypeScript checks or a browser preview with native stability.
 
+Piper's first use may spend substantial time creating the ONNX session before speech inference begins. Distinguish that cold start from synthesis with an already-loaded model; a longer cold-start budget does not prove native inference is healthy.
+
+**Why:** The user showed the offline voice test timing out, while the native module already exposes whether its model session is loaded.
+
+**How to apply:** Use a bounded, longer timeout only when the model is not loaded, keep the shorter timeout for warm synthesis, and verify the behavior on a physical Android device.
+
 Unknown pronunciations should fall back to Phone for that phrase rather than inventing phonemes or disabling Piper for the rest of a healthy session.
 
 **Why:** The user reported cracking speech even after Piper could run. Unsafe pronunciation guesses and actual engine failures need different recovery paths.

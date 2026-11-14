@@ -1,11 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import VoxIcon from "../assets/images/icon.png";
-import { Animated, Easing, Image, StyleSheet, Text } from "react-native";
+import { Animated, Easing, Image, Platform, StyleSheet, Text } from "react-native";
 import { useAssistant } from "@/context/AssistantContext";
 const TYPING_SPEED = 120; // ms per character
 const CURSOR_BLINK_SPEED = 500;
 const POST_TYPE_HOLD = 800; // ms to hold after typing completes
 const FADE_OUT_DURATION = 600;
+// Expo web does not include the native animated driver. The native-driver
+// callback never completes there, leaving the full-screen splash permanently
+// over login and first-run screens.
+const USE_NATIVE_DRIVER = Platform.OS !== "web";
 
 interface AnimatedSplashProps {
   onDone: () => void;
@@ -28,6 +32,12 @@ export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
   const [showCursor, setShowCursor] = useState(false);
 
   useEffect(() => {
+    if (Platform.OS === "web") {
+      // React Native Web doesn't finish the native-driver animation timeline;
+      // leaving this overlay mounted can hide every route indefinitely.
+      onDone();
+      return;
+    }
     let destroyed = false;
 
     // Phase 1: Icon bounces in
@@ -36,18 +46,18 @@ export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
         toValue: 1,
         tension: 60,
         friction: 7,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
       Animated.timing(iconTranslateY, {
         toValue: 0,
         duration: 600,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
       Animated.timing(iconOpacity, {
         toValue: 1,
         duration: 400,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
     ]).start(() => {
       if (destroyed) return;
@@ -56,7 +66,7 @@ export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
       Animated.timing(taglineOpacity, {
         toValue: 1,
         duration: 200,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }).start();
 
       setShowCursor(true);
@@ -78,7 +88,7 @@ export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
               toValue: 0,
               duration: FADE_OUT_DURATION,
               easing: Easing.in(Easing.ease),
-              useNativeDriver: true,
+            useNativeDriver: USE_NATIVE_DRIVER,
             }).start(() => {
               if (!destroyed) onDone();
             });
@@ -95,12 +105,12 @@ export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
         Animated.timing(cursorOpacity, {
           toValue: 0,
           duration: CURSOR_BLINK_SPEED,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(cursorOpacity, {
           toValue: 1,
           duration: CURSOR_BLINK_SPEED,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
       ]),
     );
@@ -111,6 +121,8 @@ export function AnimatedSplash({ onDone }: AnimatedSplashProps) {
       blink.stop();
     };
   }, []);
+
+  if (Platform.OS === "web") return null;
 
   return (
     <Animated.View style={[styles.container, { opacity: screenOpacity }]}>

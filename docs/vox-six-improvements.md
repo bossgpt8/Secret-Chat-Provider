@@ -36,7 +36,7 @@ installed APK. Before enabling cloud accounts on the existing Oracle API:
    the server's secure configuration. Never commit keys or put the secret key in
    the APK. The mobile build needs only the matching public publishable key.
 4. Enable/verify Google and email login and allow the mobile callback scheme
-   (`mobile://account`, as specified by app.json). Production Clerk
+   (`vox://account`; the old `mobile://` scheme remains registered). Production Clerk
    credentials/users are separate from workspace development credentials/users.
 5. Restart the API, rebuild the Android APK including the new config plugin
    sources, and verify authentication against the intended Oracle API.
@@ -45,14 +45,16 @@ installed APK. Before enabling cloud accounts on the existing Oracle API:
    `GEMINI_LIVE_SESSION_SECONDS` (120–900 seconds, default 600).
 
 No paid-provider fallback has been added. Live uses Google's quota; app session
-limits are not billing caps, and free-tier audio/visual input has Google's
-free-tier data-use terms. AI image generation/editing is a separate provider
-capability: attachment and local crop do not imply Gemini-app image editing.
+limits are not billing caps. Selected images are sent to the chosen analysis
+provider, or Google during explicitly enabled Live visual sharing, but are not
+included in automatic account sync. AI image generation/editing is a separate
+provider capability: attachment and local crop do not imply Gemini-app image
+editing.
 
 ## Sync privacy and conflicts
 
 Only conversations and explicitly allowlisted preferences are synced. Raw audio,
-photos/screenshots, notifications, personal-message inbox, API keys, device IDs,
+unshared photos/screenshots, notifications, personal-message inbox, API keys, device IDs,
 permissions, downloaded model files, notes and to-dos are not uploaded.
 
 Guest data remains local until the user explicitly imports it. Signed-in data

@@ -9,3 +9,4 @@
 - [Wake-word expectations](vox-wake-word.md) — Wake phrases follow the selected assistant name; accuracy and background reliability need real-voice/device evidence.
 - [Android assistant registration](android-assistant-registration.md) — Expo prefixes intent names; verify generated filters before claiming chooser eligibility.
 - [Keyboard reliability](keyboard-reliability.md) — One keyboard animation owner; retain legacy-native compatibility and verify IME motion on a phone.
+- [Notification verification](mobile-notification-verification.md) — Browser previews cannot establish native notification capture or reply delivery.

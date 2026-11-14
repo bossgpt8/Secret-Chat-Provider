@@ -10,9 +10,12 @@ export const NativeScreenLock = {
     return ScreenLockModule.isAdminEnabled();
   },
 
-  async requestAdmin(): Promise<void> {
-    if (!ScreenLockModule) return;
-    return ScreenLockModule.requestAdmin();
+  async requestAdmin(): Promise<"activation" | "security-settings" | "already-enabled"> {
+    if (Platform.OS !== "android" || !ScreenLockModule?.requestAdmin) {
+      throw new Error("Device Administrator requires a Vox Android build with screen-lock support. It is not available in Expo Go or the browser.");
+    }
+    // Older installed builds resolve null after launching the activation screen.
+    return (await ScreenLockModule.requestAdmin()) ?? "activation";
   },
 
   async lock(): Promise<boolean> {

@@ -507,7 +507,13 @@ export default function SettingsScreen() {
       } else if (permId === "notification_listener") {
         await NativeNotifications.requestPermission();
       } else if (permId === "device_admin") {
-        await NativeScreenLock.requestAdmin();
+        const destination = await NativeScreenLock.requestAdmin();
+        if (destination === "security-settings") {
+          Alert.alert(
+            "Enable Vox in Device admin apps",
+            "Android opened Security settings instead of the direct permission screen. Find Device admin apps (sometimes under More security settings), choose Vox, and enable screen locking.",
+          );
+        }
       } else if (permId === "write_settings") {
         await NativeSystemPermissions.requestWriteSettingsPermission();
       } else if (permId === "overlay") {
@@ -515,7 +521,12 @@ export default function SettingsScreen() {
       } else if (permId === "battery_optimization") {
         await NativeAccessibility.requestIgnoreBatteryOptimization();
       }
-    } catch { /* ignore */ }
+    } catch (error) {
+      Alert.alert(
+        permId === "device_admin" ? "Couldn't open Device Administrator" : "Couldn't open permission settings",
+        error instanceof Error ? error.message : "Android could not open this permission screen. Open your phone's Settings and try there.",
+      );
+    }
     // Re-check status after returning from system settings
     setTimeout(() => refreshPermissions(), 800);
   }

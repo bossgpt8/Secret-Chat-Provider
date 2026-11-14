@@ -6,6 +6,8 @@ packages:
   - stubs/*
 
 allowBuilds:
+  browser-tabs-lock: true
+  core-js: true
   esbuild: true
 
 autoInstallPeers: false
@@ -41,6 +43,8 @@ minimumReleaseAgeExclude:
 
 onlyBuiltDependencies:
   - '@swc/core'
+  - browser-tabs-lock
+  - core-js
   - esbuild
   - msw
   - unrs-resolver

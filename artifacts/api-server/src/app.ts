@@ -9,6 +9,16 @@ import { publishableKeyFromHost } from "@clerk/shared/keys";
 import { CLERK_PROXY_PATH, clerkProxyMiddleware, getClerkProxyHost } from "./middlewares/clerkProxyMiddleware";
 
 const app: Express = express();
+const standaloneClerk = process.env.CLERK_AUTH_MODE === "standalone";
+const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY;
+
+if (standaloneClerk && (!clerkSecretKey || !clerkPublishableKey)) {
+  throw new Error(
+    "CLERK_AUTH_MODE=standalone requires CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY.",
+  );
+}
+
 // Accept forwarding headers only from local/private reverse-proxy hops.
 // Keep the API port private behind Caddy/the development proxy.
 app.set("trust proxy", ["loopback", "linklocal", "uniquelocal"]);
@@ -32,14 +42,24 @@ app.use(
     },
   }),
 );
-app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
+if (!standaloneClerk) {
+  app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
+}
 app.use(cors({ credentials: true, origin: true }));
 app.use(express.json({ limit: "6mb" }));
 app.use(express.urlencoded({ extended: true }));
-if (process.env.CLERK_SECRET_KEY && process.env.CLERK_PUBLISHABLE_KEY) {
-  app.use("/api/account", clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(getClerkProxyHost(req) ?? "", process.env.CLERK_PUBLISHABLE_KEY),
-  })));
+if (clerkSecretKey && clerkPublishableKey) {
+  app.use(
+    "/api/account",
+    standaloneClerk
+      ? clerkMiddleware()
+      : clerkMiddleware((req) => ({
+          publishableKey: publishableKeyFromHost(
+            getClerkProxyHost(req) ?? "",
+            clerkPublishableKey,
+          ),
+        })),
+  );
 }
 
 // ─── Rate limiting ────────────────────────────────────────────────────────────

@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
     steps:
       - name: Checkout repository
@@ -45,6 +47,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check standalone Clerk configuration
+        run: |
+          if [ -z "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY" ]; then
+            echo "::warning::Set the EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY Actions variable to enable standalone sign-in in this APK."
+          fi
 
       - name: Generate native Android project
         working-directory: artifacts/mobile

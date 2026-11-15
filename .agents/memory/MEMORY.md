@@ -4,6 +4,7 @@
 - [vox-app-identity](vox-app-identity.md) — The app is Vox, not Zeno; use Vox when referring to the product.
 - [Device-command latency](vox-command-latency.md) — Device controls must act locally without waiting for AI or cloud speech.
 - [Assistant experience](vox-assistant-experience.md) — Prioritize low latency; preserve current voice and add Gemini Live as a separate opt-in mode.
+- [Screen sharing expectation](vox-screen-sharing.md) — Screen sharing should answer questions about any visible app, not act as a game-specific automation feature.
 - [API codegen exports](api-codegen-exports.md) — Orval Zod body aliases can collide with generated model types; disambiguate barrel exports.
 - [GitHub push permissions](github-push-limits.md) — Workflow edits need workflow scope; reconnecting GitHub resolved the earlier push rejection.
 - [Wake-word expectations](vox-wake-word.md) — Wake phrases follow the selected assistant name; accuracy and background reliability need real-voice/device evidence.

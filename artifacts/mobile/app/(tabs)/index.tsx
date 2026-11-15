@@ -3829,15 +3829,37 @@ export default function ChatScreen() {
         return `${notification.sender || notification.app}: ${notification.text || "No message text."}`;
       }
       case "web_search": {
-        const base = await getApiBase();
-        const response = await fetch(`${base}search`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: params.query, assistantName }),
-          signal: AbortSignal.timeout(20000),
-        });
-        const data = await response.json() as { result?: string; error?: string };
-        if (!response.ok || !data.result) throw new Error(data.error || "Search is unavailable.");
-        return data.result;
+        const query = typeof params.query === "string" ? params.query.trim() : "";
+        if (!query) throw new Error("I couldn't find a search query. Please try asking again.");
+
+        // AbortSignal.timeout() is missing in some Android/Hermes versions.
+        // Use AbortController so web search works consistently in the installed app.
+        const controller = new AbortController();
+        let timedOut = false;
+        const timeout = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, 20000);
+        const relayAbort = () => controller.abort();
+        signal?.addEventListener("abort", relayAbort, { once: true });
+        try {
+          const base = await getApiBase();
+          if (signal?.aborted) return;
+          const response = await fetch(`${base}search`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query, assistantName }),
+            signal: controller.signal,
+          });
+          const data = await response.json() as { result?: string; error?: string };
+          if (!response.ok || !data.result) throw new Error(data.error || "Search is unavailable.");
+          return data.result;
+        } catch (error) {
+          if (timedOut) throw new Error("Web search took too long. Please try again.");
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+          signal?.removeEventListener("abort", relayAbort);
+        }
       }
       case "check_weather": {
         const permission = await Location.requestForegroundPermissionsAsync();

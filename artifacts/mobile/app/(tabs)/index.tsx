@@ -48,7 +48,6 @@ import { NativeNotifications, type VoxNotification } from "@/modules/NativeNotif
 import { shouldSpeakIncomingNotification } from "@/modules/notificationSpeechPolicy";
 import { NativeOverlay } from "@/modules/NativeOverlay";
 import { NativeWakeWord } from "@/modules/NativeWakeWord";
-import { NativeScreenCapture } from "@/modules/NativeScreenCapture";
 import { NativeScreenLock } from "@/modules/NativeScreenLock";
 import { NativeAudioSession } from "@/modules/NativeAudioSession";
 import { NativeSpeechRecognizer } from "@/modules/NativeSpeechRecognizer";
@@ -819,9 +818,6 @@ export default function ChatScreen() {
   // Command received from native overlay while app is backgrounded
   // Persistent memory facts fetched from the API (injected into system prompt)
   const [memoryFacts, setMemoryFacts] = useState<string[]>([]);
-  // Screen share / screen questions
-  const [screenShareActive, setScreenShareActive] = useState(false);
-  const screenShareActiveRef = useRef(false);
 
   const inputRef = useRef<TextInput>(null);
   const activeConvId = useRef<string | null>(null);
@@ -861,6 +857,7 @@ export default function ChatScreen() {
   const piperFailureNoticeRef = useRef(false);
   const [liveOpen, setLiveOpen] = useState(false);
   const liveOpenRef = useRef(false);
+  const [liveScreenShareRequested, setLiveScreenShareRequested] = useState(false);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const backgroundCallRef = useRef(false);
   const callMutedRef = useRef(false);
@@ -1981,7 +1978,7 @@ export default function ChatScreen() {
         void NativeOverlay.setContent("Microphone muted. Tap Mic to resume.", true);
       } else scheduleCallModeListening(0);
     } else if (action === "screen") {
-      setTimeout(() => { void toggleScreenShare(); }, 600);
+      setTimeout(() => { void openLiveMode(true); }, 600);
     } else if (action === "camera") {
       setTimeout(() => {
         Alert.alert("Add visual context", "Choose what to share with Vox.", [
@@ -4005,15 +4002,6 @@ export default function ChatScreen() {
       return;
     }
 
-    // If screen share is active, answer using a fresh screen snapshot.
-    if (screenShareActiveRef.current && !isSearchMode) {
-      setInput("");
-      setBranchEditMsgId(null);
-      setBranchEditText("");
-      handleScreenQuestion(text);
-      return;
-    }
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setInput("");
 
@@ -4301,88 +4289,6 @@ export default function ChatScreen() {
   // final transcript through the latest callback/render.
   handleSendRef.current = handleSend;
 
-  // ── Screen share / screen questions ───────────────────────────────────────
-
-  const toggleScreenShare = async () => {
-    if (!NativeScreenCapture.isAvailable) {
-      Alert.alert(
-        "Screen Share Unavailable",
-        Platform.OS !== "android"
-          ? "Screen Share is Android-only."
-          : "The VoxScreenCapture native module isn't included in this app build.\n\n" +
-            "Expo Go and older APKs don't include it. Install a new Android APK built from the latest Vox code. Android permissions can't add a missing native module.",
-        [{ text: "OK" }]
-      );
-      return;
-    }
-    if (screenShareActive) {
-      setScreenShareActive(false);
-      screenShareActiveRef.current = false;
-      await NativeScreenCapture.stopCapture().catch(() => {});
-    } else {
-      try {
-        const ok = await NativeScreenCapture.startCapture();
-        setScreenShareActive(ok);
-        screenShareActiveRef.current = ok;
-      } catch {
-        setScreenShareActive(false);
-        screenShareActiveRef.current = false;
-      }
-    }
-  };
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleScreenQuestion = useCallback(async (text: string) => {
-    if (isStreaming) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const convId = getOrCreateConvId();
-    const snapshot = [...messages];
-    const userMsg: Message = { id: generateMsgId(), role: "user", content: text, timestamp: Date.now() };
-    const withUser = [...snapshot, userMsg];
-    isStreamingRef.current = true;
-    setMessages(withUser);
-    setIsStreaming(true);
-    setShowTyping(true);
-
-    try {
-      const baseUrl = await getApiBase();
-      const screenshot = await NativeScreenCapture.captureFrame();
-      if (!screenshot) throw new Error("No screen frame available — try toggling Screen Share off and on.");
-
-      const resp = await fetch(`${baseUrl}screen-vision`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          screenshot,
-          query: text,
-        }),
-      });
-      const data = await resp.json().catch(() => null) as { description?: string; error?: string } | null;
-      if (!resp.ok || !data?.description) {
-        throw new Error(data?.error || "Vox couldn't analyze the screen. Please try again.");
-      }
-
-      setShowTyping(false);
-      const reply = data.description;
-      const assistantMsg: Message = { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() };
-      const final = [...withUser, assistantMsg];
-      setMessages(final);
-      await saveMessages(convId, final);
-      speakText(reply);
-
-    } catch (error) {
-      console.warn("Screen question failed", error);
-      const errMsg = error instanceof Error ? error.message : "Vox couldn't analyze the screen. Please try again.";
-      setShowTyping(false);
-      setMessages((prev) => [...prev, { id: generateMsgId(), role: "assistant", content: errMsg, timestamp: Date.now() }]);
-      speakText(errMsg);
-    } finally {
-      isStreamingRef.current = false;
-      setIsStreaming(false);
-      setShowTyping(false);
-    }
-  }, [isStreaming, messages]);
-
   function handleNewChat() {
     endCallMode();
     stopSpeaking();
@@ -4392,10 +4298,11 @@ export default function ChatScreen() {
     activeConvId.current = null;
   }
 
-  async function openLiveMode() {
+  async function openLiveMode(shareScreen = false) {
     if (liveOpenRef.current) return;
     if (isWakeCalibrating()) { Alert.alert("Wake trial active", "Finish the wake trial before opening Live."); return; }
     liveOpenRef.current = true;
+    setLiveScreenShareRequested(shareScreen);
     try {
       await NativeWakeWord.setPaused(true, "live");
       await endCallMode();
@@ -4405,6 +4312,7 @@ export default function ChatScreen() {
       setLiveOpen(true);
     } catch (error) {
       liveOpenRef.current = false;
+      setLiveScreenShareRequested(false);
       await NativeWakeWord.setPaused(false, "live");
       Alert.alert("Could not open Live", error instanceof Error ? error.message : "Try again.");
     }
@@ -4606,34 +4514,26 @@ export default function ChatScreen() {
                   <Text style={styles.voiceCallBtnText}>Hands-Free Mode</Text>
                 </Pressable>
 
-                {/* Screen Share toggle — Android only */}
+                {/* Gemini Live continuous screen sharing — Android only */}
                 {Platform.OS === "android" && (
                   <Pressable
-                    style={[
-                      styles.screenShareBtn,
-                      {
-                        backgroundColor: screenShareActive ? "#16a34a" : colors.card,
-                        borderColor: screenShareActive ? "#16a34a" : colors.border,
-                        shadowColor: screenShareActive ? "#16a34a" : "transparent",
-                      },
-                    ]}
-                    onPress={toggleScreenShare}
+                    testID="screen-share-live"
+                    accessibilityRole="button"
+                    accessibilityLabel="Open Gemini Live to share your screen continuously"
+                    style={[styles.screenShareBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                    onPress={() => { void openLiveMode(true); }}
                     disabled={isStreaming}
                   >
-                    <Ionicons
-                      name={screenShareActive ? "tv" : "tv-outline"}
-                      size={18}
-                      color={screenShareActive ? "#fff" : colors.mutedForeground}
-                    />
+                    <Ionicons name="tv-outline" size={18} color={colors.primary} />
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.screenShareTitle, { color: screenShareActive ? "#fff" : colors.foreground }]}>
-                        {screenShareActive ? "Screen Sharing On" : "Share My Screen"}
+                      <Text style={[styles.screenShareTitle, { color: colors.foreground }]}>
+                        Gemini Live Screen Share
                       </Text>
-                      <Text style={[styles.screenShareSub, { color: screenShareActive ? "#d1fae5" : colors.mutedForeground }]}>
-                        {screenShareActive ? `Ask anything — ${assistantName} can see your screen` : "Ask Vox about anything on your screen"}
+                      <Text style={[styles.screenShareSub, { color: colors.mutedForeground }]}>
+                        Live voice with screen updates
                       </Text>
                     </View>
-                    <View style={[styles.screenShareDot, { backgroundColor: screenShareActive ? "#86efac" : colors.muted }]} />
+                    <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
                   </Pressable>
                 )}
                 {/* Faint static waveform decoration */}
@@ -4779,9 +4679,10 @@ export default function ChatScreen() {
 
       {/* ── Full-screen voice call overlay ── */}
       {liveOpen && <LiveVoicePanel getApiBase={getApiBase} history={messages.slice(-8)}
+        autoShareScreen={liveScreenShareRequested}
         executeTool={silentExecuteDeviceAction} onTurn={saveLiveTurn}
         onClose={() => {
-          liveOpenRef.current = false; setLiveOpen(false);
+          liveOpenRef.current = false; setLiveOpen(false); setLiveScreenShareRequested(false);
           void voiceCoordinator.current.release("live");
           void NativeWakeWord.setPaused(false, "live");
         }} />}

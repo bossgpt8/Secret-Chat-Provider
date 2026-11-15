@@ -19,6 +19,7 @@ interface Props {
   executeTool: (name: string, params: Record<string, unknown>, signal: AbortSignal) => Promise<string | undefined>;
   onTurn: (turn: LiveTurn) => void;
   onClose: () => void;
+  autoShareScreen?: boolean;
 }
 
 export function LiveVoicePanel(props: Props) {
@@ -45,6 +46,7 @@ export function LiveVoicePanel(props: Props) {
   const cameraReady = useRef(false);
   const [cameraPermission, requestCamera] = useCameraPermissions();
   const backgroundAllowed = useRef(false);
+  const autoScreenSharePending = useRef(Boolean(props.autoShareScreen));
   const [sessionLimit, setSessionLimit] = useState(600);
   const active = phase === "connecting" || phase === "listening" || phase === "speaking";
 
@@ -200,6 +202,12 @@ export function LiveVoicePanel(props: Props) {
           if (!mounted.current) return;
           setPhase(next); if (message) setDetail(message);
           void NativeOverlay.setState(next === "speaking" ? "speaking" : next === "listening" ? "listening" : "idle");
+          if (next === "listening" && autoScreenSharePending.current) {
+            autoScreenSharePending.current = false;
+            void shareScreen().catch(error => {
+              if (mounted.current) setDetail(error instanceof Error ? error.message : "Screen sharing could not start.");
+            });
+          }
           if (next === "ended" || next === "error") {
             backgroundAllowed.current = false; void NativeOverlay.stopConversation(); void stopVisual();
           }
@@ -283,10 +291,10 @@ export function LiveVoicePanel(props: Props) {
             {!!input && <Text style={{ color: colors.foreground, lineHeight: 24 }}>You: {input}</Text>}
             {!!output && <Text style={{ color: colors.foreground, lineHeight: 24 }}>Vox: {output}</Text>}
             {busy && <ActivityIndicator color={colors.primary} />}
-            {!active && paired && button(phase === "error" ? "Reconnect Live" : "Start Gemini Live", () => { void connect(); }, busy, true)}
+            {!active && paired && button(phase === "error" ? "Reconnect Live" : props.autoShareScreen ? "Start Live and share screen" : "Start Gemini Live", () => { void connect(); }, busy, true)}
             {active && <>
               {visual !== "none" && <Text accessibilityLiveRegion="polite" style={{ color: colors.primary }}>
-                {visual === "screen" ? "Screen sharing is on · images sent to Google" : "Camera sharing is on · images sent to Google"}
+                {visual === "screen" ? "Screen sharing on · images sent to Google (~1/sec)" : "Camera sharing on · images sent to Google (~1/sec)"}
               </Text>}
               {visual === "camera" && <CameraView ref={camera} facing="back"
                 onCameraReady={() => { cameraReady.current = true; }}

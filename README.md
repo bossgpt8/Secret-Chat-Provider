@@ -17,7 +17,7 @@
 - "Hey Vox" wake-word support
 
 ### 2. Multimodal AI
-- 📷 **Screen sharing** — ask Vox questions about a shared phone screen
+- 📷 **Gemini Live screen sharing** — share screen updates during a real-time voice session
 - 🔍 **Web Search** — live search via Tavily, summarized by AI
 
 ### 3. Phone Controls (Voice-Activated)
@@ -80,7 +80,8 @@
 | Provider | Used For |
 |----------|----------|
 | **Groq** | LLaMA 3.3 70B chat (primary) + Whisper transcription |
-| **Groq / OpenRouter vision models** | Image and shared-screen analysis |
+| **Gemini Live** | Optional real-time voice and screen sharing |
+| **Groq / OpenRouter vision models** | Attached-image analysis |
 | **ElevenLabs** | Premium cloud TTS voices |
 | **Kokoro** | Self-hosted TTS |
 | **Tavily** | Web search |
@@ -187,7 +188,6 @@ eas build --platform android
 | `POST` | `/api/transcribe` | Audio transcription (Groq Whisper) |
 | `POST` | `/api/search` | Web search via Tavily + AI summary |
 | `POST` | `/api/vision` | Image description |
-| `POST` | `/api/screen-vision` | Answer a question about a shared screen snapshot |
 | `GET/POST` | `/api/tts` | Text-to-speech (ElevenLabs / Kokoro) |
 | `GET` | `/api/tts/voices` | List available TTS voices |
 | `GET/POST` | `/api/conversations` | List / create conversations |

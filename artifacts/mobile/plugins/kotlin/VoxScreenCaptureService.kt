@@ -150,7 +150,7 @@ class VoxScreenCaptureService : Service() {
                 NOTIF_CHANNEL_ID, "Screen Share",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Vox is capturing your screen to assist with games"
+                description = "Vox is capturing your shared screen so it can answer your questions"
                 setShowBadge(false)
             }
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)

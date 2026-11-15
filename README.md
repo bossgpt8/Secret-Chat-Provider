@@ -4,7 +4,7 @@
 
 ## 📱 Overview
 
-**Vox** is an intelligent voice assistant that brings hands-free control to your Android phone. It combines fast AI conversation (Groq / LLaMA 3.3), vision analysis (Gemini 2.0 Flash), web search (Tavily), and premium text-to-speech (ElevenLabs / Kokoro) with native Android capabilities — controlling flashlight, brightness, volume, screen lock, notifications, and even automating word games.
+**Vox** is an intelligent voice assistant that brings hands-free control to your Android phone. It combines fast AI conversation (Groq / LLaMA 3.3), screen and image understanding, web search (Tavily), and text-to-speech (ElevenLabs / Kokoro) with native Android capabilities — controlling flashlight, brightness, volume, screen lock, and notifications.
 
 ## 🎯 Key Features
 
@@ -17,9 +17,8 @@
 - "Hey Vox" wake-word support
 
 ### 2. Multimodal AI
-- 📷 **Vision** — describe any image or screenshot using Gemini 2.0 Flash
+- 📷 **Screen sharing** — ask Vox questions about a shared phone screen
 - 🔍 **Web Search** — live search via Tavily, summarized by AI
-- 🎮 **Game Assist** — analyze word-puzzle screenshots, return tap coordinates for automation
 
 ### 3. Phone Controls (Voice-Activated)
 - 🔦 **Flashlight** — toggle on/off
@@ -81,7 +80,7 @@
 | Provider | Used For |
 |----------|----------|
 | **Groq** | LLaMA 3.3 70B chat (primary) + Whisper transcription |
-| **Google Gemini 2.0 Flash** | Vision analysis, game assist |
+| **Groq / OpenRouter vision models** | Image and shared-screen analysis |
 | **ElevenLabs** | Premium cloud TTS voices |
 | **Kokoro** | Self-hosted TTS |
 | **Tavily** | Web search |
@@ -89,7 +88,7 @@
 | **Ollama** | Local LLM option |
 
 ### Native Android Modules (Kotlin)
-- **AccessibilityModule** — read WhatsApp / SMS messages, game automation
+- **AccessibilityModule** — read WhatsApp / SMS messages
 - **CallScreeningModule** — handle incoming calls
 - **MediaControlModule** — audio volume management
 - **NotificationsModule** — notification interception & reply
@@ -187,8 +186,8 @@ eas build --platform android
 | `POST` | `/api/chat` | Streaming AI chat (Groq / OpenRouter / Ollama) |
 | `POST` | `/api/transcribe` | Audio transcription (Groq Whisper) |
 | `POST` | `/api/search` | Web search via Tavily + AI summary |
-| `POST` | `/api/vision` | Image description (Gemini 2.0 Flash) |
-| `POST` | `/api/game-assist` | Word-puzzle screenshot → tap coordinates |
+| `POST` | `/api/vision` | Image description |
+| `POST` | `/api/screen-vision` | Answer a question about a shared screen snapshot |
 | `GET/POST` | `/api/tts` | Text-to-speech (ElevenLabs / Kokoro) |
 | `GET` | `/api/tts/voices` | List available TTS voices |
 | `GET/POST` | `/api/conversations` | List / create conversations |

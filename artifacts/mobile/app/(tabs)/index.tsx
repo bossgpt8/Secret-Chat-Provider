@@ -15,7 +15,6 @@ import {
   AppState,
   Alert,
   Animated,
-  Dimensions,
   Easing,
   FlatList,
   Image,
@@ -820,7 +819,7 @@ export default function ChatScreen() {
   // Command received from native overlay while app is backgrounded
   // Persistent memory facts fetched from the API (injected into system prompt)
   const [memoryFacts, setMemoryFacts] = useState<string[]>([]);
-  // Screen share / game assist
+  // Screen share / screen questions
   const [screenShareActive, setScreenShareActive] = useState(false);
   const screenShareActiveRef = useRef(false);
 
@@ -4006,12 +4005,12 @@ export default function ChatScreen() {
       return;
     }
 
-    // If screen share is active route to AI game assist instead of chat
+    // If screen share is active, answer using a fresh screen snapshot.
     if (screenShareActiveRef.current && !isSearchMode) {
       setInput("");
       setBranchEditMsgId(null);
       setBranchEditText("");
-      handleGameAssist(text);
+      handleScreenQuestion(text);
       return;
     }
 
@@ -4302,7 +4301,7 @@ export default function ChatScreen() {
   // final transcript through the latest callback/render.
   handleSendRef.current = handleSend;
 
-  // ── Screen share / game assist ────────────────────────────────────────────
+  // ── Screen share / screen questions ───────────────────────────────────────
 
   const toggleScreenShare = async () => {
     if (!NativeScreenCapture.isAvailable) {
@@ -4333,78 +4332,56 @@ export default function ChatScreen() {
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleGameAssist = useCallback(async (text: string) => {
+  const handleScreenQuestion = useCallback(async (text: string) => {
     if (isStreaming) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const convId = getOrCreateConvId();
     const snapshot = [...messages];
     const userMsg: Message = { id: generateMsgId(), role: "user", content: text, timestamp: Date.now() };
     const withUser = [...snapshot, userMsg];
+    isStreamingRef.current = true;
     setMessages(withUser);
     setIsStreaming(true);
     setShowTyping(true);
 
     try {
       const baseUrl = await getApiBase();
-      const { width: screenW, height: screenH } = Dimensions.get("screen");
-
       const screenshot = await NativeScreenCapture.captureFrame();
       if (!screenshot) throw new Error("No screen frame available — try toggling Screen Share off and on.");
 
-      const resp = await fetch(`${baseUrl}game-assist`, {
+      const resp = await fetch(`${baseUrl}screen-vision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           screenshot,
           query: text,
-          screenWidth: Math.round(screenW),
-          screenHeight: Math.round(screenH),
         }),
       });
-      if (!resp.ok) throw new Error("Game assist request failed");
-
-      const data = await resp.json() as {
-        gameType: string;
-        description: string;
-        solutions: Array<{ word: string; taps: Array<{ x: number; y: number }> }>;
-        message: string;
-      };
+      const data = await resp.json().catch(() => null) as { description?: string; error?: string } | null;
+      if (!resp.ok || !data?.description) {
+        throw new Error(data?.error || "Vox couldn't analyze the screen. Please try again.");
+      }
 
       setShowTyping(false);
-      const reply = data.message || data.description || "Done!";
+      const reply = data.description;
       const assistantMsg: Message = { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() };
       const final = [...withUser, assistantMsg];
       setMessages(final);
       await saveMessages(convId, final);
       speakText(reply);
 
-      // Execute swipe gestures for each word solution
-      if (data.solutions?.length && NativeScreenCapture.isAvailable) {
-        const sw = Math.round(screenW);
-        const sh = Math.round(screenH);
-        for (const sol of data.solutions) {
-          if (!sol.taps || sol.taps.length < 2) continue;
-          // Duration: ~60 ms per letter, minimum 250 ms
-          const dur = Math.max(250, sol.taps.length * 60);
-          try {
-            await NativeScreenCapture.performGesture(sol.taps, dur, sw, sh);
-            await new Promise<void>((r) => setTimeout(r, 650)); // gap between words
-          } catch {
-            break; // Accessibility not enabled — stop silently
-          }
-        }
-      }
     } catch (error) {
-      console.warn("Game assist failed", error);
-      const errMsg = error instanceof Error ? error.message : "Sorry, something went wrong with game assist.";
+      console.warn("Screen question failed", error);
+      const errMsg = error instanceof Error ? error.message : "Vox couldn't analyze the screen. Please try again.";
       setShowTyping(false);
       setMessages((prev) => [...prev, { id: generateMsgId(), role: "assistant", content: errMsg, timestamp: Date.now() }]);
       speakText(errMsg);
     } finally {
+      isStreamingRef.current = false;
       setIsStreaming(false);
       setShowTyping(false);
     }
-  }, [isStreaming, messages, isOnline]);
+  }, [isStreaming, messages]);
 
   function handleNewChat() {
     endCallMode();
@@ -4629,7 +4606,7 @@ export default function ChatScreen() {
                   <Text style={styles.voiceCallBtnText}>Hands-Free Mode</Text>
                 </Pressable>
 
-                {/* Screen Share / Game Assist toggle — Android only */}
+                {/* Screen Share toggle — Android only */}
                 {Platform.OS === "android" && (
                   <Pressable
                     style={[
@@ -4650,10 +4627,10 @@ export default function ChatScreen() {
                     />
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.screenShareTitle, { color: screenShareActive ? "#fff" : colors.foreground }]}>
-                        {screenShareActive ? "Screen Share On" : "Start Screen Share"}
+                        {screenShareActive ? "Screen Sharing On" : "Share My Screen"}
                       </Text>
                       <Text style={[styles.screenShareSub, { color: screenShareActive ? "#d1fae5" : colors.mutedForeground }]}>
-                        {screenShareActive ? `Say anything — ${assistantName} sees your screen` : "Let Vox see & play games"}
+                        {screenShareActive ? `Ask anything — ${assistantName} can see your screen` : "Ask Vox about anything on your screen"}
                       </Text>
                     </View>
                     <View style={[styles.screenShareDot, { backgroundColor: screenShareActive ? "#86efac" : colors.muted }]} />

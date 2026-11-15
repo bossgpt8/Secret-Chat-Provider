@@ -153,11 +153,14 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
   console.log("Starting Metro...");
   console.log(`Using Metro port ${metroPort}`);
   console.log(`Setting EXPO_PUBLIC_DOMAIN=${expoPublicDomain}`);
+  const standaloneClerk = process.env.CLERK_AUTH_MODE === "standalone";
   const env = {
     ...process.env,
     EXPO_PUBLIC_DOMAIN: expoPublicDomain,
     EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || "",
-    EXPO_PUBLIC_CLERK_PROXY_URL: process.env.CLERK_PROXY_URL ? `https://${expoPublicDomain}${process.env.CLERK_PROXY_URL}` : "",
+    EXPO_PUBLIC_CLERK_PROXY_URL: !standaloneClerk && process.env.CLERK_PROXY_URL
+      ? `https://${expoPublicDomain}${process.env.CLERK_PROXY_URL}`
+      : "",
     EXPO_PUBLIC_REPL_ID: expoPublicReplId,
   };
 

@@ -110,6 +110,8 @@ export interface Message {
   sources?: Array<{ title: string; url: string }>;
   /** Image URL for /imagine responses */
   imageUrl?: string;
+  /** App-local image copy attached to a user message */
+  imageUri?: string;
 }
 
 export interface Conversation {

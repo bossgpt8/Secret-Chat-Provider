@@ -61,7 +61,7 @@ import { isWakeCalibrating } from "@/modules/wakeCalibration";
 import { isPlaybackEcho, parseAssistantEvents, splitSpokenChunks, withinBudget, type AssistantEvent } from "@/modules/assistantStream";
 import { detectImmediateDeviceIntent } from "@/modules/immediateCommands";
 import { NativeSystemPermissions } from "@/modules/NativeSystemPermissions";
-import { File } from "expo-file-system";
+import { Directory, File, Paths } from "expo-file-system";
 import {
   NativeOfflineModels,
   NativePcmRecorder,
@@ -124,6 +124,17 @@ const waveTypingStyles = StyleSheet.create({
   bar: { width: 3, borderRadius: 2 },
 });
 
+function persistChatImage(uri: string, messageId: string): string {
+  if (Platform.OS === "web") return uri;
+  const source = new File(uri);
+  const directory = new Directory(Paths.document, "vox-chat-images");
+  directory.create({ intermediates: true, idempotent: true });
+  const extension = source.extension || ".jpg";
+  const destination = new File(directory, `${messageId}${extension}`);
+  source.copy(destination);
+  return destination.uri;
+}
+
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
@@ -178,13 +189,14 @@ function MessageBubble({
               <Text style={[bubbleStyles.searchLabelText, { color: colors.accent }]}>Web search</Text>
             </View>
           )}
-          {message.imageUrl ? (
+          {(message.imageUri || message.imageUrl) && (
             <Image
-              source={{ uri: message.imageUrl }}
+              source={{ uri: message.imageUri ?? message.imageUrl! }}
               style={bubbleStyles.generatedImage}
-              resizeMode="cover"
+              resizeMode={message.imageUri ? "contain" : "cover"}
             />
-          ) : (
+          )}
+          {(!message.imageUrl || message.imageUri) && (
             isUser
               ? <Text style={[bubbleStyles.text, { color: colors.userBubbleText }]}>{message.content}</Text>
               : <AssistantReply content={message.content} colors={colors} />
@@ -789,10 +801,12 @@ export default function ChatScreen() {
   const [torchOn, setTorchOn] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [visionMode, setVisionMode] = useState(false);
+  const [visionCountdown, setVisionCountdown] = useState<number | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const cameraStartedRef = useRef(false);
   const cameraErrorRef = useRef<string | null>(null);
   const visionBusyRef = useRef(false);
+  const visionCaptureAbortRef = useRef<AbortController | null>(null);
   const [isDescribingImage, setIsDescribingImage] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [notifPermGranted, setNotifPermGranted] = useState(false);
@@ -1372,12 +1386,19 @@ export default function ChatScreen() {
 
   // ── Vision AI — capture a photo and describe it ──────────────────────────────
   async function captureAndDescribe(userQuestion?: string, fromTool = false, parentSignal?: AbortSignal) {
+    let conversationId: string | null = null;
     function visionRespond(reply: string) {
       if (!fromTool) setShowTyping(false);
-      setMessages((prev) => [
-        ...prev,
-        { id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now() },
-      ]);
+      const responseMessage: Message = {
+        id: generateMsgId(), role: "assistant", content: reply, timestamp: Date.now(),
+      };
+      setMessages((prev) => {
+        const next = [...prev, responseMessage];
+        if (conversationId) void saveMessages(conversationId, next).catch((error) => {
+          console.warn("[vision] Could not save conversation:", error);
+        });
+        return next;
+      });
       if (fromTool) void enqueueSentence(reply);
       else speakText(reply);
     }
@@ -1389,62 +1410,94 @@ export default function ChatScreen() {
     }
     visionBusyRef.current = true;
     setIsDescribingImage(true);
+    const captureController = new AbortController();
+    visionCaptureAbortRef.current = captureController;
+    const abortFromParent = () => captureController.abort();
+    if (parentSignal?.aborted) captureController.abort();
+    else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
     let photoUri: string | undefined;
     let requestTimer: ReturnType<typeof setTimeout> | undefined;
     let requestTimedOut = false;
-    let removeAbortListener: (() => void) | undefined;
     try {
       if (!cameraPermission?.granted) {
         const { granted } = await requestCameraPermission();
         if (!granted) throw new Error("Camera permission is needed. Enable it in your phone's Settings.");
       }
+      if (captureController.signal.aborted) return;
       cameraErrorRef.current = null;
       if (!cameraRef.current) cameraStartedRef.current = false;
       setCameraReady(true);
       setVisionMode(true);
-      setMessages((prev) => [
-        ...prev,
-        { id: generateMsgId(), role: "user", content: userQuestion ?? "What do you see?", timestamp: Date.now() },
-      ]);
       setShowTyping(true);
-      // A fixed delay can fire before the camera has actually initialized.
       const deadline = Date.now() + 6000;
       while (!cameraStartedRef.current || !cameraRef.current) {
-        if (parentSignal?.aborted) return;
+        if (captureController.signal.aborted) return;
         if (cameraErrorRef.current) throw new Error("The camera could not start. Close other apps using it and try again.");
         if (Date.now() > deadline) throw new Error("The camera took too long to start. Please try again.");
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
       }
+      // Let the user frame the subject before taking the same photo that is uploaded.
+      for (let seconds = 3; seconds > 0; seconds--) {
+        if (captureController.signal.aborted) return;
+        setVisionCountdown(seconds);
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            clearTimeout(timer);
+            captureController.signal.removeEventListener("abort", finish);
+            resolve();
+          };
+          const timer = setTimeout(finish, 1000);
+          captureController.signal.addEventListener("abort", finish, { once: true });
+        });
+        if (captureController.signal.aborted) return;
+      }
+      setVisionCountdown(null);
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.5 });
       if (!photo?.uri) throw new Error("The camera did not return a photo. Please try again.");
       photoUri = photo.uri;
-      if (parentSignal?.aborted) return;
+      if (captureController.signal.aborted) return;
+      const messageId = generateMsgId();
+      const savedPhotoUri = persistChatImage(photo.uri, messageId);
+      const question = userQuestion?.trim() || "What do you see?";
+      const userMessage: Message = {
+        id: messageId, role: "user", content: question, timestamp: Date.now(), imageUri: savedPhotoUri,
+      };
+      conversationId = getOrCreateConvId();
+      setMessages((prev) => {
+        const next = [...prev, userMessage];
+        void saveMessages(conversationId!, next).catch((error) => {
+          console.warn("[vision] Could not save captured photo message:", error);
+        });
+        return next;
+      });
+      // Close the viewfinder while Vox analyzes the saved photo.
+      setVisionMode(false);
+      setCameraReady(false);
+      cameraStartedRef.current = false;
       const base = await getApiBase();
       const fd = new FormData();
-      fd.append("image", new File(photo.uri), "photo.jpg");
+      const imageFile = new File(savedPhotoUri);
+      fd.append("image", imageFile, imageFile.name || "photo.jpg");
       if (userQuestion) fd.append("prompt", userQuestion);
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      parentSignal?.addEventListener("abort", abort, { once: true });
-      removeAbortListener = () => parentSignal?.removeEventListener("abort", abort);
-      requestTimer = setTimeout(() => { requestTimedOut = true; controller.abort(); }, 45000);
-      const r = await fetch(`${base}vision`, { method: "POST", body: fd, signal: controller.signal });
+      requestTimer = setTimeout(() => { requestTimedOut = true; captureController.abort(); }, 45000);
+      const r = await fetch(`${base}vision`, { method: "POST", body: fd, signal: captureController.signal });
       const data = await r.json().catch(() => null) as { description?: string; error?: string } | null;
-      if (parentSignal?.aborted) return;
+      if (parentSignal?.aborted || (captureController.signal.aborted && !requestTimedOut)) return;
       if (!data) throw new Error("The camera AI server returned an invalid response. Check the API connection.");
       if (!r.ok) throw new Error(data.error || "The camera AI server could not process the photo.");
       if (!data.description?.trim()) throw new Error("The camera AI returned an empty answer. Please try again.");
       visionRespond(data.description);
     } catch (error) {
-      if (parentSignal?.aborted) return;
+      if (parentSignal?.aborted || (captureController.signal.aborted && !requestTimedOut)) return;
       console.warn("[vision] capture/description failed:", error);
       visionRespond(!requestTimedOut && error instanceof Error && error.name !== "AbortError" && error.name !== "TimeoutError"
         ? error.message
         : "The camera AI timed out. Check your connection and try again.");
     } finally {
       if (requestTimer) clearTimeout(requestTimer);
-      removeAbortListener?.();
+      parentSignal?.removeEventListener("abort", abortFromParent);
       if (!fromTool) setShowTyping(false);
+      setVisionCountdown(null);
       setVisionMode(false);
       if (Platform.OS === "android") {
         // Release the vision camera; Android torch mode is a separate service.
@@ -1465,6 +1518,7 @@ export default function ChatScreen() {
         cameraStartedRef.current = false;
       }
       visionBusyRef.current = false;
+      if (visionCaptureAbortRef.current === captureController) visionCaptureAbortRef.current = null;
       setIsDescribingImage(false);
       if (photoUri) {
         try { new File(photoUri).delete(); } catch { /* Cache cleanup must not hide the result. */ }
@@ -3929,19 +3983,32 @@ export default function ChatScreen() {
     if (liveOpenRef.current) return;
     if (isWakeCalibrating()) { Alert.alert("Wake trial active", "Finish the wake trial before chatting."); return; }
     const text = (overrideText ?? (branchEditMsgId ? branchEditText : input)).trim();
-    if (!text) return;
+    if (!text && !attachedImage) return;
     if (attachedImage) {
       const uri = attachedImage;
       if (isStreamingRef.current) return;
       const convId = getOrCreateConvId();
-      const userMessage: Message = { id: generateMsgId(), role: "user", content: `[Attached image] ${text}`, timestamp: Date.now() };
+      const prompt = text || "What is in this image?";
+      const messageId = generateMsgId();
+      let savedImageUri: string;
+      try {
+        savedImageUri = persistChatImage(uri, messageId);
+      } catch (error) {
+        Alert.alert("Image could not be saved", error instanceof Error ? error.message : "Choose the image again and retry.");
+        return;
+      }
+      const userMessage: Message = {
+        id: messageId, role: "user", content: prompt, timestamp: Date.now(), imageUri: savedImageUri,
+      };
       const snapshot = [...messages, userMessage];
       setMessages(snapshot); setInput(""); setIsStreaming(true); isStreamingRef.current = true; setShowTyping(true);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 45000);
       try {
         const body = new FormData();
-        body.append("image", new File(uri), "image.jpg"); body.append("prompt", text);
+        const imageFile = new File(savedImageUri);
+        body.append("image", imageFile, imageFile.name || "image.jpg");
+        body.append("prompt", prompt);
         const response = await fetch(`${await getApiBase()}vision`, { method: "POST", body, signal: controller.signal });
         const data = await response.json() as { description?: string; error?: string };
         if (!response.ok || !data.description) throw new Error(data.error || "Image analysis failed.");
@@ -4352,22 +4419,6 @@ export default function ChatScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* The camera is for vision captures; Android torch control uses CameraManager. */}
-      {cameraReady && Platform.OS !== "web" && (
-        <CameraView
-          ref={cameraRef}
-          style={
-            visionMode
-              ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, opacity: 0.01 }
-              : { position: "absolute", width: 1, height: 1, opacity: 0 }
-          }
-          facing="back"
-          onCameraReady={() => { cameraStartedRef.current = true; }}
-          onMountError={(event) => { cameraErrorRef.current = event.message; cameraStartedRef.current = false; }}
-          enableTorch={Platform.OS !== "android" && torchOn}
-        />
-      )}
-
       {/* Conversation sidebar */}
       <ConversationSidebar
         open={sidebarOpen}
@@ -4710,6 +4761,42 @@ export default function ChatScreen() {
           onEnd={endCallMode}
         />
       )}
+
+      {/* Full-screen viewfinder gives the user time to frame the photo. */}
+      {visionMode && Platform.OS !== "web" && (
+        <View style={[styles.cameraCaptureLayer, { backgroundColor: colors.background }]}>
+          {cameraReady && (
+            <CameraView
+              ref={cameraRef}
+              style={StyleSheet.absoluteFillObject}
+              facing="back"
+              onCameraReady={() => { cameraStartedRef.current = true; }}
+              onMountError={(event) => { cameraErrorRef.current = event.message; cameraStartedRef.current = false; }}
+              enableTorch={Platform.OS !== "android" && torchOn}
+            />
+          )}
+          <View style={[styles.cameraCaptureShade, { paddingTop: topPad + 16 }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cancel photo capture"
+              testID="cancel-photo-capture"
+              onPress={() => visionCaptureAbortRef.current?.abort()}
+              style={styles.cameraCaptureCancel}
+            >
+              <Ionicons name="close" size={20} color="#fff" />
+              <Text style={styles.cameraCaptureCancelText}>Cancel</Text>
+            </Pressable>
+            <View style={styles.cameraCountdownCenter}>
+              {visionCountdown === null
+                ? <ActivityIndicator size="large" color="#fff" />
+                : <Text style={styles.cameraCountdownNumber}>{visionCountdown}</Text>}
+              <Text style={styles.cameraCountdownLabel}>
+                {visionCountdown === null ? "Starting camera…" : `Photo in ${visionCountdown} · Hold steady`}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -4782,6 +4869,54 @@ const styles = StyleSheet.create({
     width: 44, height: 44, borderRadius: 22,
     alignItems: "center", justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  cameraCaptureLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    elevation: 100,
+  },
+  cameraCaptureShade: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    backgroundColor: "rgba(0,0,0,0.22)",
+  },
+  cameraCaptureCancel: {
+    alignSelf: "flex-end",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 22,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  cameraCaptureCancelText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  cameraCountdownCenter: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  cameraCountdownNumber: {
+    color: "#fff",
+    fontSize: 80,
+    lineHeight: 92,
+    fontFamily: "Inter_700Bold",
+    textShadowColor: "rgba(0,0,0,0.45)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  cameraCountdownLabel: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.45)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   branchBanner: {
     flexDirection: "row", alignItems: "center", gap: 6,
